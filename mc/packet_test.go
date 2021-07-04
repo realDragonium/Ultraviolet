@@ -154,7 +154,7 @@ func TestReadPacket(t *testing.T) {
 
 	for _, tc := range tt {
 		buf := bytes.NewBuffer(tc.data)
-		pk, err := mc.ReadPacket(buf)
+		pk, err := mc.ReadPacketOld(buf)
 		if err != nil {
 			t.Error(err)
 		}
@@ -169,50 +169,6 @@ func TestReadPacket(t *testing.T) {
 
 		if !bytes.Equal(buf.Bytes(), tc.dataAfterRead) {
 			t.Errorf("data after read: got: %v; want: %v", tc.data, tc.dataAfterRead)
-		}
-	}
-}
-
-func TestPeekPacket(t *testing.T) {
-	tt := []struct {
-		data   []byte
-		packet mc.Packet
-	}{
-		{
-			data: []byte{0x03, 0x00, 0x00, 0xf2, 0x05, 0x0f, 0x00, 0xf2, 0x03, 0x50},
-			packet: mc.Packet{
-				ID:   0x00,
-				Data: []byte{0x00, 0xf2},
-			},
-		},
-		{
-			data: []byte{0x05, 0x0f, 0x00, 0xf2, 0x03, 0x50, 0x30, 0x01, 0xef, 0xaa},
-			packet: mc.Packet{
-				ID:   0x0f,
-				Data: []byte{0x00, 0xf2, 0x03, 0x50},
-			},
-		},
-	}
-
-	for _, tc := range tt {
-		dataCopy := make([]byte, len(tc.data))
-		copy(dataCopy, tc.data)
-
-		pk, err := mc.PeekPacket(bufio.NewReader(bytes.NewReader(dataCopy)))
-		if err != nil {
-			t.Error(err)
-		}
-
-		if pk.ID != tc.packet.ID {
-			t.Errorf("packet ID: got: %v; want: %v", pk.ID, tc.packet.ID)
-		}
-
-		if !bytes.Equal(pk.Data, tc.packet.Data) {
-			t.Errorf("packet data: got: %v; want: %v", pk.Data, tc.packet.Data)
-		}
-
-		if !bytes.Equal(dataCopy, tc.data) {
-			t.Errorf("data after read: got: %v; want: %v", dataCopy, tc.data)
 		}
 	}
 }
@@ -235,7 +191,7 @@ func benchmarkReadPacker(b *testing.B, amountBytes int) {
 	}()
 
 	for n := 0; n < b.N; n++ {
-		if _, err := mc.ReadPacket(r); err != nil {
+		if _, err := mc.ReadPacketOld(r); err != nil {
 			b.Error(err)
 		}
 	}

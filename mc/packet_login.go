@@ -11,7 +11,7 @@ type ServerBoundHandshake struct {
 	ProtocolVersion VarInt
 	ServerAddress   String
 	ServerPort      UnsignedShort
-	NextState       Byte
+	NextState       VarInt
 }
 
 func (pk ServerBoundHandshake) Marshal() Packet {

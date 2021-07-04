@@ -1,7 +1,58 @@
 package mc
 
-const ClientBoundResponsePacketID byte = 0x00
-const ServerBoundRequestPacketID byte = 0x00
+import (
+	"encoding/json"
+	"time"
+)
+
+const (
+	ClientBoundResponsePacketID byte = 0x00
+	ServerBoundRequestPacketID  byte = 0x00
+	ServerBoundPingPacketID     byte = 0x01
+	ClientBoundPongPacketID     byte = 0x01
+)
+
+type AnotherStatusResponse struct {
+	Name        string `json:"name"`
+	Protocol    int    `json:"protocol"`
+	Description string `json:"text"`
+	Favicon     string `json:"favicon,omitempty"`
+}
+
+func (pk AnotherStatusResponse) Marshal() Packet {
+	jsonResponse := ResponseJSON{
+		Version: VersionJSON{
+			Name:     pk.Name,
+			Protocol: pk.Protocol,
+		},
+		Description: DescriptionJSON{
+			Text: pk.Description,
+		},
+		Favicon: pk.Favicon,
+	}
+	text, _ := json.Marshal(jsonResponse)
+	return ClientBoundResponse{
+		JSONResponse: String(text),
+	}.Marshal()
+}
+
+type DifferentStatusResponse struct {
+	Version     VersionJSON     `json:"version"`
+	Description DescriptionJSON `json:"description"`
+	Favicon     string          `json:"favicon,omitempty"`
+}
+
+func (pk DifferentStatusResponse) Marshal() Packet {
+	jsonResponse := ResponseJSON{
+		Version:     pk.Version,
+		Description: pk.Description,
+		Favicon:     pk.Favicon,
+	}
+	text, _ := json.Marshal(jsonResponse)
+	return ClientBoundResponse{
+		JSONResponse: String(text),
+	}.Marshal()
+}
 
 type ClientBoundResponse struct {
 	JSONResponse String
@@ -62,5 +113,23 @@ type ServerBoundRequest struct{}
 func (pk ServerBoundRequest) Marshal() Packet {
 	return MarshalPacket(
 		ServerBoundRequestPacketID,
+	)
+}
+
+func NewServerBoundPing() ServerBoundPing {
+	millisecondTime :=  time.Now().UnixNano() / 1e6
+	return ServerBoundPing{
+		Time: Long(millisecondTime),
+	}
+}
+
+type ServerBoundPing struct {
+	Time Long
+}
+
+func (pk ServerBoundPing) Marshal() Packet {
+	return MarshalPacket(
+		ClientBoundResponsePacketID,
+		pk.Time,
 	)
 }

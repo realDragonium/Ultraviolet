@@ -5,6 +5,10 @@ import (
 	"io"
 )
 
+var (
+	ErrVarIntSize = errors.New("VarInt is too big")
+)
+
 // A Field is both FieldEncoder and FieldDecoder
 type Field interface {
 	FieldEncoder
@@ -32,9 +36,11 @@ type (
 	Byte int8
 	// UnsignedShort is unsigned 16-bit integer
 	UnsignedShort uint16
-	// String is sequence of Unicode scalar values
+	// Long is signed 64-bit integer, two's complement
+	Long int64
+	// String is sequence of Unicode scalar values with a max length of 32767
 	String string
-	// Chat is encoded as a String with max length of 32767.
+	// Chat is encoded as a String with max length of 262144.
 	Chat = String
 	// VarInt is variable-length data encoding a two's complement signed 32-bit integer
 	VarInt int32
@@ -113,6 +119,27 @@ func (us *UnsignedShort) Decode(r DecodeReader) error {
 	return nil
 }
 
+// Encode a Long
+func (l Long) Encode() []byte {
+	n := uint64(l)
+	return []byte{
+		byte(n >> 56), byte(n >> 48), byte(n >> 40), byte(n >> 32),
+		byte(n >> 24), byte(n >> 16), byte(n >> 8), byte(n),
+	}
+}
+
+// Decode a Long
+func (l *Long) Decode(r DecodeReader) error {
+	bb, err := ReadNBytes(r, 8)
+	if err != nil {
+		return err
+	}
+
+	*l = Long(int64(bb[0])<<56 | int64(bb[1])<<48 | int64(bb[2])<<40 | int64(bb[3])<<32 |
+		int64(bb[4])<<24 | int64(bb[5])<<16 | int64(bb[6])<<8 | int64(bb[7]))
+	return nil
+}
+
 // Encode a VarInt
 func (v VarInt) Encode() []byte {
 	num := uint32(v)
@@ -151,4 +178,68 @@ func (v *VarInt) Decode(r DecodeReader) error {
 
 	*v = VarInt(n)
 	return nil
+}
+
+// Read a VarInt
+func ReadVarInt(r DecodeReader) (VarInt, error) {
+	var n uint32
+	for i := 0; ; i++ {
+		sec, err := r.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		n |= uint32(sec&0x7F) << uint32(7*i)
+		if i >= 5 {
+			return 0, errors.New("VarInt is too big")
+		} else if sec&0x80 == 0 {
+			break
+		}
+	}
+	return VarInt(n), nil
+}
+
+// Read a UnsignedShort
+func ReadUnsignedShort(r DecodeReader) (UnsignedShort, error) {
+	bb, err := ReadNBytes(r, 2)
+	if err != nil {
+		return 0, err
+	}
+	return UnsignedShort(int16(bb[0])<<8 | int16(bb[1])), nil
+}
+
+// Read a String
+func ReadString(r DecodeReader) (String, error) {
+	l, err := ReadVarInt(r) // String length
+	if err != nil {
+		return "", err
+	}
+	bb, err := ReadNBytes(r, int(l))
+	if err != nil {
+		return "", err
+	}
+	return String(bb), nil
+}
+
+// Read a Byte
+func ReadByte(r DecodeReader) (Byte, error) {
+	v, err := r.ReadByte()
+	if err != nil {
+		return 0, err
+	}
+	return Byte(v), nil
+}
+
+func ReadPacketSize_Bytes(bytes []byte) (int, int, error) {
+	var n int32
+	var i int
+	for i = 0; ; i++ {
+		sec := bytes[i]
+		n |= int32(sec&0x7F) << uint32(7*i)
+		if i >= 5 {
+			return 0, 0, ErrVarIntSize
+		} else if sec&0x80 == 0 {
+			break
+		}
+	}
+	return int(n), i, nil
 }

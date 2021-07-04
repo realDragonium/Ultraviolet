@@ -363,3 +363,113 @@ func BenchmarkHandshakingServerBoundHandshake_Marshal(b *testing.B) {
 		}
 	}
 }
+
+func TestMarshalServerBoundLoginStart(t *testing.T) {
+	tt := []struct {
+		mcName string
+	}{
+		{
+			mcName: "test",
+		},
+		{
+			mcName: "infrared",
+		},
+		{
+			mcName: "",
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.mcName, func(t *testing.T) {
+			expectedPk := mc.Packet{
+				ID:   mc.ServerBoundLoginStartPacketID,
+				Data: []byte(tc.mcName),
+			}
+
+			loginStart := mc.ServerLoginStart{}
+			pk := loginStart.Marshal()
+
+			if expectedPk.ID != pk.ID || bytes.Equal(expectedPk.Data, pk.Data) {
+				t.Logf("expected:\t%v", expectedPk)
+				t.Logf("got:\t\t%v", pk)
+				t.Error("Difference be expected and received packet")
+			}
+		})
+	}
+
+}
+
+func TestUnmarshalServerBoundLoginStart(t *testing.T) {
+	tt := []struct {
+		packet             mc.Packet
+		unmarshalledPacket mc.ServerLoginStart
+	}{
+		{
+			packet: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x00},
+			},
+			unmarshalledPacket: mc.ServerLoginStart{
+				Name: mc.String(""),
+			},
+		},
+		{
+			packet: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x0d, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21},
+			},
+			unmarshalledPacket: mc.ServerLoginStart{
+				Name: mc.String("Hello, World!"),
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		loginStart, err := mc.UnmarshalServerBoundLoginStart(tc.packet)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if loginStart.Name != tc.unmarshalledPacket.Name {
+			t.Errorf("got: %v, want: %v", loginStart.Name, tc.unmarshalledPacket.Name)
+		}
+	}
+}
+
+func TestClientBoundDisconnect_Marshal(t *testing.T) {
+	tt := []struct {
+		packet          mc.ClientBoundDisconnect
+		marshaledPacket mc.Packet
+	}{
+		{
+			packet: mc.ClientBoundDisconnect{
+				Reason: mc.Chat(""),
+			},
+			marshaledPacket: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x00},
+			},
+		},
+		{
+			packet: mc.ClientBoundDisconnect{
+				Reason: mc.Chat("Hello, World!"),
+			},
+			marshaledPacket: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x0d, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21},
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		pk := tc.packet.Marshal()
+
+		if pk.ID != mc.ClientBoundDisconnectPacketID {
+			t.Error("invalid packet id")
+		}
+
+		if !bytes.Equal(pk.Data, tc.marshaledPacket.Data) {
+			t.Errorf("got: %v, want: %v", pk.Data, tc.marshaledPacket.Data)
+		}
+	}
+}

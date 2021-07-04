@@ -2,6 +2,8 @@ package mc_test
 
 import (
 	"bytes"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/realDragonium/UltraViolet/mc"
@@ -227,4 +229,81 @@ func TestUnsignedShort(t *testing.T) {
 			}
 		}
 	})
+}
+
+func TestReadVarInt(t *testing.T) {
+	tt := []struct {
+		decoded mc.VarInt
+		encoded []byte
+	}{
+		{
+			decoded: 0,
+			encoded: []byte{0x00},
+		},
+		{
+			decoded: 1,
+			encoded: []byte{0x01},
+		},
+		{
+			decoded: 2,
+			encoded: []byte{0x02},
+		},
+		{
+			decoded: 127,
+			encoded: []byte{0x7f},
+		},
+		{
+			decoded: 128,
+			encoded: []byte{0x80, 0x01},
+		},
+		{
+			decoded: 129,
+			encoded: []byte{0x81, 0x01},
+		},
+		{
+			decoded: 255,
+			encoded: []byte{0xff, 0x01},
+		},
+		{
+			decoded: 256,
+			encoded: []byte{0x80, 0x02},
+		},
+		{
+			decoded: 2097151,
+			encoded: []byte{0xff, 0xff, 0x7f},
+		},
+		{
+			decoded: 2147483647,
+			encoded: []byte{0xff, 0xff, 0xff, 0xff, 0x07},
+		},
+		{
+			decoded: -1,
+			encoded: []byte{0xff, 0xff, 0xff, 0xff, 0x0f},
+		},
+		{
+			decoded: -2147483648,
+			encoded: []byte{0x80, 0x80, 0x80, 0x80, 0x08},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(fmt.Sprint(tc.decoded), func(t *testing.T) {
+			t.Logf("%b", tc.encoded)
+			reader := bytes.NewReader(tc.encoded)
+			decodedValue, _ := mc.ReadVarInt(reader)
+			t.Logf("%b", decodedValue)
+			if decodedValue != tc.decoded {
+				t.Errorf("decoding: got %v; want: %v", decodedValue, tc.decoded)
+			}
+		})
+	}
+}
+
+func TestReadVarInt_ReturnError_WhenLargerThan5(t *testing.T) {
+	data := []byte{0xff, 0xff, 0xff, 0xff, 0xff, 0xff}
+	_, _, err := mc.ReadPacketSize_Bytes(data)
+	if !errors.Is(err, mc.ErrVarIntSize) {
+		t.Fatal("expected an error but didnt got one")
+	}
+
 }

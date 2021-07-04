@@ -9,13 +9,14 @@ import (
 
 var (
 	ErrInvalidPacketID = errors.New("invalid packet id")
+	MaxPacketSize      = 2097151
 )
 
 const (
 	ServerBoundHandshakePacketID byte = 0x00
 
-	ServerBoundHandshakeStatusState = Byte(1)
-	ServerBoundHandshakeLoginState  = Byte(2)
+	ServerBoundHandshakeStatusState = VarInt(1)
+	ServerBoundHandshakeLoginState  = VarInt(2)
 
 	ForgeSeparator  = "\x00"
 	RealIPSeparator = "///"
@@ -84,8 +85,8 @@ func ReadPacketBytes(r DecodeReader) ([]byte, error) {
 	return data, nil
 }
 
-// ReadPacket decodes and decompresses a byte stream and cuts the first Packet out
-func ReadPacket(r DecodeReader) (Packet, error) {
+// ReadPacketOld decodes and decompresses a byte stream and cuts the first Packet out
+func ReadPacketOld(r DecodeReader) (Packet, error) {
 	data, err := ReadPacketBytes(r)
 
 	if err != nil {
@@ -98,12 +99,74 @@ func ReadPacket(r DecodeReader) (Packet, error) {
 	}, nil
 }
 
-// PeekPacket decodes and decompresses a byte stream and peeks the first Packet
-func PeekPacket(p PeekReader) (Packet, error) {
-	r := BytePeeker{
-		PeekReader: p,
-		Cursor:     0,
+func ReadPacket(r DecodeReader) (Packet, error) {
+	packetLength, err := ReadVarInt(r)
+	if err != nil {
+		return Packet{}, err
 	}
 
-	return ReadPacket(&r)
+	if packetLength < 1 {
+		return Packet{}, fmt.Errorf("packet length too short")
+	}
+
+	data := make([]byte, packetLength)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return Packet{}, fmt.Errorf("reading the content of the packet failed: %v", err)
+	}
+
+	return Packet{
+		ID:   data[0],
+		Data: data[1:],
+	}, nil
+}
+
+func ReadHandshake(r DecodeReader) (ServerBoundHandshake, error) {
+	_, err := ReadVarInt(r) // packet Length
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	_, err = ReadVarInt(r) // packet id
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	protocolVersion, err := ReadVarInt(r)
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	serverAddr, err := ReadString(r)
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	port, err := ReadUnsignedShort(r)
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	state, err := ReadVarInt(r)
+	if err != nil {
+		return ServerBoundHandshake{}, err
+	}
+	return ServerBoundHandshake{
+		ProtocolVersion: protocolVersion,
+		ServerAddress:   serverAddr,
+		ServerPort:      port,
+		NextState:       state,
+	}, nil
+}
+
+func ReadLoginStart(r DecodeReader) (ServerLoginStart, error) {
+	_, err := ReadVarInt(r) // packet Length
+	if err != nil {
+		return ServerLoginStart{}, err
+	}
+	_, err = ReadVarInt(r) // packet id
+	if err != nil {
+		return ServerLoginStart{}, err
+	}
+	mcName, err := ReadString(r)
+	if err != nil {
+		return ServerLoginStart{}, err
+	}
+	return ServerLoginStart{
+		Name: mcName,
+	}, nil
 }
