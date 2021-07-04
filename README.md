@@ -1,5 +1,5 @@
 # UltraViolet
-[Infrared](https://github.com/haveachin/infrared) but different. Not even sure or this will be a real production ready product some day, its a personal structure i want to try.  
+[Infrared](https://github.com/haveachin/infrared) but different. Not even sure or this will be a real production ready product some day, its a different structure i want to try.  
 
 ## What is different?
 *Well...* 
