@@ -9,7 +9,8 @@ import (
 	"syscall"
 
 	"github.com/cloudflare/tableflip"
-	"github.com/realDragonium/UltraViolet/proxy"
+	"github.com/realDragonium/Ultraviolet/conn"
+	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
 func main() {
@@ -46,7 +47,10 @@ func main() {
 	}
 	defer ln.Close()
 
-	p := proxy.NewProxy(ln)
+	reqCh := make(chan conn.ConnRequest)
+	go conn.Serve(ln, reqCh)
+
+	p := proxy.NewProxy(reqCh)
 	p.Serve()
 
 	log.Printf("ready")
@@ -55,7 +59,7 @@ func main() {
 	}
 	log.Println("Upgrade in process...")
 	<-upg.Exit()
-	
+
 	p.ShouldNotifyCh <- struct{}{}
 	log.Println("Waiting for all open connections to close before shutting down")
 	<-p.NotifyCh

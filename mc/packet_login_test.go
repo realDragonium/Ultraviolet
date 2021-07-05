@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realDragonium/UltraViolet/mc"
+	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 func TestServerBoundHandshake_Marshal(t *testing.T) {
@@ -21,7 +21,7 @@ func TestServerBoundHandshake_Marshal(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "spook.space",
 				ServerPort:      25565,
-				NextState:       mc.ServerBoundHandshakeStatusState,
+				NextState:       mc.HandshakeStatusState,
 			},
 			marshaledPacket: mc.Packet{
 				ID:   0x00,
@@ -33,7 +33,7 @@ func TestServerBoundHandshake_Marshal(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "example.com",
 				ServerPort:      1337,
-				NextState:       mc.ServerBoundHandshakeStatusState,
+				NextState:       mc.HandshakeStatusState,
 			},
 			marshaledPacket: mc.Packet{
 				ID:   0x00,
@@ -70,7 +70,7 @@ func TestUnmarshalServerBoundHandshake(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "spook.space",
 				ServerPort:      25565,
-				NextState:       mc.ServerBoundHandshakeStatusState,
+				NextState:       mc.HandshakeStatusState,
 			},
 		},
 		{
@@ -83,7 +83,7 @@ func TestUnmarshalServerBoundHandshake(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "example.com",
 				ServerPort:      1337,
-				NextState:       mc.ServerBoundHandshakeStatusState,
+				NextState:       mc.HandshakeStatusState,
 			},
 		},
 	}
@@ -112,13 +112,13 @@ func TestServerBoundHandshake_IsStatusRequest(t *testing.T) {
 	}{
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.ServerBoundHandshakeStatusState,
+				NextState: mc.HandshakeStatusState,
 			},
 			result: true,
 		},
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.ServerBoundHandshakeLoginState,
+				NextState: mc.HandshakeLoginState,
 			},
 			result: false,
 		},
@@ -138,13 +138,13 @@ func TestServerBoundHandshake_IsLoginRequest(t *testing.T) {
 	}{
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.ServerBoundHandshakeStatusState,
+				NextState: mc.HandshakeStatusState,
 			},
 			result: false,
 		},
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.ServerBoundHandshakeLoginState,
+				NextState: mc.HandshakeLoginState,
 			},
 			result: true,
 		},

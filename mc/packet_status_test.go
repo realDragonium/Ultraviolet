@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/realDragonium/UltraViolet/mc"
+	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 func TestClientBoundResponse_Marshal(t *testing.T) {

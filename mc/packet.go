@@ -15,8 +15,8 @@ var (
 const (
 	ServerBoundHandshakePacketID byte = 0x00
 
-	ServerBoundHandshakeStatusState = VarInt(1)
-	ServerBoundHandshakeLoginState  = VarInt(2)
+	HandshakeStatusState = VarInt(1)
+	HandshakeLoginState  = VarInt(2)
 
 	ForgeSeparator  = "\x00"
 	RealIPSeparator = "///"

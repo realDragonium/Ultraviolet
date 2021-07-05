@@ -44,11 +44,11 @@ func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) 
 }
 
 func (pk ServerBoundHandshake) IsStatusRequest() bool {
-	return pk.NextState == ServerBoundHandshakeStatusState
+	return pk.NextState == HandshakeStatusState
 }
 
 func (pk ServerBoundHandshake) IsLoginRequest() bool {
-	return pk.NextState == ServerBoundHandshakeLoginState
+	return pk.NextState == HandshakeLoginState
 }
 
 func (pk ServerBoundHandshake) IsForgeAddress() bool {

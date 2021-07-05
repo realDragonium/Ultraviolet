@@ -6,7 +6,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/realDragonium/UltraViolet/mc"
+	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 func TestPacket_Marshal(t *testing.T) {

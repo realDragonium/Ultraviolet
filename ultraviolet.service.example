@@ -1,5 +1,5 @@
 [Unit]
-Description=UltraViolet
+Description=Ultraviolet
 
 [Service]
 ExecStart=/usr/bin/ultraviolet -pid-file="/run/ultraviolet.pid"

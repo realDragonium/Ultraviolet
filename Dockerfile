@@ -7,5 +7,5 @@ RUN go build -tags netgo
 
 FROM scratch
 WORKDIR /
-COPY --from=builder /ultraviolet/UltraViolet ./
-ENTRYPOINT [ "./UltraViolet" ]
+COPY --from=builder /ultraviolet/Ultraviolet ./
+ENTRYPOINT [ "./Ultraviolet" ]
