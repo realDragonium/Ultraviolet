@@ -1,19 +1,7 @@
 # UltraViolet
-[Infrared](https://github.com/haveachin/infrared) but different. Not even sure or this will be a real production ready product some day, its a different structure i want to try.  
+## What is it
+[Infrared](https://github.com/haveachin/infrared) but different. Not even sure or this will be a real production ready product some day, its a different structure I want to try.  
 
-## What is different?
-*Well...* 
-- This doesnt work (yet?)
-- This might have breaking changes any commit
-- Different structure
-- Less features
-
-## What this is
-Maybe its a personal test project for future infrared features or maybe it will be a separate project closely related to Infrared 
-
-## Features
-[] (Maybe) Working minecraft proxy
-[] Being able to reload without closing existing connections
 
 ## Some notes
 ### Tableflip (not implemented yet)
