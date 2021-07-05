@@ -2,7 +2,9 @@ package conn
 
 import (
 	"bufio"
+	"errors"
 	"io"
+	"log"
 	"net"
 
 	"github.com/realDragonium/UltraViolet/mc"
@@ -28,7 +30,15 @@ type Listener struct {
 
 func (l Listener) Serve() {
 	for {
-		conn, _ := l.listener.Accept()
+		conn, err := l.listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Printf("net.Listener was closed, shutting down listener")
+				break
+			}
+			log.Println(err)
+			continue
+		}
 		go l.ReadConnection(conn)
 	}
 }
@@ -36,8 +46,14 @@ func (l Listener) Serve() {
 func (l Listener) ReadConnection(c net.Conn) {
 	// Rewrite this
 	conn := NewHandshakeConn(c, c.RemoteAddr())
-	packet, _ := conn.ReadPacket()
-	handshake, _ := mc.UnmarshalServerBoundHandshake(packet)
+	packet, err := conn.ReadPacket()
+	if err != nil {
+		log.Printf("Error while reading handshake packet: %v", err)
+	}
+	handshake, err := mc.UnmarshalServerBoundHandshake(packet)
+	if err != nil {
+		log.Printf("Error while unmarshaling handshake packet: %v", err)
+	}
 	conn.HandshakePacket = packet
 	conn.Handshake = handshake
 
@@ -59,57 +75,84 @@ type LoginRequest struct {
 type LoginAnswer struct {
 	ServerConn    net.Conn
 	DisconMessage mc.Packet
-	Proxy         bool
+	Action        ConnAction
+	NotifyClosed  chan struct{}
 }
+type ConnAction byte
+
+const (
+	PROXY ConnAction = iota
+	DISCONNECT
+	SEND_STATUS
+	CLOSE
+)
 
 func (l Listener) DoLoginSequence(conn HandshakeConn) {
 	// Rewrite this
-	packet, _ := conn.ReadPacket()
-	loginStart, _ := mc.UnmarshalServerBoundLoginStart(packet)
-
+	packet, err := conn.ReadPacket()
+	if err != nil {
+		log.Printf("Error while reading login start packet: %v", err)
+	}
+	loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
+	if err != nil {
+		log.Printf("Error while unmarshaling login start packet: %v", err)
+	}
 	l.LoginReqCh <- LoginRequest{
 		ServerAddr: string(conn.Handshake.ServerAddress),
 		Username:   string(loginStart.Name),
 		Ip:         conn.RemoteAddr(),
 	}
-	loginAns := <-l.LoginAnsCh
-	if loginAns.Proxy {
-		go ProxyConnections(conn.netConn, loginAns.ServerConn)
-	} else {
-		conn.WritePacket(loginAns.DisconMessage)
+	ans := <-l.LoginAnsCh
+	switch ans.Action {
+	case PROXY:
+		bytes, _ := conn.HandshakePacket.Marshal()
+		ans.ServerConn.Write(bytes)
+		bytes, _ = packet.Marshal()
+		ans.ServerConn.Write(bytes)
+		go ProxyConnections(conn.netConn, ans.ServerConn, ans.NotifyClosed)
+	case DISCONNECT:
+		conn.WritePacket(ans.DisconMessage)
+		conn.netConn.Close()
+	case CLOSE:
 		conn.netConn.Close()
 	}
 }
 
 type StatusRequest struct{}
 type StatusAnswer struct {
-	Proxy      bool
-	ServerConn net.Conn
-	StatusPk   mc.Packet
+	Action       ConnAction
+	ServerConn   net.Conn
+	StatusPk     mc.Packet
+	NotifyClosed chan struct{}
 }
 
 func (l Listener) DoStatusSequence(conn HandshakeConn) {
 	l.StatusReqCh <- StatusRequest{}
-	statusAns := <-l.StatusAnsCh
-	if statusAns.Proxy {
-		go ProxyConnections(conn.netConn, statusAns.ServerConn)
-	} else {
-		//Rewrite this
+	ans := <-l.StatusAnsCh
+	switch ans.Action {
+	case PROXY:
+		bytes, _ := conn.HandshakePacket.Marshal()
+		ans.ServerConn.Write(bytes)
+		go ProxyConnections(conn.netConn, ans.ServerConn, ans.NotifyClosed)
+	case SEND_STATUS:
 		conn.ReadPacket()
-		conn.WritePacket(statusAns.StatusPk)
+		conn.WritePacket(ans.StatusPk)
 		pingPk, _ := conn.ReadPacket()
 		conn.WritePacket(pingPk)
+		conn.netConn.Close()
+	case CLOSE:
 		conn.netConn.Close()
 	}
 }
 
-func ProxyConnections(client, server net.Conn) {
+func ProxyConnections(client, server net.Conn, closeCh chan struct{}) {
 	go func() {
 		io.Copy(server, client)
 		client.Close()
 	}()
 	io.Copy(client, server)
 	server.Close()
+	closeCh <- struct{}{}
 }
 
 // handshake, err := mc.ReadHandshake(byteReader)

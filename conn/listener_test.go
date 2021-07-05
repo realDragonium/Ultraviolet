@@ -263,6 +263,7 @@ func TestDoLoginSequence(t *testing.T) {
 		listener := conn.NewListener(nil)
 		handshakeConn.Handshake = handshake
 		go listener.DoLoginSequence(handshakeConn)
+
 		hsPk := basicLoginStartPacket()
 		bytes, _ := hsPk.Marshal()
 		client.Write(bytes)
@@ -270,10 +271,13 @@ func TestDoLoginSequence(t *testing.T) {
 
 		proxyBackend, server := net.Pipe()
 		listener.LoginAnsCh <- conn.LoginAnswer{
-			Proxy:      true,
+			Action:     conn.PROXY,
 			ServerConn: proxyBackend,
 		}
+		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read handshake
+		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read LoginStart
 		testProxyConn(t, client, server)
+		testProxyConn(t, server, server)
 	})
 
 	t.Run("can send disconnect packet", func(t *testing.T) {
@@ -292,7 +296,7 @@ func TestDoLoginSequence(t *testing.T) {
 			Reason: mc.Chat(disconMessage),
 		}.Marshal()
 		listener.LoginAnsCh <- conn.LoginAnswer{
-			Proxy:         false,
+			Action:        conn.DISCONNECT,
 			DisconMessage: disconPk,
 		}
 
@@ -317,7 +321,7 @@ func TestDoLoginSequence(t *testing.T) {
 		clientConn.WritePacket(hsPk)
 		<-listener.LoginReqCh
 		listener.LoginAnsCh <- conn.LoginAnswer{
-			Proxy:         false,
+			Action:        conn.DISCONNECT,
 			DisconMessage: mc.ClientBoundDisconnect{}.Marshal(),
 		}
 		clientConn.ReadPacket()
@@ -329,6 +333,7 @@ func TestDoLoginSequence(t *testing.T) {
 func testProxyConn(t *testing.T, client, server net.Conn) {
 	readBuffer := make([]byte, 10)
 	couldReachCh := make(chan struct{})
+
 	go func() {
 		client.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9})
 		couldReachCh <- struct{}{}
@@ -339,20 +344,8 @@ func testProxyConn(t *testing.T, client, server net.Conn) {
 	select {
 	case <-couldReachCh:
 	case <-time.After(defaultChTimeout):
-		t.Fatal("Client couldnt write to Server")
-	}
-
-	go func() {
-		server.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9})
-		couldReachCh <- struct{}{}
-	}()
-	go func() {
-		client.Read(readBuffer)
-	}()
-	select {
-	case <-couldReachCh:
-	case <-time.After(defaultChTimeout):
-		t.Fatal("Server couldnt write to Client")
+		t.Helper()
+		t.Error("conn1 couldnt write to conn2")
 	}
 }
 
@@ -376,7 +369,8 @@ func testConnectedClosed(t *testing.T, conn net.Conn) {
 func TestProxyConnection(t *testing.T) {
 	t.Run("Client writes to Server", func(t *testing.T) {
 		client, server := net.Pipe()
-		go conn.ProxyConnections(client, server)
+		ch := make(chan struct{})
+		go conn.ProxyConnections(client, server, ch)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -395,7 +389,8 @@ func TestProxyConnection(t *testing.T) {
 
 	t.Run("Server writes to Client", func(t *testing.T) {
 		client, server := net.Pipe()
-		go conn.ProxyConnections(client, server)
+		ch := make(chan struct{})
+		go conn.ProxyConnections(client, server, ch)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -436,7 +431,9 @@ func TestDoStatusSequence(t *testing.T) {
 		go listener.DoStatusSequence(handshakeConn)
 		<-listener.StatusReqCh
 
-		statusAnswer := conn.StatusAnswer{}
+		statusAnswer := conn.StatusAnswer{
+			Action: conn.CLOSE,
+		}
 
 		select {
 		case listener.StatusAnsCh <- statusAnswer:
@@ -454,11 +451,13 @@ func TestDoStatusSequence(t *testing.T) {
 		<-listener.StatusReqCh
 		proxyBackend, server := net.Pipe()
 		statusAnswer := conn.StatusAnswer{
-			Proxy:      true,
+			Action:     conn.PROXY,
 			ServerConn: proxyBackend,
 		}
 		listener.StatusAnsCh <- statusAnswer
+		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read handshake
 		testProxyConn(t, client, server)
+		testProxyConn(t, server, client)
 	})
 
 	t.Run("can proxy connection to server", func(t *testing.T) {
@@ -474,7 +473,7 @@ func TestDoStatusSequence(t *testing.T) {
 			Description: "Some broken proxy",
 		}.Marshal()
 		statusAnswer := conn.StatusAnswer{
-			Proxy:    false,
+			Action:   conn.SEND_STATUS,
 			StatusPk: statusPk,
 		}
 		listener.StatusAnsCh <- statusAnswer
@@ -517,7 +516,7 @@ func TestDoStatusSequence(t *testing.T) {
 		statusPk := mc.AnotherStatusResponse{}.Marshal()
 
 		listener.StatusAnsCh <- conn.StatusAnswer{
-			Proxy:    false,
+			Action:   conn.SEND_STATUS,
 			StatusPk: statusPk,
 		}
 

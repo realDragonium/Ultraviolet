@@ -1,0 +1,10 @@
+[Unit]
+Description=UltraViolet
+
+[Service]
+ExecStart=/usr/bin/ultraviolet -pid-file="/run/ultraviolet.pid"
+ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/run/ultraviolet.pid
+
+[Install]
+WantedBy=multi-user.target
