@@ -1,4 +1,4 @@
-package ultraviolet
+package main
 
 import (
 	"fmt"

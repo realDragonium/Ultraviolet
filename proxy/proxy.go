@@ -10,6 +10,7 @@ import (
 func Something() {
 	netListener, _ := net.Listen("tcp", ":25565")
 	listener := conn.NewListener(netListener)
+	go listener.Serve()
 
 	for {
 		select {

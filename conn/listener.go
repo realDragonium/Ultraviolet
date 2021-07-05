@@ -74,10 +74,10 @@ func (l Listener) DoLoginSequence(conn HandshakeConn) {
 	}
 	loginAns := <-l.LoginAnsCh
 	if loginAns.Proxy {
-		go ProxyConnections(conn.Conn(), loginAns.ServerConn)
+		go ProxyConnections(conn.netConn, loginAns.ServerConn)
 	} else {
 		conn.WritePacket(loginAns.DisconMessage)
-		conn.Conn().Close()
+		conn.netConn.Close()
 	}
 }
 
@@ -92,14 +92,14 @@ func (l Listener) DoStatusSequence(conn HandshakeConn) {
 	l.StatusReqCh <- StatusRequest{}
 	statusAns := <-l.StatusAnsCh
 	if statusAns.Proxy {
-		go ProxyConnections(conn.Conn(), statusAns.ServerConn)
+		go ProxyConnections(conn.netConn, statusAns.ServerConn)
 	} else {
 		//Rewrite this
 		conn.ReadPacket()
 		conn.WritePacket(statusAns.StatusPk)
 		pingPk, _ := conn.ReadPacket()
 		conn.WritePacket(pingPk)
-		conn.Conn().Close()
+		conn.netConn.Close()
 	}
 }
 
@@ -158,10 +158,6 @@ type HandshakeConn struct {
 
 func (hsConn HandshakeConn) RemoteAddr() net.Addr {
 	return hsConn.addr
-}
-
-func (conn HandshakeConn) Conn() net.Conn {
-	return conn.netConn
 }
 
 func (conn HandshakeConn) ReadPacket() (mc.Packet, error) {
