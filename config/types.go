@@ -14,13 +14,11 @@ type BackendConnConfig struct {
 	ProxyBind         string `json:"proxyBind"`
 	ProxyTo           string `json:"proxyTo"`
 	SendProxyProtocol bool   `json:"sendProxyProtocol"`
-	RealIP            bool   `json:"realIp"`
 }
 
 type ListenConfig struct {
 	MainDomain   string   `json:"mainDomain"`
 	ExtraDomains []string `json:"extraDomains"`
-	ListenTo     string   `json:"listenTo"`
 }
 
 type FallOverConfig struct {
@@ -36,7 +34,6 @@ func DefaultServerConfig() ServerConfig {
 		},
 		ListenCfg: ListenConfig{
 			MainDomain: "localhost",
-			ListenTo:   ":25565",
 		},
 		FallOverCfg: FallOverConfig{
 			DisconnectMessage: "Sorry {{username}}, but the server is offline.",
@@ -51,6 +48,8 @@ func DefaultServerConfig() ServerConfig {
 }
 
 type UltravioletConfig struct {
+	ListenTo string `json:"listenTo"`
+
 	NumberOfWorkers      int  `json:"numberOfWorkers"`
 	ReceiveProxyProtocol bool `json:"receiveProxyProtocol"`
 
@@ -59,8 +58,10 @@ type UltravioletConfig struct {
 
 func DefaultUltravioletConfig() UltravioletConfig {
 	return UltravioletConfig{
+		ListenTo:             ":25565",
 		NumberOfWorkers:      5,
 		ReceiveProxyProtocol: false,
+
 		DefaultStatus: mc.AnotherStatusResponse{
 			Name:        "Ultraviolet",
 			Protocol:    755,

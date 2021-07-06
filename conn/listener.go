@@ -57,10 +57,10 @@ func Serve(listener net.Listener, reqCh chan ConnRequest) {
 }
 
 func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
-	// Rewrite connection code
+	// Rewrite connection code?
 	conn := NewMcConn(c)
+	// Add better error handling
 	handshakePacket, err := conn.ReadPacket()
-	remoteAddr := c.RemoteAddr()
 	if err != nil {
 		log.Printf("Error while reading handshake packet: %v", err)
 	}
@@ -85,7 +85,8 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 	}
 	var loginPacket mc.Packet
 	if isLoginReq {
-		loginPacket, err := conn.ReadPacket()
+		// Add better error handling
+		loginPacket, err = conn.ReadPacket()
 		if err != nil {
 			log.Printf("Error while reading login start packet: %v", err)
 		}
@@ -93,12 +94,9 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		if err != nil {
 			log.Printf("Error while unmarshaling login start packet: %v", err)
 		}
-		req = ConnRequest{
-			ServerAddr: string(handshake.ServerAddress),
-			Username:   string(loginStart.Name),
-			Ip:         remoteAddr,
-			Ch:         ansCh,
-		}
+		req.Ip = c.RemoteAddr()
+		req.Username = string(loginStart.Name)
+		req.ServerAddr = string(handshake.ServerAddress)
 	}
 	reqCh <- req
 	ans := <-ansCh
@@ -110,13 +108,9 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		if isLoginReq {
 			serverConn.WritePacket(loginPacket)
 		}
-		go func() {
-			io.Copy(serverConn.netConn, conn.netConn)
-			conn.netConn.Close()
-		}()
-		io.Copy(conn.netConn, serverConn.netConn)
-		serverConn.netConn.Close()
-		ans.NotifyClosed <- struct{}{}
+		go func(client, server net.Conn, notfiyClosedCh chan struct{}) {
+			ProxyConnections(client, server, notfiyClosedCh)
+		}(conn.netConn, serverConn.netConn, ans.NotifyClosed)
 	case DISCONNECT:
 		conn.WritePacket(ans.DisconMessage)
 		conn.netConn.Close()
@@ -130,6 +124,16 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		conn.netConn.Close()
 	}
 
+}
+
+func ProxyConnections(client, server net.Conn, notifyClosedCh chan struct{}) {
+	go func() {
+		io.Copy(server, client)
+		client.Close()
+	}()
+	io.Copy(client, server)
+	server.Close()
+	notifyClosedCh <- struct{}{}
 }
 
 func NewMcConn(conn net.Conn) McConn {

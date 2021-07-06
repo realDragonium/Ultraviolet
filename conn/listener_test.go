@@ -14,6 +14,36 @@ import (
 
 var defaultChTimeout time.Duration = 10 * time.Millisecond
 
+type testNetConn struct {
+	conn       net.Conn
+	remoteAddr net.Addr
+}
+
+func (c *testNetConn) RemoteAddr() net.Addr {
+	return c.remoteAddr
+}
+func (c *testNetConn) Read(b []byte) (n int, err error) {
+	return c.conn.Read(b)
+}
+func (c *testNetConn) Write(b []byte) (n int, err error) {
+	return c.conn.Write(b)
+}
+func (c *testNetConn) Close() error {
+	return c.conn.Close()
+}
+func (c *testNetConn) LocalAddr() net.Addr {
+	return c.conn.LocalAddr()
+}
+func (c *testNetConn) SetDeadline(t time.Time) error {
+	return c.conn.SetDeadline(t)
+}
+func (c *testNetConn) SetReadDeadline(t time.Time) error {
+	return c.conn.SetReadDeadline(t)
+}
+func (c *testNetConn) SetWriteDeadline(t time.Time) error {
+	return c.conn.SetWriteDeadline(t)
+}
+
 type testListener struct {
 	newConnCh <-chan net.Conn
 }
@@ -40,17 +70,21 @@ func basicLoginStartPacket() mc.Packet {
 	return basicLoginStart().Marshal()
 }
 
-func basicHandshake() mc.ServerBoundHandshake {
+func loginHandshakePacket() mc.Packet {
+	return basicHandshake(2).Marshal()
+}
+
+func basicHandshake(state mc.VarInt) mc.ServerBoundHandshake {
 	return mc.ServerBoundHandshake{
 		ProtocolVersion: 751,
 		ServerAddress:   "Ultraviolet",
 		ServerPort:      25565,
-		NextState:       0, // notice: invalid value
+		NextState:       state,
 	}
 }
 
-func basicHandshakePacket() mc.Packet {
-	return basicHandshake().Marshal()
+func statusHandshakePacket() mc.Packet {
+	return basicHandshake(1).Marshal()
 }
 
 func samePK(expected, received mc.Packet) bool {
@@ -110,7 +144,7 @@ func TestReadConnection(t *testing.T) {
 
 		finishedWritingCh := make(chan struct{})
 		go func() {
-			hsPk := basicHandshakePacket()
+			hsPk := statusHandshakePacket()
 			bytes, _ := hsPk.Marshal()
 			client.Write(bytes)
 			finishedWritingCh <- struct{}{}
@@ -151,62 +185,18 @@ func TestReadConnection(t *testing.T) {
 		}
 	})
 
-	t.Run("can reach DoStatusSequence", func(t *testing.T) {
-		client, server := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
-		go func() {
-			hs := basicHandshake()
-			hs.NextState = 1
-			hsPk := hs.Marshal()
-			bytes, _ := hsPk.Marshal()
-			client.Write(bytes)
-		}()
-
-		select {
-		case <-reqCh:
-			t.Log("successfully reached DoStatusSequence method")
-		case <-time.After(defaultChTimeout):
-			t.Error("didnt reach DoStatusSequence method in time")
-		}
-	})
-
-	t.Run("can reach DoLoginSequence", func(t *testing.T) {
-		client, server := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
-
-		go func() {
-			hs := basicHandshake()
-			hs.NextState = 2
-			hsPk := hs.Marshal()
-			bytes, _ := hsPk.Marshal()
-			client.Write(bytes)
-			pk := basicLoginStartPacket()
-			bytes, _ = pk.Marshal()
-			client.Write(bytes)
-		}()
-
-		select {
-		case <-reqCh:
-			t.Log("successfully reached DoLoginSequence method")
-		case <-time.After(defaultChTimeout):
-			t.Error("didnt reach DoLoginSequence method in time")
-		}
-	})
-}
-
-func TestDoLoginSequence(t *testing.T) {
 	t.Run("Can read start login packet", func(t *testing.T) {
-		client, server := net.Pipe()
+		clientConn, proxyFrontend := net.Pipe()
 		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
+		go conn.ReadConnection(proxyFrontend, reqCh)
 
 		finishedWritingCh := make(chan struct{})
 		go func() {
-			hsPk := basicLoginStartPacket()
-			bytes, _ := hsPk.Marshal()
-			client.Write(bytes)
+			client := conn.NewMcConn(clientConn)
+			hsPk := loginHandshakePacket()
+			client.WritePacket(hsPk)
+			loginPk := basicLoginStartPacket()
+			client.WritePacket(loginPk)
 			finishedWritingCh <- struct{}{}
 		}()
 
@@ -219,22 +209,27 @@ func TestDoLoginSequence(t *testing.T) {
 	})
 
 	t.Run("Receives login request through channel", func(t *testing.T) {
-		client, server := net.Pipe()
+		clientConn, proxyFrontend := net.Pipe()
 		clientAddr := net.TCPAddr{IP: []byte{1, 1, 1, 1}, Port: 0}
-
+		mockClientconn := testNetConn{
+			conn:       proxyFrontend,
+			remoteAddr: &clientAddr,
+		}
 		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
+		go conn.ReadConnection(&mockClientconn, reqCh)
 
-		finishedWritingCh := make(chan struct{})
 		go func() {
-			pk := basicLoginStartPacket()
-			conn.NewMcConn(client).WritePacket(pk)
-			finishedWritingCh <- struct{}{}
+			client := conn.NewMcConn(clientConn)
+			hsPk := loginHandshakePacket()
+			client.WritePacket(hsPk)
+			loginPk := basicLoginStartPacket()
+			client.WritePacket(loginPk)
 		}()
 
 		select {
 		case request := <-reqCh:
 			t.Log("test has successfully written data to server")
+			t.Log(request)
 			if request.ServerAddr != "Ultraviolet" {
 				t.Errorf("Expected: Ultraviolet got:%v", request.ServerAddr)
 			}
@@ -249,35 +244,67 @@ func TestDoLoginSequence(t *testing.T) {
 		}
 	})
 
-	t.Run("can proxy connection", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
+	t.Run("Close response closes channel", func(t *testing.T) {
 		reqCh := make(chan conn.ConnRequest)
+		clientConn, proxyFrontend := net.Pipe()
 		go conn.ReadConnection(proxyFrontend, reqCh)
 
-		hsPk := basicLoginStartPacket()
-		bytes, _ := hsPk.Marshal()
-		client.Write(bytes)
+		go func() {
+			client := conn.NewMcConn(clientConn)
+			hsPk := statusHandshakePacket()
+			client.WritePacket(hsPk)
+		}()
+
 		request := <-reqCh
 
-		proxyBackend, server := net.Pipe()
+		request.Ch <- conn.ConnAnswer{
+			Action: conn.CLOSE,
+		}
+		testConnectedClosed(t, clientConn)
+	})
+
+	t.Run("can proxy login connection", func(t *testing.T) {
+		reqCh := make(chan conn.ConnRequest)
+		clientConn, proxyFrontend := net.Pipe()
+		proxyBackend, serverConn := net.Pipe()
+		go conn.ReadConnection(proxyFrontend, reqCh)
+
+		hsPk := loginHandshakePacket()
+		loginPk := basicLoginStartPacket()
+
+		client := conn.NewMcConn(clientConn)
+		client.WritePacket(hsPk)
+		client.WritePacket(loginPk)
+		request := <-reqCh
+
 		request.Ch <- conn.ConnAnswer{
 			Action:     conn.PROXY,
 			ServerConn: conn.NewMcConn(proxyBackend),
 		}
-		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read handshake
-		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read LoginStart
-		testProxyConn(t, client, server)
-		testProxyConn(t, server, server)
+
+		server := conn.NewMcConn(serverConn)
+		receivedHsPk, _ := server.ReadPacket()
+		if !samePK(hsPk, receivedHsPk) {
+			t.Errorf("expected: %v, \ngot: %v", hsPk, receivedHsPk)
+		}
+		receivedLoginPk, _ := server.ReadPacket()
+		if !samePK(loginPk, receivedLoginPk) {
+			t.Errorf("expected:%v, \ngot: %v", loginPk, receivedLoginPk)
+		}
+		testProxyConn(t, clientConn, serverConn)
+		testProxyConn(t, serverConn, clientConn)
 	})
 
 	t.Run("can send disconnect packet", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
 		reqCh := make(chan conn.ConnRequest)
+		clientConn, proxyFrontend := net.Pipe()
 		go conn.ReadConnection(proxyFrontend, reqCh)
 
-		hsPk := basicLoginStartPacket()
-		clientConn := conn.NewMcConn(client)
-		clientConn.WritePacket(hsPk)
+		client := conn.NewMcConn(clientConn)
+		hsPk := loginHandshakePacket()
+		client.WritePacket(hsPk)
+		loginPk := basicLoginStartPacket()
+		client.WritePacket(loginPk)
 		request := <-reqCh
 
 		disconMessage := "Because we dont want people like you"
@@ -290,7 +317,7 @@ func TestDoLoginSequence(t *testing.T) {
 			DisconMessage: disconPk,
 		}
 
-		disconnectPacket, _ := clientConn.ReadPacket()
+		disconnectPacket, _ := client.ReadPacket()
 		byteReader := bytes.NewReader(disconnectPacket.Data)
 		message, _ := mc.ReadString(byteReader)
 
@@ -300,23 +327,135 @@ func TestDoLoginSequence(t *testing.T) {
 	})
 
 	t.Run("expect connection to be closed after disconnect", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
+		clientConn, proxyFrontend := net.Pipe()
 		reqCh := make(chan conn.ConnRequest)
 		go conn.ReadConnection(proxyFrontend, reqCh)
 
-		hsPk := basicLoginStartPacket()
-		clientConn := conn.NewMcConn(client)
-		clientConn.WritePacket(hsPk)
+		client := conn.NewMcConn(clientConn)
+		hsPk := loginHandshakePacket()
+		client.WritePacket(hsPk)
+		loginPk := basicLoginStartPacket()
+		client.WritePacket(loginPk)
 
 		request := <-reqCh
 		request.Ch <- conn.ConnAnswer{
 			Action:        conn.DISCONNECT,
 			DisconMessage: mc.ClientBoundDisconnect{}.Marshal(),
 		}
-		clientConn.ReadPacket()
+		client.ReadPacket()
 
-		testConnectedClosed(t, client)
+		testConnectedClosed(t, clientConn)
 	})
+
+	t.Run("send status request through channel", func(t *testing.T) {
+		reqCh := make(chan conn.ConnRequest)
+		clientConn, proxyFrontend := net.Pipe()
+		go conn.ReadConnection(proxyFrontend, reqCh)
+
+		client := conn.NewMcConn(clientConn)
+		hsPk := statusHandshakePacket()
+		client.WritePacket(hsPk)
+
+		select {
+		case <-reqCh:
+		case <-time.After(defaultChTimeout):
+			t.Error("method didnt send status request")
+		}
+	})
+
+	t.Run("can proxy connection to server", func(t *testing.T) {
+		clientConn, proxyFrontend := net.Pipe()
+		proxyBackend, serverConn := net.Pipe()
+		reqCh := make(chan conn.ConnRequest)
+		go conn.ReadConnection(proxyFrontend, reqCh)
+
+		hsPk := statusHandshakePacket()
+
+		go func() {
+			client := conn.NewMcConn(clientConn)
+			client.WritePacket(hsPk)
+			request := <-reqCh
+
+			proxyConn := conn.NewMcConn(proxyBackend)
+			request.Ch <- conn.ConnAnswer{
+				Action:     conn.PROXY,
+				ServerConn: proxyConn,
+			}
+		}()
+
+		server := conn.NewMcConn(serverConn)
+		receivedHsPk, _ := server.ReadPacket()
+		if !samePK(hsPk, receivedHsPk) {
+			t.Errorf("expected:\t %v, \ngot:\t %v", hsPk, receivedHsPk)
+		}
+		testProxyConn(t, clientConn, serverConn)
+		testProxyConn(t, serverConn, clientConn)
+	})
+
+	t.Run("can reply to status", func(t *testing.T) {
+		clientConn, proxyFrontend := net.Pipe()
+		reqCh := make(chan conn.ConnRequest)
+		go conn.ReadConnection(proxyFrontend, reqCh)
+
+		client := conn.NewMcConn(clientConn)
+		hsPk := statusHandshakePacket()
+		client.WritePacket(hsPk)
+
+		request := <-reqCh
+		statusPk := mc.AnotherStatusResponse{
+			Name:        "Ultraviolet",
+			Protocol:    751,
+			Description: "Some broken proxy",
+		}.Marshal()
+		statusAnswer := conn.ConnAnswer{
+			Action:   conn.SEND_STATUS,
+			StatusPk: statusPk,
+		}
+		request.Ch <- statusAnswer
+
+		client.WritePacket(mc.ServerBoundRequest{}.Marshal())
+		receivedPk, _ := client.ReadPacket()
+		if !samePK(statusPk, receivedPk) {
+			t.Errorf("expected:\t %v, \ngot:\t %v", statusPk, receivedPk)
+		}
+		pingPk := mc.NewServerBoundPing().Marshal()
+		client.WritePacket(pingPk)
+		pongPk, _ := client.ReadPacket()
+		if !samePK(pingPk, pongPk) {
+			t.Errorf("expected:\t %v, \ngot:\t %v", statusPk, receivedPk)
+		}
+	})
+
+	t.Run("close connection after non proxied status response", func(t *testing.T) {
+		clientConn, proxyFrontend := net.Pipe()
+		reqCh := make(chan conn.ConnRequest)
+		go conn.ReadConnection(proxyFrontend, reqCh)
+
+		client := conn.NewMcConn(clientConn)
+		hsPk := statusHandshakePacket()
+		client.WritePacket(hsPk)
+
+		request := <-reqCh
+		statusPk := mc.AnotherStatusResponse{
+			Name:        "Ultraviolet",
+			Protocol:    751,
+			Description: "Some broken proxy",
+		}.Marshal()
+		statusAnswer := conn.ConnAnswer{
+			Action:   conn.SEND_STATUS,
+			StatusPk: statusPk,
+		}
+		request.Ch <- statusAnswer
+
+		client.WritePacket(mc.ServerBoundRequest{}.Marshal())
+		client.ReadPacket()
+		pingPk := mc.NewServerBoundPing().Marshal()
+		client.WritePacket(pingPk)
+		client.ReadPacket()
+
+		testConnectedClosed(t, clientConn)
+	})
+
 }
 
 func testProxyConn(t *testing.T, client, server net.Conn) {
@@ -355,119 +494,45 @@ func testConnectedClosed(t *testing.T, conn net.Conn) {
 	}
 }
 
-func TestDoStatusSequence(t *testing.T) {
-	t.Run("send request through channel", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(nil, reqCh)
-
+func TestProxyConnection(t *testing.T) {
+	t.Run("Client writes to Server", func(t *testing.T) {
+		client, server := net.Pipe()
+		closedCh := make(chan struct{})
+		go conn.ProxyConnections(client, server, closedCh)
+		readBuffer := make([]byte, 10)
+		couldReachCh := make(chan struct{})
+		go func() {
+			client.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9})
+			couldReachCh <- struct{}{}
+		}()
+		go func() {
+			server.Read(readBuffer)
+		}()
 		select {
-		case <-reqCh:
+		case <-couldReachCh:
 		case <-time.After(defaultChTimeout):
-			t.Fatal("method didnt send status request")
+			t.Fail()
 		}
 	})
 
-	t.Run("replay answer through channel", func(t *testing.T) {
-		_, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
-
-		request := <-reqCh
-
-		statusAnswer := conn.ConnAnswer{
-			Action: conn.CLOSE,
-		}
-
+	t.Run("Server writes to Client", func(t *testing.T) {
+		client, server := net.Pipe()
+		closedCh := make(chan struct{})
+		go conn.ProxyConnections(client, server, closedCh)
+		readBuffer := make([]byte, 10)
+		couldReachCh := make(chan struct{})
+		go func() {
+			server.Write([]byte{1, 2, 3, 4, 5, 6, 7, 8, 9})
+			couldReachCh <- struct{}{}
+		}()
+		go func() {
+			client.Read(readBuffer)
+		}()
 		select {
-		case request.Ch <- statusAnswer:
+		case <-couldReachCh:
 		case <-time.After(defaultChTimeout):
-			t.Fatal("method receive status answer")
+			t.Fail()
 		}
 	})
 
-	t.Run("can proxy connection to server", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
-
-		request := <-reqCh
-		proxyBackend, server := net.Pipe()
-		statusAnswer := conn.ConnAnswer{
-			Action:     conn.PROXY,
-			ServerConn: conn.NewMcConn(proxyBackend),
-		}
-		request.Ch <- statusAnswer
-		server.Read([]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}) // Read handshake
-		testProxyConn(t, client, server)
-		testProxyConn(t, server, client)
-	})
-
-	t.Run("can proxy connection to server", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
-
-		request := <-reqCh
-		statusPk := mc.AnotherStatusResponse{
-			Name:        "Ultraviolet",
-			Protocol:    751,
-			Description: "Some broken proxy",
-		}.Marshal()
-		statusAnswer := conn.ConnAnswer{
-			Action:   conn.SEND_STATUS,
-			StatusPk: statusPk,
-		}
-		request.Ch <- statusAnswer
-
-		clientConn := conn.NewMcConn(client)
-		err := clientConn.WritePacket(mc.ServerBoundRequest{}.Marshal())
-		if err != nil {
-			t.Fatalf("expected no error but got: %v", err)
-		}
-
-		receivedPk, err := clientConn.ReadPacket()
-		if err != nil {
-			t.Fatalf("expected no error but got: %v", err)
-		}
-		if !samePK(statusPk, receivedPk) {
-			t.Errorf("different packet received. \nexpected:\t %v, \ngot:\t %v", statusPk, receivedPk)
-		}
-
-		pingPk := mc.NewServerBoundPing().Marshal()
-		if err := clientConn.WritePacket(pingPk); err != nil {
-			t.Fatalf("expected no error but got: %v", err)
-		}
-
-		pongPk, err := clientConn.ReadPacket()
-		if err != nil {
-			t.Fatalf("expected no error but got: %v", err)
-		}
-		if !samePK(pingPk, pongPk) {
-			t.Errorf("different packet received. \nexpected:\t %v, \ngot:\t %v", statusPk, receivedPk)
-		}
-	})
-
-	t.Run("close connection after non proxied response", func(t *testing.T) {
-		client, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
-
-		request := <-reqCh
-		statusPk := mc.AnotherStatusResponse{}.Marshal()
-		request.Ch <- conn.ConnAnswer{
-			Action:   conn.SEND_STATUS,
-			StatusPk: statusPk,
-		}
-
-		clientConn := conn.NewMcConn(client)
-		statusRequestPk := mc.ServerBoundRequest{}.Marshal()
-		clientConn.WritePacket(statusRequestPk)
-
-		clientConn.ReadPacket()
-		pingPk := mc.NewServerBoundPing().Marshal()
-		clientConn.WritePacket(pingPk)
-		clientConn.ReadPacket()
-
-		testConnectedClosed(t, client)
-	})
 }
