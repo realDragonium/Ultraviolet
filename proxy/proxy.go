@@ -5,11 +5,10 @@ import (
 	"net"
 	"sync"
 
-	"github.com/realDragonium/Ultraviolet/conn"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-func NewProxy(reqCh chan conn.ConnRequest) Proxy {
+func NewProxy(reqCh chan ConnRequest) Proxy {
 	return Proxy{
 		reqCh:          reqCh,
 		NotifyCh:       make(chan struct{}),
@@ -22,7 +21,7 @@ func NewProxy(reqCh chan conn.ConnRequest) Proxy {
 }
 
 type Proxy struct {
-	reqCh    chan conn.ConnRequest
+	reqCh    chan ConnRequest
 	NotifyCh chan struct{}
 
 	ShouldNotifyCh chan struct{}
@@ -41,31 +40,31 @@ func (p *Proxy) backend() {
 	for {
 		request := <-p.reqCh
 		switch request.Type {
-		case conn.LOGIN:
+		case LOGIN:
 			somethingElse(request)
 			serverConn, err := net.Dial("tcp", "192.168.1.15:25560")
 			if err != nil {
 				log.Printf("Error while connection to server: %v", err)
-				request.Ch <- conn.ConnAnswer{
-					Action: conn.CLOSE,
+				request.Ch <- ConnAnswer{
+					Action: CLOSE,
 				}
 				return
 			}
-			request.Ch <- conn.ConnAnswer{
-				Action:       conn.PROXY,
-				ServerConn:   conn.NewMcConn(serverConn),
+			request.Ch <- ConnAnswer{
+				Action:       PROXY,
+				ServerConn:   NewMcConn(serverConn),
 				NotifyClosed: p.closedProxy,
 			}
 			p.openedProxy <- struct{}{}
-		case conn.STATUS:
+		case STATUS:
 			somethingElse(request)
 			statusPk := mc.AnotherStatusResponse{
 				Name:        "Ultraviolet",
 				Protocol:    751,
 				Description: "Some broken proxy",
 			}.Marshal()
-			request.Ch <- conn.ConnAnswer{
-				Action:       conn.SEND_STATUS,
+			request.Ch <- ConnAnswer{
+				Action:       SEND_STATUS,
 				StatusPk:     statusPk,
 				NotifyClosed: p.closedProxy,
 			}

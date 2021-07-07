@@ -1,4 +1,4 @@
-package conn_test
+package proxy_test
 
 import (
 	"bytes"
@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/realDragonium/Ultraviolet/conn"
 	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
 var defaultChTimeout time.Duration = 10 * time.Millisecond
@@ -96,12 +96,12 @@ func samePK(expected, received mc.Packet) bool {
 
 func TestListener(t *testing.T) {
 	runSimpleListener := func(newConnCh <-chan net.Conn) {
-		reqCh := make(chan conn.ConnRequest)
+		reqCh := make(chan proxy.ConnRequest)
 		mockListener := &testListener{
 			newConnCh: newConnCh,
 		}
 		go func() {
-			conn.Serve(mockListener, reqCh)
+			proxy.Serve(mockListener, reqCh)
 		}()
 	}
 
@@ -139,8 +139,8 @@ func TestListener(t *testing.T) {
 func TestReadConnection(t *testing.T) {
 	t.Run("Can read handshake packet", func(t *testing.T) {
 		client, server := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(server, reqCh)
 
 		finishedWritingCh := make(chan struct{})
 		go func() {
@@ -160,8 +160,8 @@ func TestReadConnection(t *testing.T) {
 
 	t.Run("will close connection by invalid packet size", func(t *testing.T) {
 		client, server := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(server, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(server, reqCh)
 
 		finishedWritingCh := make(chan struct{})
 		go func() {
@@ -187,12 +187,12 @@ func TestReadConnection(t *testing.T) {
 
 	t.Run("Can read start login packet", func(t *testing.T) {
 		clientConn, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
 		finishedWritingCh := make(chan struct{})
 		go func() {
-			client := conn.NewMcConn(clientConn)
+			client := proxy.NewMcConn(clientConn)
 			hsPk := loginHandshakePacket()
 			client.WritePacket(hsPk)
 			loginPk := basicLoginStartPacket()
@@ -215,11 +215,11 @@ func TestReadConnection(t *testing.T) {
 			conn:       proxyFrontend,
 			remoteAddr: &clientAddr,
 		}
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(&mockClientconn, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(&mockClientconn, reqCh)
 
 		go func() {
-			client := conn.NewMcConn(clientConn)
+			client := proxy.NewMcConn(clientConn)
 			hsPk := loginHandshakePacket()
 			client.WritePacket(hsPk)
 			loginPk := basicLoginStartPacket()
@@ -245,44 +245,44 @@ func TestReadConnection(t *testing.T) {
 	})
 
 	t.Run("Close response closes channel", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
+		reqCh := make(chan proxy.ConnRequest)
 		clientConn, proxyFrontend := net.Pipe()
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
 		go func() {
-			client := conn.NewMcConn(clientConn)
+			client := proxy.NewMcConn(clientConn)
 			hsPk := statusHandshakePacket()
 			client.WritePacket(hsPk)
 		}()
 
 		request := <-reqCh
 
-		request.Ch <- conn.ConnAnswer{
-			Action: conn.CLOSE,
+		request.Ch <- proxy.ConnAnswer{
+			Action: proxy.CLOSE,
 		}
 		testConnectedClosed(t, clientConn)
 	})
 
 	t.Run("can proxy login connection", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
+		reqCh := make(chan proxy.ConnRequest)
 		clientConn, proxyFrontend := net.Pipe()
 		proxyBackend, serverConn := net.Pipe()
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
 		hsPk := loginHandshakePacket()
 		loginPk := basicLoginStartPacket()
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		client.WritePacket(hsPk)
 		client.WritePacket(loginPk)
 		request := <-reqCh
 
-		request.Ch <- conn.ConnAnswer{
-			Action:     conn.PROXY,
-			ServerConn: conn.NewMcConn(proxyBackend),
+		request.Ch <- proxy.ConnAnswer{
+			Action:     proxy.PROXY,
+			ServerConn: proxy.NewMcConn(proxyBackend),
 		}
 
-		server := conn.NewMcConn(serverConn)
+		server := proxy.NewMcConn(serverConn)
 		receivedHsPk, _ := server.ReadPacket()
 		if !samePK(hsPk, receivedHsPk) {
 			t.Errorf("expected: %v, \ngot: %v", hsPk, receivedHsPk)
@@ -296,11 +296,11 @@ func TestReadConnection(t *testing.T) {
 	})
 
 	t.Run("can send disconnect packet", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
+		reqCh := make(chan proxy.ConnRequest)
 		clientConn, proxyFrontend := net.Pipe()
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		hsPk := loginHandshakePacket()
 		client.WritePacket(hsPk)
 		loginPk := basicLoginStartPacket()
@@ -312,8 +312,8 @@ func TestReadConnection(t *testing.T) {
 			Reason: mc.Chat(disconMessage),
 		}.Marshal()
 
-		request.Ch <- conn.ConnAnswer{
-			Action:        conn.DISCONNECT,
+		request.Ch <- proxy.ConnAnswer{
+			Action:        proxy.DISCONNECT,
 			DisconMessage: disconPk,
 		}
 
@@ -328,18 +328,18 @@ func TestReadConnection(t *testing.T) {
 
 	t.Run("expect connection to be closed after disconnect", func(t *testing.T) {
 		clientConn, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		hsPk := loginHandshakePacket()
 		client.WritePacket(hsPk)
 		loginPk := basicLoginStartPacket()
 		client.WritePacket(loginPk)
 
 		request := <-reqCh
-		request.Ch <- conn.ConnAnswer{
-			Action:        conn.DISCONNECT,
+		request.Ch <- proxy.ConnAnswer{
+			Action:        proxy.DISCONNECT,
 			DisconMessage: mc.ClientBoundDisconnect{}.Marshal(),
 		}
 		client.ReadPacket()
@@ -348,11 +348,11 @@ func TestReadConnection(t *testing.T) {
 	})
 
 	t.Run("send status request through channel", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
+		reqCh := make(chan proxy.ConnRequest)
 		clientConn, proxyFrontend := net.Pipe()
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		hsPk := statusHandshakePacket()
 		client.WritePacket(hsPk)
 
@@ -366,24 +366,24 @@ func TestReadConnection(t *testing.T) {
 	t.Run("can proxy connection to server", func(t *testing.T) {
 		clientConn, proxyFrontend := net.Pipe()
 		proxyBackend, serverConn := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
 		hsPk := statusHandshakePacket()
 
 		go func() {
-			client := conn.NewMcConn(clientConn)
+			client := proxy.NewMcConn(clientConn)
 			client.WritePacket(hsPk)
 			request := <-reqCh
 
-			proxyConn := conn.NewMcConn(proxyBackend)
-			request.Ch <- conn.ConnAnswer{
-				Action:     conn.PROXY,
+			proxyConn := proxy.NewMcConn(proxyBackend)
+			request.Ch <- proxy.ConnAnswer{
+				Action:     proxy.PROXY,
 				ServerConn: proxyConn,
 			}
 		}()
 
-		server := conn.NewMcConn(serverConn)
+		server := proxy.NewMcConn(serverConn)
 		receivedHsPk, _ := server.ReadPacket()
 		if !samePK(hsPk, receivedHsPk) {
 			t.Errorf("expected:\t %v, \ngot:\t %v", hsPk, receivedHsPk)
@@ -394,10 +394,10 @@ func TestReadConnection(t *testing.T) {
 
 	t.Run("can reply to status", func(t *testing.T) {
 		clientConn, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		hsPk := statusHandshakePacket()
 		client.WritePacket(hsPk)
 
@@ -407,8 +407,8 @@ func TestReadConnection(t *testing.T) {
 			Protocol:    751,
 			Description: "Some broken proxy",
 		}.Marshal()
-		statusAnswer := conn.ConnAnswer{
-			Action:   conn.SEND_STATUS,
+		statusAnswer := proxy.ConnAnswer{
+			Action:   proxy.SEND_STATUS,
 			StatusPk: statusPk,
 		}
 		request.Ch <- statusAnswer
@@ -428,10 +428,10 @@ func TestReadConnection(t *testing.T) {
 
 	t.Run("close connection after non proxied status response", func(t *testing.T) {
 		clientConn, proxyFrontend := net.Pipe()
-		reqCh := make(chan conn.ConnRequest)
-		go conn.ReadConnection(proxyFrontend, reqCh)
+		reqCh := make(chan proxy.ConnRequest)
+		go proxy.ReadConnection(proxyFrontend, reqCh)
 
-		client := conn.NewMcConn(clientConn)
+		client := proxy.NewMcConn(clientConn)
 		hsPk := statusHandshakePacket()
 		client.WritePacket(hsPk)
 
@@ -441,8 +441,8 @@ func TestReadConnection(t *testing.T) {
 			Protocol:    751,
 			Description: "Some broken proxy",
 		}.Marshal()
-		statusAnswer := conn.ConnAnswer{
-			Action:   conn.SEND_STATUS,
+		statusAnswer := proxy.ConnAnswer{
+			Action:   proxy.SEND_STATUS,
 			StatusPk: statusPk,
 		}
 		request.Ch <- statusAnswer
@@ -498,7 +498,7 @@ func TestProxyConnection(t *testing.T) {
 	t.Run("Client writes to Server", func(t *testing.T) {
 		client, server := net.Pipe()
 		closedCh := make(chan struct{})
-		go conn.ProxyConnections(client, server, closedCh)
+		go proxy.ProxyConnections(client, server, closedCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -518,7 +518,7 @@ func TestProxyConnection(t *testing.T) {
 	t.Run("Server writes to Client", func(t *testing.T) {
 		client, server := net.Pipe()
 		closedCh := make(chan struct{})
-		go conn.ProxyConnections(client, server, closedCh)
+		go proxy.ProxyConnections(client, server, closedCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {

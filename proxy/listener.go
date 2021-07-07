@@ -1,4 +1,4 @@
-package conn
+package proxy
 
 import (
 	"bufio"
@@ -18,6 +18,7 @@ const (
 	DISCONNECT
 	SEND_STATUS
 	CLOSE
+	ERROR
 )
 
 const (
@@ -117,6 +118,7 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 	case SEND_STATUS:
 		// Notchian servers will wait for ping packet before sending response...?
 		// source: https://wiki.vg/Server_List_Ping#Response (first line -> second sentence)
+		// (which is different from how we do it rn)
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)
 		pingPk, _ := conn.ReadPacket()
