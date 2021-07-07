@@ -1,9 +1,7 @@
 package proxy_test
 
 import (
-	"bytes"
 	"net"
-	"strings"
 	"testing"
 	"time"
 
@@ -12,34 +10,7 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
-func netAddrToIp(addr net.Addr) string {
-	return strings.Split(addr.String(), ":")[0]
-}
-
-func defaultOfflineStatusPacket() mc.Packet {
-	return mc.AnotherStatusResponse{
-		Name:        "Ultraviolet-ff",
-		Protocol:    755,
-		Description: "offline proxy being tested",
-	}.Marshal()
-}
-
-func samePk(expected, received mc.Packet) bool {
-	sameID := expected.ID == received.ID
-	sameData := bytes.Equal(expected.Data, received.Data)
-
-	return sameID && sameData
-}
-
-func unknownServerStatus() mc.Packet {
-	return mc.AnotherStatusResponse{
-		Name:        "Ultraviolet",
-		Protocol:    0,
-		Description: "No server found",
-	}.Marshal()
-}
-
-func setupBasicWorker(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
+func setupAdvWorker(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
 	reqCh := make(chan proxy.McRequest)
 	worker := proxy.NewWorker(reqCh, servers, unknownServerStatus())
 
@@ -47,28 +18,9 @@ func setupBasicWorker(servers map[string]proxy.WorkerServerConfig) chan<- proxy.
 	return reqCh
 }
 
-func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
-	connCh := make(chan net.Conn)
-	errorCh := make(chan error)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				errorCh <- err
-			}
-			connCh <- conn
-		}
-	}()
-	return connCh, errorCh
-}
-
-func TestBasicBasicWorker_CanReceiveRequests(t *testing.T) {
+func TestAdvWorker_CanReceiveRequests(t *testing.T) {
 	reqCh := make(chan proxy.McRequest)
-	worker := proxy.NewWorker(reqCh, nil, unknownServerStatus())
+	worker := proxy.NewAdvWorker(reqCh, nil, unknownServerStatus())
 	go worker.Work()
 	select {
 	case reqCh <- proxy.McRequest{}:
@@ -78,9 +30,9 @@ func TestBasicBasicWorker_CanReceiveRequests(t *testing.T) {
 	}
 }
 
-func TestBasicStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
+func TestAdvStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
 	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -105,7 +57,7 @@ func TestBasicStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
 	}
 }
 
-func TestBasicStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
+func TestAdvStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
 	serverAddr := "ultraviolet"
 	offlineStatusPk := defaultOfflineStatusPacket()
 	servers := make(map[string]proxy.WorkerServerConfig)
@@ -113,7 +65,7 @@ func TestBasicStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T
 		OfflineStatus: offlineStatusPk,
 		State:         proxy.OFFLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -138,7 +90,7 @@ func TestBasicStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T
 	}
 }
 
-// func TestBasicStatusKnownAddr_ReturnsOnlineStatus_WhenServerOnline(t *testing.T) {
+// func TestAdvStatusKnownAddr_ReturnsOnlineStatus_WhenServerOnline(t *testing.T) {
 // 	serverAddr := "ultraviolet"
 // 	onlineStatusPk := defaultOnlineStatusPacket()
 // 	servers := make(map[string]proxy.WorkerServerConfig)
@@ -146,7 +98,7 @@ func TestBasicStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T
 // 		OnlineStatus: onlineStatusPk,
 // 	}
 
-// 	reqCh := setupBasicWorker(servers)
+// 	reqCh := setupAdvWorker(servers)
 
 // 	answerCh := make(chan proxy.ConnAnswer)
 // 	reqCh <- proxy.ConnRequest{
@@ -169,9 +121,9 @@ func TestBasicStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T
 // 	}
 // }
 
-func TestBasicLoginUnknownAddr_ShouldClose(t *testing.T) {
+func TestAdvLoginUnknownAddr_ShouldClose(t *testing.T) {
 	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -191,14 +143,14 @@ func TestBasicLoginUnknownAddr_ShouldClose(t *testing.T) {
 	}
 }
 
-func TestBasicLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
+func TestAdvLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
 	serverAddr := "ultraviolet"
-	targetAddr := "127.0.0.1:25565"
+	targetAddr := "127.0.0.1:25665"
 	servers := make(map[string]proxy.WorkerServerConfig)
 	servers[serverAddr] = proxy.WorkerServerConfig{
 		ProxyTo: targetAddr,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	createListener(t, targetAddr)
 
@@ -225,16 +177,16 @@ func TestBasicLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
 	}
 }
 
-func TestBasicLoginProxyBind(t *testing.T) {
+func TestAdvLoginProxyBind(t *testing.T) {
 	serverAddr := "ultraviolet"
-	proxyTo := "127.0.0.1:25566"
+	proxyTo := "127.0.0.1:25666"
 	proxyBind := "127.0.0.2"
 	servers := make(map[string]proxy.WorkerServerConfig)
 	servers[serverAddr] = proxy.WorkerServerConfig{
 		ProxyTo:   proxyTo,
 		ProxyBind: proxyBind,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	connCh, errorCh := createListener(t, proxyTo)
 
@@ -258,9 +210,9 @@ func TestBasicLoginProxyBind(t *testing.T) {
 	}
 }
 
-func TestBasicLoginProxyProtocol(t *testing.T) {
+func TestAdvLoginProxyProtocol(t *testing.T) {
 	serverAddr := "ultraviolet"
-	proxyTo := "127.0.0.1:25567"
+	proxyTo := "127.0.0.1:25667"
 	servers := make(map[string]proxy.WorkerServerConfig)
 	servers[serverAddr] = proxy.WorkerServerConfig{
 		ProxyTo:           proxyTo,
@@ -270,7 +222,7 @@ func TestBasicLoginProxyProtocol(t *testing.T) {
 		IP:   net.ParseIP("187.34.26.123"),
 		Port: 49473,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	listener, err := net.Listen("tcp", proxyTo)
 	if err != nil {
@@ -311,7 +263,7 @@ func TestBasicLoginProxyProtocol(t *testing.T) {
 	}
 }
 
-func TestBasicLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
+func TestAdvLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
 	serverAddr := "ultraviolet"
 	disconPacket := mc.ClientBoundDisconnect{
 		Reason: "Some disconnect message right here",
@@ -321,7 +273,7 @@ func TestBasicLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
 		State:            proxy.OFFLINE,
 		DisconnectPacket: disconPacket,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -344,14 +296,14 @@ func TestBasicLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
 	}
 }
 
-func TestBasicStatusKnownAddr_ProxyConnection_WhenServerOnline(t *testing.T) {
+func TestAdvStatusKnownAddr_ProxyConnection_WhenServerOnline(t *testing.T) {
 	serverAddr := "ultraviolet"
-	targetAddr := "127.0.0.1:25568"
+	targetAddr := "127.0.0.1:25668"
 	servers := make(map[string]proxy.WorkerServerConfig)
 	servers[serverAddr] = proxy.WorkerServerConfig{
 		ProxyTo: targetAddr,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupAdvWorker(servers)
 
 	createListener(t, targetAddr)
 

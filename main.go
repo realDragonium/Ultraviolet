@@ -10,7 +10,6 @@ import (
 
 	"github.com/cloudflare/tableflip"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/conn"
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
@@ -54,8 +53,8 @@ func main() {
 	}
 	defer ln.Close()
 
-	reqCh := make(chan conn.ConnRequest)
-	go conn.Serve(ln, reqCh)
+	reqCh := make(chan proxy.McRequest)
+	go proxy.Serve(ln, reqCh)
 
 	p := proxy.NewProxy(reqCh)
 	p.Serve()

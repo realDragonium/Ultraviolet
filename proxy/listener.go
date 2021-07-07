@@ -10,11 +10,11 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-type ConnAction byte
-type ConnType byte
+type McAction byte
+type McType byte
 
 const (
-	PROXY ConnAction = iota
+	PROXY McAction = iota
 	DISCONNECT
 	SEND_STATUS
 	CLOSE
@@ -22,27 +22,27 @@ const (
 )
 
 const (
-	STATUS ConnType = iota + 1
+	STATUS McType = iota + 1
 	LOGIN
 )
 
-type ConnRequest struct {
-	Type       ConnType
+type McRequest struct {
+	Type       McType
 	ServerAddr string
 	Username   string
 	Addr       net.Addr
-	Ch         chan ConnAnswer
+	Ch         chan McAnswer
 }
 
-type ConnAnswer struct {
+type McAnswer struct {
 	ServerConn    McConn
 	DisconMessage mc.Packet
-	Action        ConnAction
+	Action        McAction
 	StatusPk      mc.Packet
 	NotifyClosed  chan struct{}
 }
 
-func Serve(listener net.Listener, reqCh chan ConnRequest) {
+func Serve(listener net.Listener, reqCh chan McRequest) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -57,7 +57,7 @@ func Serve(listener net.Listener, reqCh chan ConnRequest) {
 	}
 }
 
-func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
+func ReadConnection(c net.Conn, reqCh chan McRequest) {
 	// Rewrite connection code?
 	conn := NewMcConn(c)
 	// Add better error handling
@@ -80,8 +80,8 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		isLoginReq = true
 	}
 
-	ansCh := make(chan ConnAnswer)
-	req := ConnRequest{
+	ansCh := make(chan McAnswer)
+	req := McRequest{
 		Ch:         ansCh,
 		Addr:       c.RemoteAddr(),
 		ServerAddr: string(handshake.ServerAddress),

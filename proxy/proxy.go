@@ -8,7 +8,7 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-func NewProxy(reqCh chan ConnRequest) Proxy {
+func NewProxy(reqCh chan McRequest) Proxy {
 	return Proxy{
 		reqCh:          reqCh,
 		NotifyCh:       make(chan struct{}),
@@ -21,7 +21,7 @@ func NewProxy(reqCh chan ConnRequest) Proxy {
 }
 
 type Proxy struct {
-	reqCh    chan ConnRequest
+	reqCh    chan McRequest
 	NotifyCh chan struct{}
 
 	ShouldNotifyCh chan struct{}
@@ -45,12 +45,12 @@ func (p *Proxy) backend() {
 			serverConn, err := net.Dial("tcp", "192.168.1.15:25560")
 			if err != nil {
 				log.Printf("Error while connection to server: %v", err)
-				request.Ch <- ConnAnswer{
+				request.Ch <- McAnswer{
 					Action: CLOSE,
 				}
 				return
 			}
-			request.Ch <- ConnAnswer{
+			request.Ch <- McAnswer{
 				Action:       PROXY,
 				ServerConn:   NewMcConn(serverConn),
 				NotifyClosed: p.closedProxy,
@@ -63,7 +63,7 @@ func (p *Proxy) backend() {
 				Protocol:    751,
 				Description: "Some broken proxy",
 			}.Marshal()
-			request.Ch <- ConnAnswer{
+			request.Ch <- McAnswer{
 				Action:       SEND_STATUS,
 				StatusPk:     statusPk,
 				NotifyClosed: p.closedProxy,
