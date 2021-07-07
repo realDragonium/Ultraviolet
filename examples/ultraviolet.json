@@ -1,0 +1,10 @@
+{
+    "listenTo": ":25565",
+    "numberOfWorkers": 5,
+    "receiveProxyProtocol": false,
+    "defaultStatus": {
+        "name": "Ultraviolet",
+        "protocol": 755,
+        "text": "Some broken proxy"
+    }
+}

@@ -9,14 +9,16 @@ import (
 	"syscall"
 
 	"github.com/cloudflare/tableflip"
+	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/conn"
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
 func main() {
-	fmt.Println("Starting up")
+	log.Println("Starting up")
 	var (
-		pidFile = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
+		pidFile     = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
+		mainCfgPath = flag.String("config", "", "`Path` to main config file")
 	)
 	flag.Parse()
 	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
@@ -41,7 +43,12 @@ func main() {
 		}
 	}()
 
-	ln, err := upg.Listen("tcp", ":25565")
+	cfg, err := config.ReadUltravioletConfig(*mainCfgPath)
+	if err != nil {
+		log.Fatalln("Can't listen:", err)
+	}
+
+	ln, err := upg.Listen("tcp", cfg.ListenTo)
 	if err != nil {
 		log.Fatalln("Can't listen:", err)
 	}

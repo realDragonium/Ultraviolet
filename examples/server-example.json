@@ -1,0 +1,14 @@
+{
+    "mainDomain": "localhost",
+    "extraDomains": ["127.0.0.1", "0.0.0.0"],
+    "proxyTo": ":25566",
+    "proxyBind": "0.0.0.0",
+    "sendProxyProtocol": false,
+    "disconnectMessage": "Sorry {{username}}, but the server is offline.",
+    "offlineStatus": {
+        "name": "Ultraviolet",
+        "protocol": 755,
+        "text": "Some offline server"
+    },
+    "connPerSec": 5
+}

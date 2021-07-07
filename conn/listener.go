@@ -81,7 +81,9 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 
 	ansCh := make(chan ConnAnswer)
 	req := ConnRequest{
-		Ch: ansCh,
+		Ch:         ansCh,
+		Ip:         c.RemoteAddr(),
+		ServerAddr: string(handshake.ServerAddress),
 	}
 	var loginPacket mc.Packet
 	if isLoginReq {
@@ -94,9 +96,7 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		if err != nil {
 			log.Printf("Error while unmarshaling login start packet: %v", err)
 		}
-		req.Ip = c.RemoteAddr()
 		req.Username = string(loginStart.Name)
-		req.ServerAddr = string(handshake.ServerAddress)
 	}
 	reqCh <- req
 	ans := <-ansCh
@@ -115,6 +115,8 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		conn.WritePacket(ans.DisconMessage)
 		conn.netConn.Close()
 	case SEND_STATUS:
+		// Notchian servers will wait for ping packet before sending response...? 
+		// source: https://wiki.vg/Server_List_Ping#Response (first line -> second sentence)
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)
 		pingPk, _ := conn.ReadPacket()
@@ -126,6 +128,9 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 
 }
 
+// Check or doing this in a separate method has some adventages like:
+// - having a different stack so the other data can be collected
+// - doesnt give too much trouble with copy the connections
 func ProxyConnections(client, server net.Conn, notifyClosedCh chan struct{}) {
 	go func() {
 		io.Copy(server, client)

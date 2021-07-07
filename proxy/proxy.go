@@ -91,6 +91,6 @@ func (p *Proxy) manageConnections() {
 	}
 }
 
-func somethingElse(a ...interface{}) {
-
+func somethingElse(a ...interface{}) int {
+	return 0
 }
