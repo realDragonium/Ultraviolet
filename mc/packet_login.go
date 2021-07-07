@@ -122,3 +122,14 @@ func (pk ClientBoundDisconnect) Marshal() Packet {
 		pk.Reason,
 	)
 }
+
+func UnmarshalClientDisconnect(packet Packet) (ClientBoundDisconnect, error) {
+	var pk ClientBoundDisconnect
+
+	if packet.ID != ClientBoundDisconnectPacketID {
+		return pk, ErrInvalidPacketID
+	}
+
+	err := packet.Scan(&pk.Reason)
+	return pk, err
+}

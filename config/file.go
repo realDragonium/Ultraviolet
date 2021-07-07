@@ -6,6 +6,9 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+
+	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
 var (
@@ -77,4 +80,19 @@ func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 		return cfg, err
 	}
 	return cfg, nil
+}
+
+func FileToWorkerConfig(cfg ServerConfig) proxy.WorkerServerConfig {
+	disconPk := mc.ClientBoundDisconnect{
+		Reason: mc.Chat(cfg.DisconnectMessage),
+	}.Marshal()
+	offlineStatusPk := cfg.OfflineStatus.Marshal()
+	return proxy.WorkerServerConfig{
+		ProxyTo:           cfg.ProxyTo,
+		ProxyBind:         cfg.ProxyBind,
+		SendProxyProtocol: cfg.SendProxyProtocol,
+		ConnLimitBackend:  cfg.ConnLimitBackend,
+		OfflineStatus:     offlineStatusPk,
+		DisconnectPacket:  disconPk,
+	}
 }

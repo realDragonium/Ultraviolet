@@ -473,3 +473,40 @@ func TestClientBoundDisconnect_Marshal(t *testing.T) {
 		}
 	}
 }
+
+func TestUnmarshalClientDisconnect(t *testing.T) {
+	tt := []struct {
+		packet             mc.Packet
+		unmarshalledPacket mc.ClientBoundDisconnect
+	}{
+		{
+			packet: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x00},
+			},
+			unmarshalledPacket: mc.ClientBoundDisconnect{
+				Reason: mc.Chat(""),
+			},
+		},
+		{
+			packet: mc.Packet{
+				ID:   0x00,
+				Data: []byte{0x0d, 0x48, 0x65, 0x6c, 0x6c, 0x6f, 0x2c, 0x20, 0x57, 0x6f, 0x72, 0x6c, 0x64, 0x21},
+			},
+			unmarshalledPacket: mc.ClientBoundDisconnect{
+				Reason: mc.Chat("Hello, World!"),
+			},
+		},
+	}
+
+	for _, tc := range tt {
+		disconnectMessage, err := mc.UnmarshalClientDisconnect(tc.packet)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if disconnectMessage.Reason != tc.unmarshalledPacket.Reason {
+			t.Errorf("got: %v, want: %v", disconnectMessage.Reason, tc.unmarshalledPacket.Reason)
+		}
+	}
+}

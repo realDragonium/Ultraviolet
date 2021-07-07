@@ -54,43 +54,41 @@ func SomethingElse() {
 
 }
 
-type UnknownServer struct {
-	Status mc.Packet
-}
-
 type WorkerServerConfig struct {
 	//Adding domains temporarily for testing until better structure
 	MainDomain   string
 	ExtraDomains []string
 
-	OnlineStatus  mc.Packet
-	OfflineStatus mc.Packet
-	State         ServerState
+	State ServerState
+
+	OnlineStatus     mc.Packet
+	OfflineStatus    mc.Packet
+	DisconnectPacket mc.Packet
 
 	ProxyTo           string
 	ProxyBind         string
 	SendProxyProtocol bool
-	DisconnectMessage string
 
 	ConnLimitBackend int
 }
 
-func NewWorker(req chan conn.ConnRequest) Worker {
+func NewWorker(req chan conn.ConnRequest, proxies map[string]WorkerServerConfig, defaultStatus mc.Packet) Worker {
 	return Worker{
-		ReqCh: req,
+		reqCh:         req,
+		defaultStatus: defaultStatus,
+		Servers:       proxies,
 	}
-
 }
 
 type Worker struct {
-	ReqCh      chan conn.ConnRequest
-	DefaultCfg UnknownServer
-	Servers    map[string]WorkerServerConfig
+	reqCh         chan conn.ConnRequest
+	defaultStatus mc.Packet
+	Servers       map[string]WorkerServerConfig
 }
 
 func (w Worker) Work() {
 	for {
-		request := <-w.ReqCh
+		request := <-w.reqCh
 		serverCfg, ok := w.Servers[request.ServerAddr]
 		if !ok {
 			//Unknown server address
@@ -98,7 +96,7 @@ func (w Worker) Work() {
 			case conn.STATUS:
 				request.Ch <- conn.ConnAnswer{
 					Action:   conn.SEND_STATUS,
-					StatusPk: w.DefaultCfg.Status,
+					StatusPk: w.defaultStatus,
 				}
 			case conn.LOGIN:
 				request.Ch <- conn.ConnAnswer{
@@ -120,7 +118,8 @@ func (w Worker) Work() {
 		case conn.LOGIN:
 			if serverCfg.State == OFFLINE {
 				request.Ch <- conn.ConnAnswer{
-					Action: conn.CLOSE,
+					Action:        conn.DISCONNECT,
+					DisconMessage: serverCfg.DisconnectPacket,
 				}
 				return
 			}
