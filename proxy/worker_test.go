@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pires/go-proxyproto"
 	"github.com/realDragonium/Ultraviolet/conn"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/proxy"
@@ -39,258 +40,212 @@ func UnknownServerCfg() proxy.UnknownServer {
 	}
 }
 
-func TestWorker(t *testing.T) {
-	setupWorker := func(proxies []proxy.WorkerServerConfig, defaultCfg proxy.UnknownServer) chan<- conn.ConnRequest {
-		reqCh := make(chan conn.ConnRequest)
-		servers := make(map[string]proxy.WorkerServerConfig)
-		for _, proxy := range proxies {
-			servers[proxy.MainDomain] = proxy
-			for _, extraDomain := range proxy.ExtraDomains {
-				servers[extraDomain] = proxy
-			}
-		}
-		worker := proxy.Worker{
-			ReqCh:      reqCh,
-			Servers:    servers,
-			DefaultCfg: defaultCfg,
-		}
-		go worker.Work()
-		return reqCh
-	}
-
-	t.Run("can receive requests", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		worker := proxy.Worker{ReqCh: reqCh}
-		go worker.Work()
-		select {
-		case reqCh <- conn.ConnRequest{}:
-			t.Log("worker has successfully received request")
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("status-unknown address returns default status", func(t *testing.T) {
-		servers := []proxy.WorkerServerConfig{}
-		reqCh := setupWorker(servers, UnknownServerCfg())
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.STATUS,
-			ServerAddr: "some weird server address",
-			Ch:         answerCh,
-		}
-		defaultStatusPk := defaultStatusPacket()
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if !samePk(defaultStatusPk, answer.StatusPk) {
-				t.Errorf("expcted: %v \ngot: %v", defaultStatusPk, answer.StatusPk)
-			}
-			if answer.Action != conn.SEND_STATUS {
-				t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
-			}
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("status-known address returns offline status when server is offline", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		serverAddr := "ultraviolet"
-		offlineStatusPk := mc.AnotherStatusResponse{
-			Name:        "Ultraviolet2",
-			Protocol:    755,
-			Description: "proxy2 being tested",
-		}.Marshal()
-		servers := make(map[string]proxy.WorkerServerConfig)
-		servers[serverAddr] = proxy.WorkerServerConfig{
-			OfflineStatus: offlineStatusPk,
-			State:         proxy.OFFLINE,
-		}
-		worker := proxy.Worker{
-			ReqCh:   reqCh,
-			Servers: servers,
-		}
-		go worker.Work()
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.STATUS,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if !samePk(offlineStatusPk, answer.StatusPk) {
-				t.Errorf("expcted: %v \ngot: %v", offlineStatusPk, answer.StatusPk)
-			}
-			if answer.Action != conn.SEND_STATUS {
-				t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
-			}
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("status-known address returns online status when server is online", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		serverAddr := "ultraviolet"
-		onlineStatusPk := mc.AnotherStatusResponse{
-			Name:        "Ultraviolet2.o",
-			Protocol:    755,
-			Description: "proxy2 being tested online",
-		}.Marshal()
-		servers := make(map[string]proxy.WorkerServerConfig)
-		servers[serverAddr] = proxy.WorkerServerConfig{
-			OnlineStatus: onlineStatusPk,
-		}
-		worker := proxy.Worker{
-			ReqCh:   reqCh,
-			Servers: servers,
-		}
-		go worker.Work()
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.STATUS,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if !samePk(onlineStatusPk, answer.StatusPk) {
-				t.Errorf("expcted: %v \ngot: %v", onlineStatusPk, answer.StatusPk)
-			}
-			if answer.Action != conn.SEND_STATUS {
-				t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
-			}
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("login-unknown address should close connections", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		servers := make(map[string]proxy.WorkerServerConfig)
-		worker := proxy.Worker{
-			ReqCh:   reqCh,
-			Servers: servers,
-			DefaultCfg: proxy.UnknownServer{
-				Status: defaultStatusPacket(),
-			},
-		}
-		go worker.Work()
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.LOGIN,
-			ServerAddr: "some weird server address",
-			Ch:         answerCh,
-		}
-
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if answer.Action != conn.CLOSE {
-				t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
-			}
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("login-known address offline server should close connections", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		serverAddr := "ultraviolet"
-		servers := make(map[string]proxy.WorkerServerConfig)
-		servers[serverAddr] = proxy.WorkerServerConfig{
-			State: proxy.OFFLINE,
-		}
-		worker := proxy.Worker{
-			ReqCh:   reqCh,
-			Servers: servers,
-			DefaultCfg: proxy.UnknownServer{
-				Status: defaultStatusPacket(),
-			},
-		}
-		go worker.Work()
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.LOGIN,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if answer.Action != conn.CLOSE {
-				t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
-			}
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-	t.Run("login-known address online server should proxy connections", func(t *testing.T) {
-		reqCh := make(chan conn.ConnRequest)
-		serverAddr := "ultraviolet"
-		servers := make(map[string]proxy.WorkerServerConfig)
-		servers[serverAddr] = proxy.WorkerServerConfig{
-			ProxyTo: "127.0.0.1:25565",
-		}
-		worker := proxy.Worker{
-			ReqCh:   reqCh,
-			Servers: servers,
-		}
-		go worker.Work()
-
-		answerCh := make(chan conn.ConnAnswer)
-		reqCh <- conn.ConnRequest{
-			Type:       conn.LOGIN,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-
-		select {
-		case answer := <-answerCh:
-			t.Log("worker has successfully responded")
-			if answer.Action != conn.PROXY {
-				t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
-			}
-			// Test server connection...?
-		case <-time.After(defaultChTimeout):
-			t.Error("timed out")
-		}
-	})
-
-}
-
-func TestNewServerConn_CreateConnection(t *testing.T) {
-	acceptCh := make(chan net.Conn)
-	errorCh := make(chan error)
+func setupWorker(proxies []proxy.WorkerServerConfig, defaultCfg proxy.UnknownServer) chan<- conn.ConnRequest {
 	reqCh := make(chan conn.ConnRequest)
-	serverAddr := "ultraviolet"
 	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: "127.0.0.1:25000",
+	for _, proxy := range proxies {
+		servers[proxy.MainDomain] = proxy
+		for _, extraDomain := range proxy.ExtraDomains {
+			servers[extraDomain] = proxy
+		}
 	}
-	worker := proxy.Worker{
-		ReqCh:   reqCh,
-		Servers: servers,
+	worker := &proxy.Worker{
+		ReqCh:      reqCh,
+		Servers:    servers,
+		DefaultCfg: defaultCfg,
 	}
 	go worker.Work()
+	return reqCh
+}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:25000")
+func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
+	connCh := make(chan net.Conn)
+	errorCh := make(chan error)
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		t.Fatal(err)
 	}
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				errorCh <- err
+			}
+			connCh <- conn
+		}
+	}()
+	return connCh, errorCh
+}
+
+func TestWorker_CanReceiveRequests(t *testing.T) {
+	reqCh := make(chan conn.ConnRequest)
+	worker := proxy.Worker{ReqCh: reqCh}
+	go worker.Work()
+	select {
+	case reqCh <- conn.ConnRequest{}:
+		t.Log("worker has successfully received request")
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
+	servers := []proxy.WorkerServerConfig{}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.STATUS,
+		ServerAddr: "some weird server address",
+		Ch:         answerCh,
+	}
+	defaultStatusPk := defaultStatusPacket()
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if !samePk(defaultStatusPk, answer.StatusPk) {
+			t.Errorf("expcted: %v \ngot: %v", defaultStatusPk, answer.StatusPk)
+		}
+		if answer.Action != conn.SEND_STATUS {
+			t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
+	serverAddr := "ultraviolet"
+	offlineStatusPk := mc.AnotherStatusResponse{
+		Name:        "Ultraviolet2",
+		Protocol:    755,
+		Description: "proxy2 being tested",
+	}.Marshal()
+
+	servers := []proxy.WorkerServerConfig{{
+		MainDomain:    serverAddr,
+		OfflineStatus: offlineStatusPk,
+		State:         proxy.OFFLINE,
+	}}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.STATUS,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if !samePk(offlineStatusPk, answer.StatusPk) {
+			offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
+			receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
+			t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
+		}
+		if answer.Action != conn.SEND_STATUS {
+			t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestStatusKnownAddr_ReturnsOnlineStatus_WhenServerOnline(t *testing.T) {
+	serverAddr := "ultraviolet"
+	onlineStatusPk := mc.AnotherStatusResponse{
+		Name:        "Ultraviolet2.o",
+		Protocol:    755,
+		Description: "proxy2 being tested online",
+	}.Marshal()
+	servers := []proxy.WorkerServerConfig{{
+		MainDomain:   serverAddr,
+		OnlineStatus: onlineStatusPk,
+	}}
+
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.STATUS,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if !samePk(onlineStatusPk, answer.StatusPk) {
+			t.Errorf("expcted: %v \ngot: %v", onlineStatusPk, answer.StatusPk)
+		}
+		if answer.Action != conn.SEND_STATUS {
+			t.Errorf("expcted: %v \ngot: %v", conn.SEND_STATUS, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestLoginUnknownAddr_ShouldClose(t *testing.T) {
+	servers := []proxy.WorkerServerConfig{}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.LOGIN,
+		ServerAddr: "some weird server address",
+		Ch:         answerCh,
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if answer.Action != conn.CLOSE {
+			t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestLoginKnownAddr_Offline_ShouldClose(t *testing.T) {
+	// probably will be changed later to disconnect message
+	serverCfg := proxy.WorkerServerConfig{
+		MainDomain: "ultraviolet",
+		State:      proxy.OFFLINE,
+	}
+	servers := []proxy.WorkerServerConfig{serverCfg}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.LOGIN,
+		ServerAddr: serverCfg.MainDomain,
+		Ch:         answerCh,
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if answer.Action != conn.CLOSE {
+			t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
+	serverAddr := "ultraviolet"
+	targetAddr := "127.0.0.1:25565"
+	servers := []proxy.WorkerServerConfig{{
+		MainDomain: serverAddr,
+		ProxyTo:    targetAddr,
+	}}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	createListener(t, targetAddr)
 
 	answerCh := make(chan conn.ConnAnswer)
 	reqCh <- conn.ConnRequest{
@@ -299,20 +254,13 @@ func TestNewServerConn_CreateConnection(t *testing.T) {
 		Ch:         answerCh,
 	}
 
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			errorCh <- err
-		}
-		acceptCh <- conn
-	}()
-
 	select {
-	case err := <-errorCh:
-		t.Fatalf("error while accepting connection: %v", err)
-	case conn := <-acceptCh:
-		t.Log("connection has been created")
-		_, err := conn.Write([]byte{1})
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if answer.Action != conn.PROXY {
+			t.Errorf("expcted: %v \ngot: %v", conn.CLOSE, answer.Action)
+		}
+		err := answer.ServerConn.WritePacket(mc.Packet{Data: []byte{0}})
 		if err != nil {
 			t.Fatalf("Got an unexpected error: %v", err)
 		}
@@ -321,37 +269,28 @@ func TestNewServerConn_CreateConnection(t *testing.T) {
 	}
 }
 
-func TestNewServerConn_ProxyBind(t *testing.T) {
-	acceptCh := make(chan net.Conn)
-	errorCh := make(chan error)
+func TestLoginProxyBind(t *testing.T) {
 	serverCfg := proxy.WorkerServerConfig{
-		ProxyTo:   "127.0.0.1:25001",
-		ProxyBind: "127.0.0.2",
+		MainDomain: "ultraviolet",
+		ProxyTo:    "127.0.0.1:25566",
+		ProxyBind:  "127.0.0.2",
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:25001")
-	if err != nil {
-		t.Fatal(err)
+	servers := []proxy.WorkerServerConfig{serverCfg}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	connCh, errorCh := createListener(t, serverCfg.ProxyTo)
+
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.LOGIN,
+		ServerAddr: serverCfg.MainDomain,
+		Ch:         answerCh,
 	}
-
-	go func() {
-		_, err = proxy.NewServerConn(serverCfg)
-		if err != nil {
-			errorCh <- err
-		}
-	}()
-
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			errorCh <- err
-		}
-		acceptCh <- conn
-	}()
 
 	select {
 	case err := <-errorCh:
 		t.Fatalf("error while accepting connection: %v", err)
-	case conn := <-acceptCh:
+	case conn := <-connCh:
 		t.Log("connection has been created")
 		if netAddrToIp(conn.RemoteAddr()) != serverCfg.ProxyBind {
 			t.Errorf("expcted: %v \ngot: %v", serverCfg.ProxyBind, netAddrToIp(conn.RemoteAddr()))
@@ -361,40 +300,53 @@ func TestNewServerConn_ProxyBind(t *testing.T) {
 	}
 }
 
-func TestNewServerConn_ProxyProtocol(t *testing.T) {
-	acceptCh := make(chan net.Conn)
-	errorCh := make(chan error)
-	serverCfg := proxy.WorkerServerConfig{
-		ProxyTo:   "127.0.0.1:25002",
-		ProxyBind: "127.0.0.2",
+func TestLoginProxyProtocol(t *testing.T) {
+	playerAddr := &net.TCPAddr{
+		IP:   net.ParseIP("187.34.26.123"),
+		Port: 49473,
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:25002")
+	serverCfg := proxy.WorkerServerConfig{
+		MainDomain:        "ultraviolet",
+		ProxyTo:           "127.0.0.1:25567",
+		ProxyBind:         "127.0.0.2",
+		SendProxyProtocol: true,
+	}
+	servers := []proxy.WorkerServerConfig{serverCfg}
+	reqCh := setupWorker(servers, UnknownServerCfg())
+
+	listener, err := net.Listen("tcp", serverCfg.ProxyTo)
 	if err != nil {
 		t.Fatal(err)
 	}
 
+	proxyListener := &proxyproto.Listener{Listener: listener}
+	connCh := make(chan net.Conn)
+	errorCh := make(chan error)
 	go func() {
-		_, err = proxy.NewServerConn(serverCfg)
-		if err != nil {
-			errorCh <- err
+		for {
+			conn, err := proxyListener.Accept()
+			if err != nil {
+				errorCh <- err
+			}
+			connCh <- conn
 		}
 	}()
 
-	go func() {
-		conn, err := listener.Accept()
-		if err != nil {
-			errorCh <- err
-		}
-		acceptCh <- conn
-	}()
+	answerCh := make(chan conn.ConnAnswer)
+	reqCh <- conn.ConnRequest{
+		Type:       conn.LOGIN,
+		ServerAddr: serverCfg.MainDomain,
+		Addr:       playerAddr,
+		Ch:         answerCh,
+	}
 
 	select {
 	case err := <-errorCh:
 		t.Fatalf("error while accepting connection: %v", err)
-	case conn := <-acceptCh:
+	case conn := <-connCh:
 		t.Log("connection has been created")
-		if netAddrToIp(conn.RemoteAddr()) != serverCfg.ProxyBind {
-			t.Errorf("expcted: %v \ngot: %v", serverCfg.ProxyBind, netAddrToIp(conn.RemoteAddr()))
+		if conn.RemoteAddr().String() != playerAddr.String() {
+			t.Errorf("expcted: %v \ngot: %v", playerAddr, conn.RemoteAddr())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")

@@ -236,8 +236,8 @@ func TestReadConnection(t *testing.T) {
 			if request.Username != "Ultraviolet" {
 				t.Errorf("Expected: Ultraviolet got: %v", request.Username)
 			}
-			if request.Ip != &clientAddr {
-				t.Errorf("Expected: Ultraviolet got: %v", request.Ip)
+			if request.Addr != &clientAddr {
+				t.Errorf("Expected: Ultraviolet got: %v", request.Addr)
 			}
 		case <-time.After(defaultChTimeout):
 			t.Error("test hasnt finished writen to server in time")

@@ -29,7 +29,7 @@ type ConnRequest struct {
 	Type       ConnType
 	ServerAddr string
 	Username   string
-	Ip         net.Addr
+	Addr       net.Addr
 	Ch         chan ConnAnswer
 }
 
@@ -82,7 +82,7 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 	ansCh := make(chan ConnAnswer)
 	req := ConnRequest{
 		Ch:         ansCh,
-		Ip:         c.RemoteAddr(),
+		Addr:       c.RemoteAddr(),
 		ServerAddr: string(handshake.ServerAddress),
 	}
 	var loginPacket mc.Packet
@@ -115,7 +115,7 @@ func ReadConnection(c net.Conn, reqCh chan ConnRequest) {
 		conn.WritePacket(ans.DisconMessage)
 		conn.netConn.Close()
 	case SEND_STATUS:
-		// Notchian servers will wait for ping packet before sending response...? 
+		// Notchian servers will wait for ping packet before sending response...?
 		// source: https://wiki.vg/Server_List_Ping#Response (first line -> second sentence)
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)

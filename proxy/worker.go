@@ -27,32 +27,17 @@ const (
 	UNKNOWN
 )
 
-func NewServerConn(cfg WorkerServerConfig) (net.Conn, error) {
-	var targetIp net.Addr
+func newServerConn(cfg WorkerServerConfig) (net.Conn, error) {
 	dialer := net.Dialer{
 		Timeout: dialTimeout,
 		LocalAddr: &net.TCPAddr{
+			// TODO: Add something for invalid ProxyBind ips
 			IP: net.ParseIP(cfg.ProxyBind),
 		},
 	}
 	serverConn, err := dialer.Dial("tcp", cfg.ProxyTo)
 	if err != nil {
 		return serverConn, err
-	}
-
-	//Not sure or this should be here
-	if cfg.SendProxyProtocol {
-		header := &proxyproto.Header{
-			Version:           2,
-			Command:           proxyproto.PROXY,
-			TransportProtocol: proxyproto.TCPv4,
-			SourceAddr:        targetIp,
-			DestinationAddr:   serverConn.RemoteAddr(),
-		}
-
-		if _, err = header.WriteTo(serverConn); err != nil {
-			return serverConn, ErrCantWriteToServer
-		}
 	}
 
 	return serverConn, nil
@@ -75,8 +60,8 @@ type UnknownServer struct {
 
 type WorkerServerConfig struct {
 	//Adding domains temporarily for testing until better structure
-	MainDomain        string                   
-	ExtraDomains      []string                 
+	MainDomain   string
+	ExtraDomains []string
 
 	OnlineStatus  mc.Packet
 	OfflineStatus mc.Packet
@@ -139,9 +124,24 @@ func (w Worker) Work() {
 				}
 				return
 			}
-			serverConn, err := NewServerConn(serverCfg)
+			serverConn, err := newServerConn(serverCfg)
 			if err != nil {
 				log.Println(err)
+			}
+
+			if serverCfg.SendProxyProtocol {
+				header := &proxyproto.Header{
+					Version:           2,
+					Command:           proxyproto.PROXY,
+					TransportProtocol: proxyproto.TCPv4,
+					SourceAddr:        request.Addr,
+					DestinationAddr:   serverConn.RemoteAddr(),
+				}
+
+				if _, err = header.WriteTo(serverConn); err != nil {
+					//Handle error
+					log.Println(err)
+				}
 			}
 			serverMcConn := conn.NewMcConn(serverConn)
 			request.Ch <- conn.ConnAnswer{
