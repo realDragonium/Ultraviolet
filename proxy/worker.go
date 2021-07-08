@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/pires/go-proxyproto"
@@ -15,25 +16,25 @@ var (
 	ErrCantWriteToClient     = errors.New("can't write to client")
 	ErrCantConnectWithServer = errors.New("cant connect with server")
 
+	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
+
 	dialTimeout = 1000 * time.Millisecond
 )
 
 type ServerState byte
 
 const (
-	// By default every server is online
 	ONLINE ServerState = iota
 	OFFLINE
-	UNKNOWN
 )
 
-type connectionData struct {
+type connectionConfig struct {
 	ProxyTo           string
 	ProxyBind         string
 	SendProxyProtocol bool
 }
 
-func newServerConn(cfg connectionData) (net.Conn, error) {
+func newServerConn(cfg connectionConfig) (net.Conn, error) {
 	dialer := net.Dialer{
 		Timeout: dialTimeout,
 		LocalAddr: &net.TCPAddr{
@@ -70,14 +71,31 @@ type WorkerServerConfig struct {
 	ProxyBind         string
 	SendProxyProtocol bool
 
-	ConnLimitBackend int
+	RateLimit         int
+	RateLimitDuration time.Duration
 }
 
-func NewWorker(req chan McRequest, proxies map[string]WorkerServerConfig, defaultStatus mc.Packet) Worker {
+func NewWorker(req chan McRequest, proxies map[string]WorkerServerConfig, defaultStatus mc.Packet) BasicWorker {
+	stateCh := make(chan StateRequest)
+	stateWorker := NewStateWorker(stateCh, proxies)
+	go stateWorker.Work()
+
+	statusCh := make(chan StatusRequest)
+	statusWorker := NewStatusWorker(statusCh, proxies)
+	go statusWorker.Work()
+
+	connCh := make(chan ConnRequest)
+	connWorker := NewConnWorker(connCh, proxies)
+	go connWorker.Work()
+
 	return BasicWorker{
 		reqCh:         req,
 		defaultStatus: defaultStatus,
 		servers:       proxies,
+
+		stateCh:  stateCh,
+		statusCh: statusCh,
+		connCh:   connCh,
 	}
 }
 
@@ -85,6 +103,10 @@ type BasicWorker struct {
 	reqCh         chan McRequest
 	defaultStatus mc.Packet
 	servers       map[string]WorkerServerConfig
+
+	stateCh  chan StateRequest
+	statusCh chan StatusRequest
+	connCh   chan ConnRequest
 }
 
 func (w BasicWorker) Work() {
@@ -95,95 +117,92 @@ func (w BasicWorker) Work() {
 		cfg, ok := w.servers[request.ServerAddr]
 		if !ok {
 			//Unknown server address
-			switch request.Type {
-			case STATUS:
+			if request.Type == STATUS {
 				request.Ch <- McAnswer{
 					Action:   SEND_STATUS,
 					StatusPk: w.defaultStatus,
 				}
-			case LOGIN:
+			} else {
 				request.Ch <- McAnswer{
 					Action: CLOSE,
 				}
 			}
 			return
 		}
-		switch request.Type {
-		case STATUS:
-			if cfg.State == ONLINE {
-				action := PROXY
-				serverConn, err := newServerConn(connectionData{
-					ProxyTo:           cfg.ProxyTo,
-					ProxyBind:         cfg.ProxyBind,
-					SendProxyProtocol: cfg.SendProxyProtocol,
-				})
-				if err != nil {
-					log.Println(err)
-					action = ERROR
-				}
-				serverMcConn := NewMcConn(serverConn)
-				request.Ch <- McAnswer{
-					Action:     action,
-					ServerConn: serverMcConn,
-				}
-				return
-			}
+		stateAnswerCh := make(chan StateServerData)
+		w.stateCh <- StateRequest{
+			serverId: request.ServerAddr,
+			answerCh: stateAnswerCh,
+		}
+		stateData := <-stateAnswerCh
 
-			var statusPk mc.Packet
-			if cfg.State == OFFLINE {
-				statusPk = cfg.OfflineStatus
-			}
-			request.Ch <- McAnswer{
-				Action:   SEND_STATUS,
-				StatusPk: statusPk,
-			}
-		case LOGIN:
-			if cfg.State == OFFLINE {
+		if stateData.state == OFFLINE {
+			// This need to be modified later when online status cache is being added
+			if request.Type == STATUS {
+				statusAnswerCh := make(chan mc.Packet)
+				w.statusCh <- StatusRequest{
+					serverId: request.ServerAddr,
+					state:    stateData.state,
+					answerCh: statusAnswerCh,
+				}
+				statusPk := <-statusAnswerCh
+				request.Ch <- McAnswer{
+					Action:   SEND_STATUS,
+					StatusPk: statusPk,
+				}
+			} else if request.Type == LOGIN {
 				request.Ch <- McAnswer{
 					Action:        DISCONNECT,
 					DisconMessage: cfg.DisconnectPacket,
 				}
-				return
 			}
-			serverConn, err := newServerConn(connectionData{
-				ProxyTo:           cfg.ProxyTo,
-				ProxyBind:         cfg.ProxyBind,
-				SendProxyProtocol: cfg.SendProxyProtocol,
-			})
-			if err != nil {
-				log.Println(err)
-			}
-
-			if cfg.SendProxyProtocol {
-				header := &proxyproto.Header{
-					Version:           2,
-					Command:           proxyproto.PROXY,
-					TransportProtocol: proxyproto.TCPv4,
-					SourceAddr:        request.Addr,
-					DestinationAddr:   serverConn.RemoteAddr(),
-				}
-
-				if _, err = header.WriteTo(serverConn); err != nil {
-					//Handle error
-					log.Println(err)
-				}
-			}
-			serverMcConn := NewMcConn(serverConn)
+			return
+		}
+		connAnswerCh := make(chan func() (net.Conn, error))
+		w.connCh <- ConnRequest{
+			clientAddr: request.Addr,
+			serverId:   request.ServerAddr,
+			answerCh:   connAnswerCh,
+		}
+		connFunc := <-connAnswerCh
+		netConn, err := connFunc()
+		if err != nil {
+			log.Printf("error while creating connection to server: %v", err)
 			request.Ch <- McAnswer{
-				Action:     PROXY,
-				ServerConn: serverMcConn,
+				Action: CLOSE,
 			}
+			return
+		}
+
+		if cfg.SendProxyProtocol {
+			header := &proxyproto.Header{
+				Version:           2,
+				Command:           proxyproto.PROXY,
+				TransportProtocol: proxyproto.TCPv4,
+				SourceAddr:        request.Addr,
+				DestinationAddr:   netConn.RemoteAddr(),
+			}
+			header.WriteTo(netConn)
+		}
+
+		request.Ch <- McAnswer{
+			Action:     PROXY,
+			ServerConn: NewMcConn(netConn),
 		}
 	}
 }
 
-func NewConnWorker(reqCh chan ConnRequest, proxies map[string]WorkerServerConfig) Worker {
-	servers := make(map[string]connectionData)
+func NewConnWorker(reqCh chan ConnRequest, proxies map[string]WorkerServerConfig) ConnWorker {
+	servers := make(map[string]*ConnectionData)
 	for id, proxy := range proxies {
-		servers[id] = connectionData{
-			ProxyTo:           proxy.ProxyTo,
-			ProxyBind:         proxy.ProxyBind,
-			SendProxyProtocol: proxy.SendProxyProtocol,
+		servers[id] = &ConnectionData{
+			mu: sync.Mutex{},
+			cfg: connectionConfig{
+				ProxyTo:   proxy.ProxyTo,
+				ProxyBind: proxy.ProxyBind,
+			},
+			connLimit:         proxy.RateLimit,
+			connLimitDuration: proxy.RateLimitDuration,
 		}
 
 	}
@@ -194,46 +213,61 @@ func NewConnWorker(reqCh chan ConnRequest, proxies map[string]WorkerServerConfig
 }
 
 type ConnRequest struct {
-	answerCh          chan ConnAnswer
-	clientAddr        net.Addr
-	serverId          string
-	sendProxyProtocol bool
+	answerCh   chan func() (net.Conn, error)
+	clientAddr net.Addr
+	serverId   string
 }
 
-type ConnAnswer struct {
-	ServerConn McConn
+type ConnectionData struct {
+	cfg connectionConfig
+	mu  sync.Mutex
+
+	connCounter       int
+	connLimit         int
+	connLimitDuration time.Duration
+	timeStamp         time.Time
 }
 
-// Needs conn rate limiter later
 type ConnWorker struct {
 	reqCh   chan ConnRequest
-	servers map[string]connectionData
+	servers map[string]*ConnectionData
 }
 
-// If it got here it should already be checked or the proxy has been registered
 func (w ConnWorker) Work() {
+	var connFunc func() (net.Conn, error)
+	var data *ConnectionData
+	var request ConnRequest
 	for {
-		request := <-w.reqCh
-		cfg := w.servers[request.serverId]
-		serverConn, _ := newServerConn(cfg)
-		if request.sendProxyProtocol {
-			header := &proxyproto.Header{
-				Version:           2,
-				Command:           proxyproto.PROXY,
-				TransportProtocol: proxyproto.TCPv4,
-				SourceAddr:        request.clientAddr,
-				DestinationAddr:   serverConn.RemoteAddr(),
+		request = <-w.reqCh
+		data = w.servers[request.serverId]
+		data.mu.Lock()
+		if data.connLimit == 0 {
+			connFunc = func() (net.Conn, error) {
+				return newServerConn(data.cfg)
 			}
-			header.WriteTo(serverConn)
+		} else {
+			if time.Since(data.timeStamp) >= data.connLimitDuration {
+				data.connCounter = 0
+				data.timeStamp = time.Now()
+			}
+			if data.connCounter < data.connLimit {
+				data.connCounter++
+				connFunc = func() (net.Conn, error) {
+					return newServerConn(data.cfg)
+				}
+			} else {
+				connFunc = func() (net.Conn, error) {
+					return nil, ErrOverConnRateLimit
+				}
+			}
 		}
-		serverMcConn := NewMcConn(serverConn)
-		request.answerCh <- ConnAnswer{
-			ServerConn: serverMcConn,
-		}
+
+		data.mu.Unlock()
+		request.answerCh <- connFunc
 	}
 }
 
-func NewStatusWorker(reqCh chan StatusRequest, proxies map[string]WorkerServerConfig) Worker {
+func NewStatusWorker(reqCh chan StatusRequest, proxies map[string]WorkerServerConfig) StatusWorker {
 	servers := make(map[string]StatusServerData)
 	for id, proxy := range proxies {
 		servers[id] = StatusServerData{
@@ -281,7 +315,7 @@ func (w StatusWorker) Work() {
 	}
 }
 
-func NewStateWorker(reqCh chan StateRequest, proxies map[string]WorkerServerConfig) Worker {
+func NewStateWorker(reqCh chan StateRequest, proxies map[string]WorkerServerConfig) StateWorker {
 	servers := make(map[string]StateServerData)
 	for id, proxy := range proxies {
 		servers[id] = StateServerData{
@@ -315,7 +349,6 @@ type StateWorker struct {
 func (w StateWorker) Work() {
 	for {
 		request := <-w.reqCh
-		cfg := w.servers[request.serverId]
-		request.answerCh <- cfg
+		request.answerCh <- w.servers[request.serverId]
 	}
 }

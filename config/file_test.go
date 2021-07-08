@@ -51,8 +51,8 @@ func TestFileToWorkerConfig(t *testing.T) {
 	if workerCfg.SendProxyProtocol != serverCfg.SendProxyProtocol {
 		t.Errorf("expected: %v - got: %v", serverCfg.SendProxyProtocol, workerCfg.SendProxyProtocol)
 	}
-	if workerCfg.ConnLimitBackend != serverCfg.ConnLimitBackend {
-		t.Errorf("expected: %v - got: %v", serverCfg.ConnLimitBackend, workerCfg.ConnLimitBackend)
+	if workerCfg.RateLimit != serverCfg.ConnLimitBackend {
+		t.Errorf("expected: %v - got: %v", serverCfg.ConnLimitBackend, workerCfg.RateLimit)
 	}
 	if !samePk(expectedOfflineStatus, workerCfg.OfflineStatus) {
 		offlineStatus, _ := mc.UnmarshalClientBoundResponse(expectedOfflineStatus)

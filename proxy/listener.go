@@ -11,7 +11,7 @@ import (
 )
 
 type McAction byte
-type McType byte
+type McRequestType byte
 
 const (
 	PROXY McAction = iota
@@ -22,12 +22,12 @@ const (
 )
 
 const (
-	STATUS McType = iota + 1
+	STATUS McRequestType = iota + 1
 	LOGIN
 )
 
 type McRequest struct {
-	Type       McType
+	Type       McRequestType
 	ServerAddr string
 	Username   string
 	Addr       net.Addr
@@ -82,6 +82,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 
 	ansCh := make(chan McAnswer)
 	req := McRequest{
+		Type:       STATUS,
 		Ch:         ansCh,
 		Addr:       c.RemoteAddr(),
 		ServerAddr: string(handshake.ServerAddress),
@@ -97,6 +98,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		if err != nil {
 			log.Printf("Error while unmarshaling login start packet: %v", err)
 		}
+		req.Type = LOGIN
 		req.Username = string(loginStart.Name)
 	}
 	reqCh <- req

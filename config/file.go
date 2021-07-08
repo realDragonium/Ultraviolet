@@ -91,7 +91,7 @@ func FileToWorkerConfig(cfg ServerConfig) proxy.WorkerServerConfig {
 		ProxyTo:           cfg.ProxyTo,
 		ProxyBind:         cfg.ProxyBind,
 		SendProxyProtocol: cfg.SendProxyProtocol,
-		ConnLimitBackend:  cfg.ConnLimitBackend,
+		RateLimit:  cfg.ConnLimitBackend,
 		OfflineStatus:     offlineStatusPk,
 		DisconnectPacket:  disconPk,
 	}
