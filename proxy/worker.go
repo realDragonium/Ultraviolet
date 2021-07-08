@@ -27,6 +27,7 @@ const (
 	UNKNOWN ServerState = iota
 	ONLINE
 	OFFLINE
+	UPDATE
 )
 
 type connectionConfig struct {
@@ -45,21 +46,11 @@ func newServerConn(cfg connectionConfig) (net.Conn, error) {
 	}
 	serverConn, err := dialer.Dial("tcp", cfg.ProxyTo)
 	if err != nil {
+		log.Println(err)
 		return serverConn, err
 	}
 
 	return serverConn, nil
-}
-
-// What should the worker know?
-// - All domains and their target
-// - Default Status
-// - some way to cache motd status from a server  (probably separate worker)
-// - Some anti bot thing (probably separate worker)
-// - Some way to create connections with backend server (probably separate worker)
-// -
-func SomethingElse() {
-
 }
 
 func NewWorkerConfig(reqCh chan McRequest, servers map[string]WorkerServerConfig, defaultStatus mc.Packet) WorkerConfig {
@@ -79,7 +70,8 @@ type WorkerConfig struct {
 }
 
 type WorkerServerConfig struct {
-	State ServerState
+	State               ServerState
+	StateUpdateCooldown time.Duration
 
 	OfflineStatus    mc.Packet
 	DisconnectPacket mc.Packet
@@ -94,14 +86,14 @@ type WorkerServerConfig struct {
 
 func NewWorker(cfg WorkerConfig) BasicWorker {
 	stateCh := make(chan StateRequest)
-	// stateWorker := NewStateWorker(stateCh, cfg.Servers)
-	// go stateWorker.Work()
 	connCh := make(chan ConnRequest)
-	connWorker := NewConnWorker(connCh, cfg.Servers)
+	statusCh := make(chan StatusRequest)
+	stateUpdateCh := make(chan StateUpdate)
+
+	connWorker := NewConnWorker(connCh, stateUpdateCh, cfg.Servers)
 	go connWorker.Work()
 
-	statusCh := make(chan StatusRequest)
-	statusWorker := NewStatusWorker(statusCh, stateCh, connCh, cfg.Servers)
+	statusWorker := NewStatusWorker(statusCh, stateCh, stateUpdateCh, connCh, cfg.Servers)
 	go statusWorker.Work()
 
 	return BasicWorker{
@@ -145,7 +137,7 @@ func (w BasicWorker) Work() {
 					Action: CLOSE,
 				}
 			}
-			return
+			continue
 		}
 		stateAnswerCh := make(chan ServerState)
 		w.stateCh <- StateRequest{
@@ -160,7 +152,6 @@ func (w BasicWorker) Work() {
 				statusAnswerCh := make(chan mc.Packet)
 				w.statusCh <- StatusRequest{
 					serverId: request.ServerAddr,
-					state:    state,
 					answerCh: statusAnswerCh,
 				}
 				statusPk := <-statusAnswerCh
@@ -174,7 +165,7 @@ func (w BasicWorker) Work() {
 					DisconMessage: cfg.DisconnectPacket,
 				}
 			}
-			return
+			continue
 		}
 		connAnswerCh := make(chan func() (net.Conn, error))
 		w.connCh <- ConnRequest{
@@ -188,7 +179,7 @@ func (w BasicWorker) Work() {
 			request.Ch <- McAnswer{
 				Action: CLOSE,
 			}
-			return
+			continue
 		}
 
 		if cfg.SendProxyProtocol {
@@ -210,7 +201,7 @@ func (w BasicWorker) Work() {
 	}
 }
 
-func NewConnWorker(reqCh chan ConnRequest, proxies map[string]WorkerServerConfig) ConnWorker {
+func NewConnWorker(reqCh chan ConnRequest, updateCh chan StateUpdate, proxies map[string]WorkerServerConfig) ConnWorker {
 	servers := make(map[string]*ConnectionData)
 	for id, proxy := range proxies {
 		servers[id] = &ConnectionData{
@@ -222,8 +213,8 @@ func NewConnWorker(reqCh chan ConnRequest, proxies map[string]WorkerServerConfig
 			connLimit:         proxy.RateLimit,
 			connLimitDuration: proxy.RateLimitDuration,
 		}
-
 	}
+
 	return ConnWorker{
 		reqCh:   reqCh,
 		servers: servers,
@@ -278,127 +269,128 @@ func (w ConnWorker) Work() {
 				}
 			}
 		}
-
 		data.mu.Unlock()
 		request.answerCh <- connFunc
 	}
 }
 
-func NewStatusWorker(reqCh chan StatusRequest, stateCh chan StateRequest, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
-	servers := make(map[string]StatusServerData)
-	servers2 := make(map[string]ServerState)
+func NewStatusWorker(reqCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
+	servers := make(map[string]*ServerData)
 	for id, proxy := range proxies {
-		servers[id] = StatusServerData{
-			OfflineStatus: proxy.OfflineStatus,
-			OnlineStatus:  mc.Packet{},
+		cooldown := proxy.StateUpdateCooldown
+		if cooldown == 0 {
+			cooldown = time.Second
 		}
-		servers2[id] = proxy.State
+		servers[id] = &ServerData{
+			State:               proxy.State,
+			OfflineStatus:       proxy.OfflineStatus,
+			OnlineStatus:        mc.Packet{},
+			StateUpdateCooldown: cooldown,
+		}
 	}
 
 	return StatusWorker{
 		reqConnCh:     connCh,
 		reqStateCh:    stateCh,
 		reqStatusCh:   reqCh,
-		statusServers: servers,
-		stateServers:  servers2,
+		updateStateCh: updateCh,
+		serverData:    servers,
 	}
 }
 
-type StatusRequest struct {
+type StateUpdate struct {
 	serverId string
 	state    ServerState
-	answerCh chan mc.Packet
 }
-
-type StatusServerData struct {
-	OnlineStatus  mc.Packet
-	OfflineStatus mc.Packet
-}
-
-// TODO:
-// - add online status caching when doesnt proxy client requests to actual server
-type StatusWorker struct {
-	reqConnCh chan ConnRequest
-
-	reqStatusCh   chan StatusRequest
-	reqStateCh    chan StateRequest
-	statusServers map[string]StatusServerData
-	stateServers  map[string]ServerState
-}
-
-func (w StatusWorker) Work() {
-	for {
-		select {
-		case request := <-w.reqStatusCh:
-			cfg := w.statusServers[request.serverId]
-			var statusPk mc.Packet
-			switch request.state {
-			case ONLINE:
-				statusPk = cfg.OnlineStatus
-			case OFFLINE:
-				statusPk = cfg.OfflineStatus
-			}
-			request.answerCh <- statusPk
-		case request := <-w.reqStateCh:
-			state := w.stateServers[request.serverId]
-			if state == UNKNOWN {
-				connAnswerCh := make(chan func() (net.Conn, error))
-				w.reqConnCh <- ConnRequest{
-					serverId: request.serverId,
-					answerCh: connAnswerCh,
-				}
-				connFunc := <-connAnswerCh
-				_, err := connFunc()
-				if err != nil {
-					state = OFFLINE
-				} else {
-					state = ONLINE
-				}
-				w.stateServers[request.serverId] = state
-			}
-			request.answerCh <- state
-		}
-	}
-}
-
-// func NewStateWorker(reqCh chan StateRequest, proxies map[string]WorkerServerConfig) StateWorker {
-// 	servers := make(map[string]StateServerData)
-// 	for id, proxy := range proxies {
-// 		servers[id] = StateServerData{
-// 			state: proxy.State,
-// 		}
-
-// 	}
-// 	return StateWorker{
-// 		reqCh:   reqCh,
-// 		servers: servers,
-// 	}
-// }
 
 type StateRequest struct {
 	serverId string
 	answerCh chan ServerState
 }
 
-type StateServerData struct {
-	state ServerState
+type StatusRequest struct {
+	serverId string
+	answerCh chan mc.Packet
 }
 
-// // TODO:
-// // - automatically update state every x amount of time
-// // - check or state is still valid or expired before replying
-// type StateWorker struct {
-// 	reqCh   chan StateRequest
-// 	servers map[string]StateServerData
-// }
+type ServerData struct {
+	State               ServerState
+	StateUpdateCooldown time.Duration
+	OnlineStatus        mc.Packet
+	OfflineStatus       mc.Packet
+}
 
-// func (w StateWorker) Work() {
-// 	for {
-// 		request := <-w.reqCh
-// 		data := w.servers[request.serverId]
-// 		if data.state == UNKNOWN {
+// TODO:
+// - automatically update state every x amount of time
+// - check or state is still valid or expired before replying
+// - add online status caching when doesnt proxy client requests to actual server
+type StatusWorker struct {
+	reqConnCh chan ConnRequest
 
-// 		}
-// 		request.answerCh <- data.state
-// 	}
-// }
+	reqStatusCh   chan StatusRequest
+	reqStateCh    chan StateRequest
+	updateStateCh chan StateUpdate
+
+	serverData map[string]*ServerData
+}
+
+func (w *StatusWorker) Work() {
+	for {
+		select {
+		case request := <-w.reqStatusCh:
+			data := w.serverData[request.serverId]
+			if data.State == UNKNOWN {
+				w.UpdateState(request.serverId)
+				data = w.serverData[request.serverId]
+			}
+			var statusPk mc.Packet
+			switch data.State {
+			case ONLINE:
+				statusPk = data.OnlineStatus
+			case OFFLINE:
+				statusPk = data.OfflineStatus
+			}
+			request.answerCh <- statusPk
+		case request := <-w.reqStateCh:
+			data := w.serverData[request.serverId]
+			if data.State == UNKNOWN {
+				w.UpdateState(request.serverId)
+				data = w.serverData[request.serverId]
+			}
+			request.answerCh <- data.State
+		case update := <-w.updateStateCh:
+			data := w.serverData[update.serverId]
+			if update.state == UPDATE {
+				w.UpdateState(update.serverId)
+				data = w.serverData[update.serverId]
+			} else {
+				data.State = update.state
+			}
+			w.serverData[update.serverId] = data
+		}
+	}
+}
+
+func (w *StatusWorker) UpdateState(serverId string) {
+	data := w.serverData[serverId]
+	connAnswerCh := make(chan func() (net.Conn, error))
+	w.reqConnCh <- ConnRequest{
+		serverId: serverId,
+		answerCh: connAnswerCh,
+	}
+	connFunc := <-connAnswerCh
+	_, err := connFunc()
+	if err != nil {
+		data.State = OFFLINE
+	} else {
+		data.State = ONLINE
+	}
+	w.serverData[serverId] = data
+	go func(serverId string, sleepTime time.Duration, updateCh chan StateUpdate) {
+		time.Sleep(sleepTime)
+		updateCh <- StateUpdate{
+			serverId: serverId,
+			state:    UNKNOWN,
+		}
+	}(serverId, data.StateUpdateCooldown, w.updateStateCh)
+}

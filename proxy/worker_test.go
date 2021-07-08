@@ -516,7 +516,7 @@ func TestLoginKnownAddr_UNKNOWNStateWithoutListener_ShouldDisconnect(t *testing.
 	}
 }
 
-func TestKnownAddr_UNKNOWNStateWithListener_ShouldProxyConnection(t *testing.T) {
+func TestStatusKnownAddr_UNKNOWNStateWithListener_ShouldProxyConnection(t *testing.T) {
 	serverAddr := "ultraviolet"
 	targetAddr := "127.0.0.1:25572"
 	servers := make(map[string]proxy.WorkerServerConfig)
@@ -552,7 +552,7 @@ func TestKnownAddr_UNKNOWNStateWithListener_ShouldProxyConnection(t *testing.T) 
 
 func TestStatusKnownAddr_UNKNOWNStateWithoutListener_ShouldSendStatus(t *testing.T) {
 	serverAddr := "ultraviolet"
-	targetAddr := "127.0.0.1:25571"
+	targetAddr := "127.0.0.1:25573"
 	servers := make(map[string]proxy.WorkerServerConfig)
 	servers[serverAddr] = proxy.WorkerServerConfig{
 		ProxyTo: targetAddr,
@@ -573,6 +573,69 @@ func TestStatusKnownAddr_UNKNOWNStateWithoutListener_ShouldSendStatus(t *testing
 		if answer.Action != proxy.SEND_STATUS {
 			t.Fatalf("expcted: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
 		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func TestUnknownState_Should_NOT_CallAgainWithinCooldown(t *testing.T) {
+	serverAddr := "ultraviolet"
+	targetAddr := "127.0.0.1:25574"
+	servers := make(map[string]proxy.WorkerServerConfig)
+	servers[serverAddr] = proxy.WorkerServerConfig{
+		ProxyTo:             targetAddr,
+		State:               proxy.UNKNOWN,
+		StateUpdateCooldown: time.Minute,
+	}
+	reqCh := setupBasicWorker(servers)
+
+	answerCh := make(chan proxy.McAnswer)
+	request := proxy.McRequest{
+		Type:       proxy.LOGIN,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+
+	reqCh <- request
+	<-answerCh
+
+	connCh, _ := createListener(t, targetAddr)
+	reqCh <- request
+	select {
+	case <-connCh:
+		t.Error("worker called server again")
+	case <-time.After(defaultChTimeout):
+		t.Log("worker didnt call again")
+	}
+}
+
+func TestUnknownState_ShouldCallAgainOutOfCooldown(t *testing.T) {
+	serverAddr := "ultraviolet"
+	targetAddr := "127.0.0.1:25575"
+	cooldown := defaultChTimeout
+	servers := make(map[string]proxy.WorkerServerConfig)
+	servers[serverAddr] = proxy.WorkerServerConfig{
+		ProxyTo:             targetAddr,
+		State:               proxy.UNKNOWN,
+		StateUpdateCooldown: cooldown,
+	}
+	reqCh := setupBasicWorker(servers)
+
+	answerCh := make(chan proxy.McAnswer)
+	request := proxy.McRequest{
+		Type:       proxy.LOGIN,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+
+	reqCh <- request
+	<-answerCh
+	connCh, _ := createListener(t, targetAddr)
+	time.Sleep(cooldown * 2)
+	reqCh <- request
+	select {
+	case <-connCh:
+		t.Log("worker has successfully responded")
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
 	}

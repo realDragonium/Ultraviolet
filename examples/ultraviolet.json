@@ -8,6 +8,5 @@
     },
     "numberOfWorkers": 5,
     "numberOfConnWorkers": 1,
-	"numberOfStateWorkers": 1,
-	"numberOfStatusWorkers": 1
+	"numberOfStatusWorkers": 3
 }

@@ -78,7 +78,6 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 
 		NumberOfWorkers:       5,
 		NumberOfConnWorkers:   1,
-		NumberOfStateWorkers:  1,
 		NumberOfStatusWorkers: 1,
 	}
 	file, _ := json.MarshalIndent(cfg, "", " ")

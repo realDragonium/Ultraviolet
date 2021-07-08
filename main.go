@@ -72,12 +72,9 @@ func main() {
 	if err := upg.Ready(); err != nil {
 		panic(err)
 	}
-	log.Println("Upgrade in process...")
 	<-upg.Exit()
-
 	shouldNotifyCh <- struct{}{}
 	log.Println("Waiting for all open connections to close before shutting down")
 	<-notifyCh
-
 	log.Println("Shutting down")
 }

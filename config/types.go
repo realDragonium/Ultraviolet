@@ -42,7 +42,6 @@ type UltravioletConfig struct {
 
 	NumberOfWorkers       int `json:"numberOfWorkers"`
 	NumberOfConnWorkers   int `json:"numberOfConnWorkers"`
-	NumberOfStateWorkers  int `json:"numberOfStateWorkers"`
 	NumberOfStatusWorkers int `json:"numberOfStatusWorkers"`
 }
 
@@ -58,7 +57,6 @@ func DefaultUltravioletConfig() UltravioletConfig {
 
 		NumberOfWorkers:       5,
 		NumberOfConnWorkers:   1,
-		NumberOfStateWorkers:  1,
 		NumberOfStatusWorkers: 1,
 	}
 }
