@@ -39,10 +39,10 @@ type McAnswer struct {
 	DisconMessage mc.Packet
 	Action        McAction
 	StatusPk      mc.Packet
-	NotifyClosed  chan struct{}
+	ProxyCh       chan ProxyAction
 }
 
-func Serve(listener net.Listener, reqCh chan McRequest) {
+func ServeListener(listener net.Listener, reqCh chan McRequest) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
@@ -111,15 +111,15 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		if isLoginReq {
 			serverConn.WritePacket(loginPacket)
 		}
-		go func(client, server net.Conn, notfiyClosedCh chan struct{}) {
-			ProxyConnections(client, server, notfiyClosedCh)
-		}(conn.netConn, serverConn.netConn, ans.NotifyClosed)
+		go func(client, server net.Conn, proxyCh chan ProxyAction) {
+			ProxyConnections(client, server, proxyCh)
+		}(conn.netConn, serverConn.netConn, ans.ProxyCh)
 	case DISCONNECT:
 		conn.WritePacket(ans.DisconMessage)
 		conn.netConn.Close()
 	case SEND_STATUS:
 		// Notchian servers will wait for ping packet before sending response...?
-		// source: https://wiki.vg/Server_List_Ping#Response (first line -> second sentence)
+		// source: https://wiki.vg/Server_List_Ping#Response
 		// (which is different from how we do it rn)
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)
@@ -135,14 +135,15 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 // Check or doing this in a separate method has some adventages like:
 // - having a different stack so the other data can be collected
 // - doesnt give too much trouble with copy the connections
-func ProxyConnections(client, server net.Conn, notifyClosedCh chan struct{}) {
+func ProxyConnections(client, server net.Conn, proxyCh chan ProxyAction) {
+	proxyCh <- PROXY_OPEN
 	go func() {
 		io.Copy(server, client)
 		client.Close()
 	}()
 	io.Copy(client, server)
 	server.Close()
-	notifyClosedCh <- struct{}{}
+	proxyCh <- PROXY_CLOSE
 }
 
 func NewMcConn(conn net.Conn) McConn {

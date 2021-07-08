@@ -1,10 +1,13 @@
 {
     "listenTo": ":25565",
-    "numberOfWorkers": 5,
     "receiveProxyProtocol": false,
     "defaultStatus": {
         "name": "Ultraviolet",
         "protocol": 755,
         "text": "Some broken proxy"
-    }
+    },
+    "numberOfWorkers": 5,
+    "numberOfConnWorkers": 1,
+	"numberOfStateWorkers": 1,
+	"numberOfStatusWorkers": 1
 }

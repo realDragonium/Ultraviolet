@@ -2,7 +2,7 @@
     "mainDomain": "localhost",
     "extraDomains": ["127.0.0.1", "0.0.0.0"],
     "proxyTo": ":25566",
-    "proxyBind": "0.0.0.0",
+    "proxyBind": "127.0.0.1",
     "sendProxyProtocol": false,
     "disconnectMessage": "Sorry {{username}}, but the server is offline.",
     "offlineStatus": {
@@ -10,5 +10,7 @@
         "protocol": 755,
         "text": "Some offline server"
     },
-    "connPerSec": 5
+    "rateLimit": 5,
+    "rateCooldown": "4s"
+
 }

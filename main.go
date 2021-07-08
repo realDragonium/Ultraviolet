@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/cloudflare/tableflip"
@@ -13,24 +14,42 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
+var (
+	// Isnt this the proper path to put config files into (for execution without docker)
+	defaultCfgPath            = "/etc/ultraviolet"
+	defaultServerCfgPath      = filepath.Join(defaultCfgPath, "config")
+	defaultUltravioletCfgPath = filepath.Join(defaultCfgPath, "ultraviolet.json")
+)
+
 func main() {
 	log.Println("Starting up")
 	var (
-		pidFile     = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
-		mainCfgPath = flag.String("config", "", "`Path` to main config file")
+		pidFile        = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
+		mainCfgPath    = flag.String("config", defaultUltravioletCfgPath, "`Path` to main config file")
+		serverCfgsPath = flag.String("server-configs", defaultServerCfgPath, "`Path` to server config files")
 	)
 	flag.Parse()
-	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
 
+	mainCfg, err := config.ReadUltravioletConfig(*mainCfgPath)
+	if err != nil {
+		log.Fatalf("Read main config file at '%s' - error: %v", *mainCfgPath, err)
+	}
+	serverCfgs, err := config.ReadServerConfigs(*serverCfgsPath)
+	if err != nil {
+		log.Fatalf("Something went wrong while reading config files: %v", err)
+	}
+	reqCh := make(chan proxy.McRequest)
+	shouldNotifyCh, notifyCh := proxy.Serve(mainCfg, serverCfgs, reqCh)
+
+	// Do the tableflip stuff which makes the upgrade definitive
+	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
 	upg, err := tableflip.New(tableflip.Options{
-		// UpgradeTimeout: time.Duration(24 * time.Hour),
 		PIDFile: *pidFile,
 	})
 	if err != nil {
 		panic(err)
 	}
 	defer upg.Stop()
-
 	go func() {
 		sig := make(chan os.Signal, 1)
 		signal.Notify(sig, syscall.SIGHUP)
@@ -42,33 +61,23 @@ func main() {
 		}
 	}()
 
-	cfg, err := config.ReadUltravioletConfig(*mainCfgPath)
-	if err != nil {
-		log.Fatalln("Can't listen:", err)
-	}
-
-	ln, err := upg.Listen("tcp", cfg.ListenTo)
+	ln, err := upg.Listen("tcp", mainCfg.ListenTo)
 	if err != nil {
 		log.Fatalln("Can't listen:", err)
 	}
 	defer ln.Close()
+	go proxy.ServeListener(ln, reqCh)
 
-	reqCh := make(chan proxy.McRequest)
-	go proxy.Serve(ln, reqCh)
-
-	p := proxy.NewProxy(reqCh)
-	p.Serve()
-
-	log.Printf("ready")
+	log.Printf("Finished starting up")
 	if err := upg.Ready(); err != nil {
 		panic(err)
 	}
 	log.Println("Upgrade in process...")
 	<-upg.Exit()
 
-	p.ShouldNotifyCh <- struct{}{}
+	shouldNotifyCh <- struct{}{}
 	log.Println("Waiting for all open connections to close before shutting down")
-	<-p.NotifyCh
+	<-notifyCh
 
 	log.Println("Shutting down")
 }

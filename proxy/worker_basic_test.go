@@ -41,8 +41,8 @@ func unknownServerStatus() mc.Packet {
 
 func setupBasicWorker(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
 	reqCh := make(chan proxy.McRequest)
-	worker := proxy.NewWorker(reqCh, servers, unknownServerStatus())
-
+	workerCfg := proxy.NewWorkerConfig(reqCh, servers, unknownServerStatus())
+	worker := proxy.NewWorker(workerCfg)
 	go worker.Work()
 	return reqCh
 }
@@ -68,7 +68,8 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 
 func TestWorker_CanReceiveRequests(t *testing.T) {
 	reqCh := make(chan proxy.McRequest)
-	worker := proxy.NewWorker(reqCh, nil, unknownServerStatus())
+	workerCfg := proxy.NewWorkerConfig(reqCh, nil, unknownServerStatus())
+	worker := proxy.NewWorker(workerCfg)
 	go worker.Work()
 	select {
 	case reqCh <- proxy.McRequest{}:
@@ -218,7 +219,10 @@ func TestLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
 		}
 		err := answer.ServerConn.WritePacket(mc.Packet{Data: []byte{0}})
 		if err != nil {
-			t.Fatalf("Got an unexpected error: %v", err)
+			t.Errorf("Got an unexpected error: %v", err)
+		}
+		if answer.ProxyCh == nil {
+			t.Error("No proxy channel provided")
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")

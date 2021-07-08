@@ -61,6 +61,22 @@ func SomethingElse() {
 
 }
 
+func NewWorkerConfig(reqCh chan McRequest, servers map[string]WorkerServerConfig, defaultStatus mc.Packet) WorkerConfig {
+	return WorkerConfig{
+		DefaultStatus: defaultStatus,
+		ReqCh:         reqCh,
+		ProxyCh:       make(chan ProxyAction),
+		Servers:       servers,
+	}
+}
+
+type WorkerConfig struct {
+	DefaultStatus mc.Packet
+	ReqCh         chan McRequest
+	ProxyCh       chan ProxyAction
+	Servers       map[string]WorkerServerConfig
+}
+
 type WorkerServerConfig struct {
 	State ServerState
 
@@ -75,23 +91,24 @@ type WorkerServerConfig struct {
 	RateLimitDuration time.Duration
 }
 
-func NewWorker(req chan McRequest, proxies map[string]WorkerServerConfig, defaultStatus mc.Packet) BasicWorker {
+func NewWorker(cfg WorkerConfig) BasicWorker {
 	stateCh := make(chan StateRequest)
-	stateWorker := NewStateWorker(stateCh, proxies)
+	stateWorker := NewStateWorker(stateCh, cfg.Servers)
 	go stateWorker.Work()
 
 	statusCh := make(chan StatusRequest)
-	statusWorker := NewStatusWorker(statusCh, proxies)
+	statusWorker := NewStatusWorker(statusCh, cfg.Servers)
 	go statusWorker.Work()
 
 	connCh := make(chan ConnRequest)
-	connWorker := NewConnWorker(connCh, proxies)
+	connWorker := NewConnWorker(connCh, cfg.Servers)
 	go connWorker.Work()
 
 	return BasicWorker{
-		reqCh:         req,
-		defaultStatus: defaultStatus,
-		servers:       proxies,
+		reqCh:         cfg.ReqCh,
+		defaultStatus: cfg.DefaultStatus,
+		servers:       cfg.Servers,
+		ProxyCh:       cfg.ProxyCh,
 
 		stateCh:  stateCh,
 		statusCh: statusCh,
@@ -103,6 +120,7 @@ type BasicWorker struct {
 	reqCh         chan McRequest
 	defaultStatus mc.Packet
 	servers       map[string]WorkerServerConfig
+	ProxyCh       chan ProxyAction
 
 	stateCh  chan StateRequest
 	statusCh chan StatusRequest
@@ -187,6 +205,7 @@ func (w BasicWorker) Work() {
 
 		request.Ch <- McAnswer{
 			Action:     PROXY,
+			ProxyCh:    w.ProxyCh,
 			ServerConn: NewMcConn(netConn),
 		}
 	}

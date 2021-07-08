@@ -6,23 +6,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-
-	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/proxy"
-)
-
-var (
-	// Isnt this the proper path to put config files into (for execution without docker)
-	defaultCfgPath            = "/etc/ultraviolet"
-	defaultServerCfgPath      = filepath.Join(defaultCfgPath, "config")
-	defaultUltravioletCfgPath = filepath.Join(defaultCfgPath, "ultraviolet.json")
 )
 
 func ReadServerConfigs(path string) ([]ServerConfig, error) {
 	var cfgs []ServerConfig
-	if path == "" {
-		path = defaultServerCfgPath
-	}
 	var filePaths []string
 	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -39,7 +26,6 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		return cfgs, err
 	}
 	for _, filePath := range filePaths {
-		log.Println("Loading", filePath)
 		cfg, err := LoadServerCfgFromPath(filePath)
 		if err != nil {
 			return nil, err
@@ -66,12 +52,9 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 }
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
-	cfg := DefaultUltravioletConfig()
-	if path == "" {
-		path = defaultUltravioletCfgPath
-	}
-	// Check or file exists and if not write default config file to it
-	log.Printf("Loading Ultraviolet main config file at: %s", path)
+	var cfg UltravioletConfig
+
+	// TODO: Check or file exists and if not write default config file to it
 	bb, err := ioutil.ReadFile(path)
 	if err != nil {
 		return UltravioletConfig{}, err
@@ -80,19 +63,4 @@ func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 		return cfg, err
 	}
 	return cfg, nil
-}
-
-func FileToWorkerConfig(cfg ServerConfig) proxy.WorkerServerConfig {
-	disconPk := mc.ClientBoundDisconnect{
-		Reason: mc.Chat(cfg.DisconnectMessage),
-	}.Marshal()
-	offlineStatusPk := cfg.OfflineStatus.Marshal()
-	return proxy.WorkerServerConfig{
-		ProxyTo:           cfg.ProxyTo,
-		ProxyBind:         cfg.ProxyBind,
-		SendProxyProtocol: cfg.SendProxyProtocol,
-		RateLimit:  cfg.ConnLimitBackend,
-		OfflineStatus:     offlineStatusPk,
-		DisconnectPacket:  disconPk,
-	}
 }

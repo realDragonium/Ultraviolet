@@ -1,68 +1,104 @@
 package config_test
 
 import (
-	"bytes"
+	"encoding/json"
+	"io/ioutil"
+	"os"
+	"reflect"
 	"testing"
 
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-func samePk(expected, received mc.Packet) bool {
-	sameID := expected.ID == received.ID
-	sameData := bytes.Equal(expected.Data, received.Data)
+func TestReadServerConfigFile(t *testing.T) {
+	cfg := config.ServerConfig{
+		MainDomain: "infrared",
+		ProxyTo:    ":25566",
+	}
+	file, _ := json.MarshalIndent(cfg, "", " ")
+	tmpfile, err := ioutil.TempFile("", "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loadedCfg, err := config.LoadServerCfgFromPath(tmpfile.Name())
+	if err != nil {
+		t.Error(err)
+	}
 
-	return sameID && sameData
+	if !reflect.DeepEqual(cfg, loadedCfg) {
+		t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
+	}
 }
 
-func TestFileToWorkerConfig(t *testing.T) {
-	serverCfg := config.ServerConfig{
-		MainDomain:        "Ultraviolet",
-		ExtraDomains:      []string{"Ultraviolet2", "UltraV", "UV"},
-		ProxyTo:           "127.0.10.5:25565",
-		ProxyBind:         "127.0.0.5",
-		SendProxyProtocol: true,
-		DisconnectMessage: "HelloThereWeAreClosed...Sorry",
-		OfflineStatus: mc.AnotherStatusResponse{
+func TestReadServerConfigs(t *testing.T) {
+	cfg := config.ServerConfig{
+		MainDomain: "infrared",
+		ProxyTo:    ":25566",
+	}
+	tmpDir, _ := ioutil.TempDir("", "configs")
+	for i := 0; i < 3; i++ {
+		file, _ := json.MarshalIndent(cfg, "", " ")
+		tmpfile, err := ioutil.TempFile(tmpDir, "example")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer os.Remove(tmpfile.Name())
+		if _, err := tmpfile.Write(file); err != nil {
+			t.Fatal(err)
+		}
+		if err := tmpfile.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	loadedCfgs, _ := config.ReadServerConfigs(tmpDir)
+	for i, loadedCfg := range loadedCfgs {
+		if !reflect.DeepEqual(cfg, loadedCfg) {
+			t.Errorf("index: %d \nWanted:%v \n got: %v", i, cfg, loadedCfg)
+		}
+	}
+}
+
+func TestReadUltravioletConfigFile(t *testing.T) {
+	cfg := config.UltravioletConfig{
+		ListenTo:             ":25565",
+		ReceiveProxyProtocol: false,
+		DefaultStatus: mc.AnotherStatusResponse{
 			Name:        "Ultraviolet",
 			Protocol:    755,
-			Description: "Some broken proxy",
+			Description: "One dangerous proxy",
 		},
-		ConnLimitBackend: 5,
+
+		NumberOfWorkers:       5,
+		NumberOfConnWorkers:   1,
+		NumberOfStateWorkers:  1,
+		NumberOfStatusWorkers: 1,
+	}
+	file, _ := json.MarshalIndent(cfg, "", " ")
+	tmpfile, err := ioutil.TempFile("", "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpfile.Name())
+	if _, err := tmpfile.Write(file); err != nil {
+		t.Fatal(err)
+	}
+	if err := tmpfile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	loadedCfg, err := config.ReadUltravioletConfig(tmpfile.Name())
+	if err != nil {
+		t.Error(err)
 	}
 
-	expectedDisconPk := mc.ClientBoundDisconnect{
-		Reason: mc.String(serverCfg.DisconnectMessage),
-	}.Marshal()
-	expectedOfflineStatus := mc.AnotherStatusResponse{
-		Name:        "Ultraviolet",
-		Protocol:    755,
-		Description: "Some broken proxy",
-	}.Marshal()
-
-	workerCfg := config.FileToWorkerConfig(serverCfg)
-
-	if workerCfg.ProxyTo != serverCfg.ProxyTo {
-		t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
-	}
-	if workerCfg.ProxyBind != serverCfg.ProxyBind {
-		t.Errorf("expected: %v - got: %v", serverCfg.ProxyBind, workerCfg.ProxyBind)
-	}
-	if workerCfg.SendProxyProtocol != serverCfg.SendProxyProtocol {
-		t.Errorf("expected: %v - got: %v", serverCfg.SendProxyProtocol, workerCfg.SendProxyProtocol)
-	}
-	if workerCfg.RateLimit != serverCfg.ConnLimitBackend {
-		t.Errorf("expected: %v - got: %v", serverCfg.ConnLimitBackend, workerCfg.RateLimit)
-	}
-	if !samePk(expectedOfflineStatus, workerCfg.OfflineStatus) {
-		offlineStatus, _ := mc.UnmarshalClientBoundResponse(expectedOfflineStatus)
-		receivedStatus, _ := mc.UnmarshalClientBoundResponse(workerCfg.OfflineStatus)
-		t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
-	}
-
-	if !samePk(expectedDisconPk, workerCfg.DisconnectPacket) {
-		expectedDiscon, _ := mc.UnmarshalClientDisconnect(expectedDisconPk)
-		receivedDiscon, _ := mc.UnmarshalClientDisconnect(workerCfg.DisconnectPacket)
-		t.Errorf("expcted: %v \ngot: %v", expectedDiscon, receivedDiscon)
+	if !reflect.DeepEqual(cfg, loadedCfg) {
+		t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
 	}
 }

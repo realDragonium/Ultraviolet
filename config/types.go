@@ -1,16 +1,22 @@
 package config
 
-import "github.com/realDragonium/Ultraviolet/mc"
+import (
+	"github.com/realDragonium/Ultraviolet/mc"
+)
 
 type ServerConfig struct {
-	MainDomain        string                   `json:"mainDomain"`
-	ExtraDomains      []string                 `json:"extraDomains"`
-	ProxyTo           string                   `json:"proxyTo"`
-	ProxyBind         string                   `json:"proxyBind"`
-	SendProxyProtocol bool                     `json:"sendProxyProtocol"`
+	MainDomain   string   `json:"mainDomain"`
+	ExtraDomains []string `json:"extraDomains"`
+
+	ProxyTo           string `json:"proxyTo"`
+	ProxyBind         string `json:"proxyBind"`
+	SendProxyProtocol bool   `json:"sendProxyProtocol"`
+
 	DisconnectMessage string                   `json:"disconnectMessage"`
 	OfflineStatus     mc.AnotherStatusResponse `json:"offlineStatus"`
-	ConnLimitBackend  int                      `json:"connPerSec"`
+
+	RateLimit    int    `json:"rateLimit"`
+	RateDuration string `json:"rateCooldown"`
 }
 
 func DefaultServerConfig() ServerConfig {
@@ -24,26 +30,35 @@ func DefaultServerConfig() ServerConfig {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		ConnLimitBackend: 5,
+		RateLimit:    5,
+		RateDuration: "1s",
 	}
 }
 
 type UltravioletConfig struct {
 	ListenTo             string                   `json:"listenTo"`
-	NumberOfWorkers      int                      `json:"numberOfWorkers"`
 	ReceiveProxyProtocol bool                     `json:"receiveProxyProtocol"`
 	DefaultStatus        mc.AnotherStatusResponse `json:"defaultStatus"`
+
+	NumberOfWorkers       int `json:"numberOfWorkers"`
+	NumberOfConnWorkers   int `json:"numberOfConnWorkers"`
+	NumberOfStateWorkers  int `json:"numberOfStateWorkers"`
+	NumberOfStatusWorkers int `json:"numberOfStatusWorkers"`
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
 	return UltravioletConfig{
 		ListenTo:             ":25565",
-		NumberOfWorkers:      5,
 		ReceiveProxyProtocol: false,
 		DefaultStatus: mc.AnotherStatusResponse{
 			Name:        "Ultraviolet",
 			Protocol:    755,
-			Description: "Some broken proxy",
+			Description: "One dangerous proxy",
 		},
+
+		NumberOfWorkers:       5,
+		NumberOfConnWorkers:   1,
+		NumberOfStateWorkers:  1,
+		NumberOfStatusWorkers: 1,
 	}
 }
