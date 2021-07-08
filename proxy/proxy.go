@@ -20,9 +20,8 @@ func NewProxy() Proxy {
 		NotifyCh:       make(chan struct{}),
 		ShouldNotifyCh: make(chan struct{}),
 
-		closedProxy: make(chan struct{}),
-		openedProxy: make(chan struct{}),
-		wg:          &sync.WaitGroup{},
+		ProxyCh: make(chan ProxyAction),
+		wg:      &sync.WaitGroup{},
 	}
 }
 
@@ -30,15 +29,28 @@ type Proxy struct {
 	NotifyCh       chan struct{}
 	ShouldNotifyCh chan struct{}
 
-	closedProxy chan struct{}
-	openedProxy chan struct{}
-	wg          *sync.WaitGroup
+	ProxyCh chan ProxyAction
+	wg      *sync.WaitGroup
 }
 
 func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) (chan struct{}, chan struct{}) {
 	p := NewProxy()
 	go p.manageConnections()
 	// go p.backend()
+
+	defaultStatus := cfg.DefaultStatus.Marshal()
+	workerServerCfgs := make(map[string]WorkerServerConfig)
+	for _, serverCfg := range serverCfgs {
+		workerServerCfg := FileToWorkerConfig(serverCfg)
+		workerServerCfgs[serverCfg.MainDomain] = workerServerCfg
+		for _, extraDomains := range serverCfg.ExtraDomains {
+			workerServerCfgs[extraDomains] = workerServerCfg
+		}
+	}
+
+	workerCfg := NewWorkerConfig(reqCh, workerServerCfgs, defaultStatus)
+	worker := NewWorker(workerCfg)
+	go worker.Work()
 
 	return p.ShouldNotifyCh, p.NotifyCh
 }
@@ -88,10 +100,11 @@ func (p *Proxy) manageConnections() {
 	}()
 
 	for {
-		select {
-		case <-p.openedProxy:
+		action := <-p.ProxyCh
+		switch action {
+		case PROXY_OPEN:
 			p.wg.Add(1)
-		case <-p.closedProxy:
+		case PROXY_CLOSE:
 			p.wg.Done()
 		}
 	}
