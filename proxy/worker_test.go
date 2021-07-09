@@ -2,6 +2,7 @@ package proxy_test
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -15,16 +16,22 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
+var ErrNoResponse = errors.New("there was no response from worker")
+
 func netAddrToIp(addr net.Addr) string {
 	return strings.Split(addr.String(), ":")[0]
 }
 
 func defaultOfflineStatusPacket() mc.Packet {
+	return defaultOfflineStatus().Marshal()
+}
+
+func defaultOfflineStatus() mc.AnotherStatusResponse {
 	return mc.AnotherStatusResponse{
 		Name:        "Ultraviolet-ff",
 		Protocol:    755,
 		Description: "offline proxy being tested",
-	}.Marshal()
+	}
 }
 
 var port *int16
@@ -50,29 +57,26 @@ func samePk(expected, received mc.Packet) bool {
 	return sameID && sameData
 }
 
-func unknownServerStatus() mc.Packet {
+func unknownServerStatusPk() mc.Packet {
+	return unknownServerStatus().Marshal()
+}
+
+func unknownServerStatus() mc.AnotherStatusResponse {
 	return mc.AnotherStatusResponse{
 		Name:        "Ultraviolet",
 		Protocol:    0,
 		Description: "No server found",
-	}.Marshal()
+	}
 }
 
-func setupBasicWorker(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
+func setupBasicWorkers(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
 	reqCh := make(chan proxy.McRequest)
-	workerCfg := proxy.NewWorkerConfig(reqCh, servers, unknownServerStatus())
-	worker := proxy.NewWorker(workerCfg)
+	workerCfg := proxy.NewWorkerConfig(reqCh, servers, unknownServerStatusPk())
+	statusCh := make(chan proxy.StatusRequest)
+	connCh := make(chan proxy.ConnRequest)
+	worker := proxy.NewBasicWorker(workerCfg, statusCh, connCh)
 	go worker.Work()
 	return reqCh
-}
-
-type testLogger struct {
-	t *testing.T
-}
-
-func (tLog testLogger) Write(b []byte) (int, error) {
-	tLog.t.Logf(string(b))
-	return 0, nil
 }
 
 func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
@@ -94,11 +98,11 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 	return connCh, errorCh
 }
 
-func TestWorker_CanReceiveRequests(t *testing.T) {
+func TestWorker_CanReceiveRequests_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	reqCh := make(chan proxy.McRequest)
-	workerCfg := proxy.NewWorkerConfig(reqCh, nil, unknownServerStatus())
+	workerCfg := proxy.NewWorkerConfig(reqCh, nil, unknownServerStatusPk())
 	worker := proxy.NewWorker(workerCfg)
 	go worker.Work()
 	select {
@@ -109,11 +113,11 @@ func TestWorker_CanReceiveRequests(t *testing.T) {
 	}
 }
 
-func TestStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
+func TestStatusUnknownAddr_ReturnDefaultStatus_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -121,7 +125,7 @@ func TestStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
 		ServerAddr: "some weird server address",
 		Ch:         answerCh,
 	}
-	defaultStatusPk := unknownServerStatus()
+	defaultStatusPk := unknownServerStatusPk()
 	select {
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
@@ -138,7 +142,7 @@ func TestStatusUnknownAddr_ReturnDefaultStatus(t *testing.T) {
 	}
 }
 
-func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
+func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -148,7 +152,7 @@ func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
 		OfflineStatus: offlineStatusPk,
 		State:         proxy.OFFLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -204,11 +208,11 @@ func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline(t *testing.T) {
 // 	}
 // }
 
-func TestLoginUnknownAddr_ShouldClose(t *testing.T) {
+func TestLoginUnknownAddr_ShouldClose_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -228,7 +232,7 @@ func TestLoginUnknownAddr_ShouldClose(t *testing.T) {
 	}
 }
 
-func TestLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
+func TestLoginKnownAddr_Online_ShouldProxy_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -238,7 +242,7 @@ func TestLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
 		ProxyTo: targetAddr,
 		State:   proxy.ONLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	createListener(t, targetAddr)
 
@@ -268,7 +272,7 @@ func TestLoginKnownAddr_Online_ShouldProxy(t *testing.T) {
 	}
 }
 
-func TestLoginProxyBind(t *testing.T) {
+func TestLoginProxyBind_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -280,7 +284,7 @@ func TestLoginProxyBind(t *testing.T) {
 		State:     proxy.ONLINE,
 		ProxyBind: proxyBind,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	connCh, errorCh := createListener(t, proxyTo)
 
@@ -304,7 +308,7 @@ func TestLoginProxyBind(t *testing.T) {
 	}
 }
 
-func TestLoginProxyProtocol(t *testing.T) {
+func TestLoginProxyProtocol_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -319,7 +323,7 @@ func TestLoginProxyProtocol(t *testing.T) {
 		IP:   net.ParseIP("187.34.26.123"),
 		Port: 49473,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	listener, err := net.Listen("tcp", proxyTo)
 	if err != nil {
@@ -360,7 +364,7 @@ func TestLoginProxyProtocol(t *testing.T) {
 	}
 }
 
-func TestLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
+func TestLoginKnownAddr_Offline_ShouldDisconnect_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -372,7 +376,7 @@ func TestLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
 		State:            proxy.OFFLINE,
 		DisconnectPacket: disconPacket,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -395,7 +399,7 @@ func TestLoginKnownAddr_Offline_ShouldDisconnect(t *testing.T) {
 	}
 }
 
-func TestStatusKnownAddr_ProxyConnection_WhenServerOnline(t *testing.T) {
+func TestStatusKnownAddr_ProxyConnection_WhenServerOnline_Old(t *testing.T) {
 	logger := testLogger{t: t}
 	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
@@ -405,7 +409,7 @@ func TestStatusKnownAddr_ProxyConnection_WhenServerOnline(t *testing.T) {
 		ProxyTo: targetAddr,
 		State:   proxy.ONLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	createListener(t, targetAddr)
 
@@ -445,7 +449,7 @@ func TestProxyManyRequests_WillRateLimit(t *testing.T) {
 		RateLimitDuration: rateLimitDuration,
 		State:             proxy.ONLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	connCh, _ := createListener(t, targetAddr)
 	go func() {
@@ -498,7 +502,7 @@ func TestProxyRateLimited_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 		RateLimitDuration: rateLimitDuration,
 		State:             proxy.ONLINE,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	connCh, _ := createListener(t, targetAddr)
 	go func() {
@@ -548,7 +552,7 @@ func TestLoginKnownAddr_UNKNOWNStateWithoutListener_ShouldDisconnect(t *testing.
 		ProxyTo: targetAddr,
 		State:   proxy.UNKNOWN,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -578,7 +582,7 @@ func TestStatusKnownAddr_UNKNOWNStateWithListener_ShouldProxyConnection(t *testi
 		ProxyTo: targetAddr,
 		State:   proxy.UNKNOWN,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	createListener(t, targetAddr)
 
@@ -614,7 +618,7 @@ func TestStatusKnownAddr_UNKNOWNStateWithoutListener_ShouldSendStatus(t *testing
 		ProxyTo: targetAddr,
 		State:   proxy.UNKNOWN,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	reqCh <- proxy.McRequest{
@@ -645,7 +649,7 @@ func TestUnknownState_Should_NOT_CallAgainWithinCooldown(t *testing.T) {
 		State:               proxy.UNKNOWN,
 		StateUpdateCooldown: time.Minute,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	request := proxy.McRequest{
@@ -679,7 +683,7 @@ func TestUnknownState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 		State:               proxy.UNKNOWN,
 		StateUpdateCooldown: cooldown,
 	}
-	reqCh := setupBasicWorker(servers)
+	reqCh := setupBasicWorkers(servers)
 
 	answerCh := make(chan proxy.McAnswer)
 	request := proxy.McRequest{

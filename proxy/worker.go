@@ -159,7 +159,7 @@ func (w BasicWorker) Work() {
 			AnswerCh: stateAnswerCh,
 		}
 		answer := <-stateAnswerCh
-
+		log.Println("Acquired state")
 		if answer.State == OFFLINE {
 			// This need to be modified later when online status cache is being added
 			if request.Type == STATUS {
@@ -188,6 +188,7 @@ func (w BasicWorker) Work() {
 			answerCh: connAnswerCh,
 		}
 		connFunc := <-connAnswerCh
+		log.Println("creating connection")
 		netConn, err := connFunc()
 		if err != nil {
 			log.Printf("error while creating connection to server: %v", err)
@@ -196,8 +197,9 @@ func (w BasicWorker) Work() {
 			}
 			continue
 		}
-
+		log.Println("Test")
 		if cfg.SendProxyProtocol {
+			log.Println("Going to send proxy protocol header")
 			header := &proxyproto.Header{
 				Version:           2,
 				Command:           proxyproto.PROXY,
@@ -205,7 +207,8 @@ func (w BasicWorker) Work() {
 				SourceAddr:        request.Addr,
 				DestinationAddr:   netConn.RemoteAddr(),
 			}
-			header.WriteTo(netConn)
+			_, err := header.WriteTo(netConn)
+			log.Println(err)
 		}
 
 		request.Ch <- McAnswer{
