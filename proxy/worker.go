@@ -13,8 +13,6 @@ import (
 
 var (
 	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
-
-	dialTimeout = 1000 * time.Millisecond
 )
 
 type ServerState byte
@@ -27,14 +25,14 @@ const (
 )
 
 type connectionConfig struct {
-	ProxyTo           string
-	ProxyBind         string
-	SendProxyProtocol bool
+	ProxyTo     string
+	ProxyBind   string
+	DialTimeout time.Duration
 }
 
 func newServerConn(cfg connectionConfig) (net.Conn, error) {
 	dialer := net.Dialer{
-		Timeout: dialTimeout,
+		Timeout: cfg.DialTimeout,
 		LocalAddr: &net.TCPAddr{
 			// TODO: Add something for invalid ProxyBind ips
 			IP: net.ParseIP(cfg.ProxyBind),
@@ -45,7 +43,6 @@ func newServerConn(cfg connectionConfig) (net.Conn, error) {
 		log.Println(err)
 		return serverConn, err
 	}
-
 	return serverConn, nil
 }
 
@@ -74,6 +71,7 @@ type WorkerServerConfig struct {
 
 	ProxyTo           string
 	ProxyBind         string
+	DialTimeout       time.Duration
 	SendProxyProtocol bool
 
 	RateLimit         int
@@ -90,27 +88,6 @@ func RunBasicWorkers(amount int, cfg WorkerConfig, statusCh chan StatusRequest, 
 }
 
 func NewBasicWorker(cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest) BasicWorker {
-	return BasicWorker{
-		reqCh:         cfg.ReqCh,
-		defaultStatus: cfg.DefaultStatus,
-		servers:       cfg.Servers,
-		ProxyCh:       cfg.ProxyCh,
-
-		statusCh: statusCh,
-		connCh:   connCh,
-	}
-}
-
-func NewWorker(cfg WorkerConfig) BasicWorker {
-	connCh := make(chan ConnRequest)
-	statusCh := make(chan StatusRequest)
-
-	connWorker := NewConnWorker(connCh, statusCh, cfg.Servers)
-	go connWorker.Work()
-
-	statusWorker := NewStatusWorker(statusCh, connCh, cfg.Servers)
-	go statusWorker.Work()
-
 	return BasicWorker{
 		reqCh:         cfg.ReqCh,
 		defaultStatus: cfg.DefaultStatus,
@@ -159,7 +136,7 @@ func (w BasicWorker) Work() {
 			AnswerCh: stateAnswerCh,
 		}
 		answer := <-stateAnswerCh
-		log.Println("Acquired state")
+
 		if answer.State == OFFLINE {
 			// This need to be modified later when online status cache is being added
 			if request.Type == STATUS {
@@ -188,7 +165,6 @@ func (w BasicWorker) Work() {
 			answerCh: connAnswerCh,
 		}
 		connFunc := <-connAnswerCh
-		log.Println("creating connection")
 		netConn, err := connFunc()
 		if err != nil {
 			log.Printf("error while creating connection to server: %v", err)
@@ -197,9 +173,7 @@ func (w BasicWorker) Work() {
 			}
 			continue
 		}
-		log.Println("Test")
 		if cfg.SendProxyProtocol {
-			log.Println("Going to send proxy protocol header")
 			header := &proxyproto.Header{
 				Version:           2,
 				Command:           proxyproto.PROXY,
@@ -207,8 +181,7 @@ func (w BasicWorker) Work() {
 				SourceAddr:        request.Addr,
 				DestinationAddr:   netConn.RemoteAddr(),
 			}
-			_, err := header.WriteTo(netConn)
-			log.Println(err)
+			header.WriteTo(netConn)
 		}
 
 		request.Ch <- McAnswer{
@@ -231,11 +204,16 @@ func RunConnWorkers(amount int, reqCh chan ConnRequest, updateCh chan StatusRequ
 func NewConnWorker(reqCh chan ConnRequest, updateCh chan StatusRequest, proxies map[string]WorkerServerConfig) ConnWorker {
 	servers := make(map[string]*ConnectionData)
 	for id, proxy := range proxies {
+		dialTimeout := proxy.DialTimeout
+		if dialTimeout == 0 {
+			dialTimeout = time.Second
+		}
 		servers[id] = &ConnectionData{
 			mu: sync.Mutex{},
 			cfg: connectionConfig{
-				ProxyTo:   proxy.ProxyTo,
-				ProxyBind: proxy.ProxyBind,
+				ProxyTo:     proxy.ProxyTo,
+				ProxyBind:   proxy.ProxyBind,
+				DialTimeout: dialTimeout,
 			},
 			connLimit:         proxy.RateLimit,
 			connLimitDuration: proxy.RateLimitDuration,

@@ -1,6 +1,5 @@
 {
     "listenTo": ":25565",
-    "receiveProxyProtocol": false,
     "defaultStatus": {
         "name": "Ultraviolet",
         "protocol": 755,

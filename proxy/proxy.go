@@ -85,13 +85,18 @@ func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
 	}.Marshal()
 	offlineStatusPk := cfg.OfflineStatus.Marshal()
 	duration, _ := time.ParseDuration(cfg.RateDuration)
+	cooldown, _ := time.ParseDuration(cfg.UpdateCooldown)
+	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
 	return WorkerServerConfig{
-		ProxyTo:           cfg.ProxyTo,
-		ProxyBind:         cfg.ProxyBind,
-		SendProxyProtocol: cfg.SendProxyProtocol,
-		OfflineStatus:     offlineStatusPk,
-		DisconnectPacket:  disconPk,
-		RateLimit:         cfg.RateLimit,
-		RateLimitDuration: duration,
+		ProxyTo:             cfg.ProxyTo,
+		ProxyBind:           cfg.ProxyBind,
+		DialTimeout:         dialTimeout,
+		SendProxyProtocol:   cfg.SendProxyProtocol,
+		OfflineStatus:       offlineStatusPk,
+		DisconnectPacket:    disconPk,
+		RateLimit:           cfg.RateLimit,
+		RateLimitDuration:   duration,
+		State:               UNKNOWN,
+		StateUpdateCooldown: cooldown,
 	}
 }

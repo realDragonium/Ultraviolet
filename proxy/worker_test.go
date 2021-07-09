@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -12,27 +11,38 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
+	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
+var LoginStatusTestCases = []struct {
+	reqType         proxy.McRequestType
+	denyAction      proxy.McAction
+	unknownAction   proxy.McAction
+	onlineAction    proxy.McAction
+	offlineAction   proxy.McAction
+	rateLimitAction proxy.McAction
+}{
+	{
+		reqType:         proxy.STATUS,
+		denyAction:      proxy.CLOSE,
+		unknownAction:   proxy.SEND_STATUS,
+		onlineAction:    proxy.PROXY,
+		offlineAction:   proxy.SEND_STATUS,
+		rateLimitAction: proxy.CLOSE,
+	},
+	{
+		reqType:         proxy.LOGIN,
+		denyAction:      proxy.DISCONNECT,
+		unknownAction:   proxy.CLOSE,
+		onlineAction:    proxy.PROXY,
+		offlineAction:   proxy.DISCONNECT,
+		rateLimitAction: proxy.CLOSE,
+	},
+}
+
 var ErrNoResponse = errors.New("there was no response from worker")
-
-func netAddrToIp(addr net.Addr) string {
-	return strings.Split(addr.String(), ":")[0]
-}
-
-func defaultOfflineStatusPacket() mc.Packet {
-	return defaultOfflineStatus().Marshal()
-}
-
-func defaultOfflineStatus() mc.AnotherStatusResponse {
-	return mc.AnotherStatusResponse{
-		Name:        "Ultraviolet-ff",
-		Protocol:    755,
-		Description: "offline proxy being tested",
-	}
-}
 
 var port *int16
 var portLock sync.Mutex = sync.Mutex{}
@@ -50,13 +60,6 @@ func testAddr() string {
 	return addr
 }
 
-func samePk(expected, received mc.Packet) bool {
-	sameID := expected.ID == received.ID
-	sameData := bytes.Equal(expected.Data, received.Data)
-
-	return sameID && sameData
-}
-
 func unknownServerStatusPk() mc.Packet {
 	return unknownServerStatus().Marshal()
 }
@@ -69,14 +72,94 @@ func unknownServerStatus() mc.AnotherStatusResponse {
 	}
 }
 
-func setupBasicWorkers(servers map[string]proxy.WorkerServerConfig) chan<- proxy.McRequest {
-	reqCh := make(chan proxy.McRequest)
-	workerCfg := proxy.NewWorkerConfig(reqCh, servers, unknownServerStatusPk())
-	statusCh := make(chan proxy.StatusRequest)
-	connCh := make(chan proxy.ConnRequest)
-	worker := proxy.NewBasicWorker(workerCfg, statusCh, connCh)
-	go worker.Work()
+func defaultOfflineStatusPacket() mc.Packet {
+	return defaultOfflineStatus().Marshal()
+}
+
+func defaultOfflineStatus() mc.AnotherStatusResponse {
+	return mc.AnotherStatusResponse{
+		Name:        "Ultraviolet-ff",
+		Protocol:    755,
+		Description: "offline proxy being tested",
+	}
+}
+
+//Test Help methods
+func setupBasicTestWorkers(serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+	reqCh, proxyCh := setupTestWorkers(simpleUltravioletConfig(), serverCfgs...)
+	go func() {
+		for {
+			<-proxyCh
+		}
+	}()
 	return reqCh
+}
+
+func setupTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) (chan<- proxy.McRequest, <-chan proxy.ProxyAction) {
+	reqCh := make(chan proxy.McRequest)
+	proxyCh := make(chan proxy.ProxyAction)
+	proxy.SetupWorkers(cfg, serverCfgs, reqCh, proxyCh)
+	return reqCh, proxyCh
+}
+
+func simpleUltravioletConfig() config.UltravioletConfig {
+	return config.UltravioletConfig{
+		DefaultStatus:         unknownServerStatus(),
+		NumberOfWorkers:       1,
+		NumberOfConnWorkers:   1,
+		NumberOfStatusWorkers: 1,
+	}
+}
+
+func sendRequest_TestTimeout(t *testing.T, reqCh chan<- proxy.McRequest, req proxy.McRequest) proxy.McAnswer {
+	t.Helper()
+	answerCh := make(chan proxy.McAnswer)
+	req.Ch = answerCh
+	reqCh <- req
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		return answer
+	case <-time.After(defaultChTimeout):
+		t.Fatal("timed out")
+	}
+	return proxy.McAnswer{}
+}
+
+func sendRequest_IgnoreResult(reqCh chan<- proxy.McRequest, req proxy.McRequest) {
+	answerCh := make(chan proxy.McAnswer)
+	req.Ch = answerCh
+	reqCh <- req
+	go func() {
+		<-answerCh
+	}()
+}
+
+func testCloseConnection(t *testing.T, conn proxy.McConn) {
+	emptyPk := mc.Packet{Data: []byte{0}}
+	if err := conn.WritePacket(emptyPk); err != nil {
+		t.Errorf("Got an unexpected error: %v", err)
+	}
+}
+
+func samePk(expected, received mc.Packet) bool {
+	sameID := expected.ID == received.ID
+	sameData := bytes.Equal(expected.Data, received.Data)
+
+	return sameID && sameData
+}
+
+func netAddrToIp(addr net.Addr) string {
+	return strings.Split(addr.String(), ":")[0]
+}
+
+func acceptAllConnsListener(t *testing.T, addr string) {
+	connCh, _ := createListener(t, addr)
+	go func() {
+		for {
+			<-connCh
+		}
+	}()
 }
 
 func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
@@ -98,13 +181,11 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 	return connCh, errorCh
 }
 
-func TestWorker_CanReceiveRequests_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	reqCh := make(chan proxy.McRequest)
-	workerCfg := proxy.NewWorkerConfig(reqCh, nil, unknownServerStatusPk())
-	worker := proxy.NewWorker(workerCfg)
-	go worker.Work()
+// Actual Tests
+func TestWorker_CanReceiveRequests(t *testing.T) {
+
+	serverCfg := config.ServerConfig{}
+	reqCh := setupBasicTestWorkers(serverCfg)
 	select {
 	case reqCh <- proxy.McRequest{}:
 		t.Log("worker has successfully received request")
@@ -113,601 +194,315 @@ func TestWorker_CanReceiveRequests_Old(t *testing.T) {
 	}
 }
 
-func TestStatusUnknownAddr_ReturnDefaultStatus_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.STATUS,
-		ServerAddr: "some weird server address",
-		Ch:         answerCh,
-	}
-	defaultStatusPk := unknownServerStatusPk()
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if !samePk(defaultStatusPk, answer.StatusPk) {
-			defaultStatus, _ := mc.UnmarshalClientBoundResponse(defaultStatusPk)
-			receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
-			t.Errorf("expcted: %v \ngot: %v", defaultStatus, receivedStatus)
-		}
-		if answer.Action != proxy.SEND_STATUS {
-			t.Errorf("expcted: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestStatusKnownAddr_ReturnOfflineStatus_WhenServerOffline_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	offlineStatusPk := defaultOfflineStatusPacket()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		OfflineStatus: offlineStatusPk,
-		State:         proxy.OFFLINE,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.STATUS,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if !samePk(offlineStatusPk, answer.StatusPk) {
-			offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
-			receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
-			t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
-		}
-		if answer.Action != proxy.SEND_STATUS {
-			t.Errorf("expcted: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-// func TestStatusKnownAddr_ReturnsOnlineStatus_WhenServerOnline(t *testing.T) {
-// 	serverAddr := "ultraviolet"
-// 	onlineStatusPk := defaultOnlineStatusPacket()
-// 	servers := make(map[string]proxy.WorkerServerConfig)
-// 	servers[serverAddr] = proxy.WorkerServerConfig{
-// 		OnlineStatus: onlineStatusPk,
-// 	}
-
-// 	reqCh := setupBasicWorker(servers)
-
-// 	answerCh := make(chan proxy.ConnAnswer)
-// 	reqCh <- proxy.ConnRequest{
-// 		Type:       proxy.STATUS,
-// 		ServerAddr: serverAddr,
-// 		Ch:         answerCh,
-// 	}
-
-// 	select {
-// 	case answer := <-answerCh:
-// 		t.Log("worker has successfully responded")
-// 		if !samePk(onlineStatusPk, answer.StatusPk) {
-// 			t.Errorf("expcted: %v \ngot: %v", onlineStatusPk, answer.StatusPk)
-// 		}
-// 		if answer.Action != proxy.SEND_STATUS {
-// 			t.Errorf("expcted: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
-// 		}
-// 	case <-time.After(defaultChTimeout):
-// 		t.Error("timed out")
-// 	}
-// }
-
-func TestLoginUnknownAddr_ShouldClose_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	servers := make(map[string]proxy.WorkerServerConfig)
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: "some weird server address",
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.CLOSE {
-			t.Errorf("expcted: %v \ngot: %v", proxy.CLOSE, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestLoginKnownAddr_Online_ShouldProxy_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: targetAddr,
-		State:   proxy.ONLINE,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	createListener(t, targetAddr)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.PROXY {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.CLOSE, answer.Action)
-			t.FailNow()
-		}
-		err := answer.ServerConn.WritePacket(mc.Packet{Data: []byte{0}})
-		if err != nil {
-			t.Errorf("Got an unexpected error: %v", err)
-		}
-		if answer.ProxyCh == nil {
-			t.Error("No proxy channel provided")
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestLoginProxyBind_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	proxyTo := testAddr()
-	proxyBind := "127.0.0.2"
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:   proxyTo,
-		State:     proxy.ONLINE,
-		ProxyBind: proxyBind,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	connCh, errorCh := createListener(t, proxyTo)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case err := <-errorCh:
-		t.Fatalf("error while accepting connection: %v", err)
-	case conn := <-connCh:
-		t.Log("connection has been created")
-		if netAddrToIp(conn.RemoteAddr()) != proxyBind {
-			t.Errorf("expcted: %v \ngot: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestLoginProxyProtocol_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	proxyTo := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:           proxyTo,
-		SendProxyProtocol: true,
-		State:             proxy.ONLINE,
-	}
-	playerAddr := &net.TCPAddr{
-		IP:   net.ParseIP("187.34.26.123"),
-		Port: 49473,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	listener, err := net.Listen("tcp", proxyTo)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	proxyListener := &proxyproto.Listener{Listener: listener}
-	connCh := make(chan net.Conn)
-	errorCh := make(chan error)
-	go func() {
-		for {
-			conn, err := proxyListener.Accept()
-			if err != nil {
-				errorCh <- err
+func TestUnknownAddr(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverCfg := config.ServerConfig{}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: "some weird server address",
 			}
-			connCh <- conn
-		}
-	}()
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Addr:       playerAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case err := <-errorCh:
-		t.Fatalf("error while accepting connection: %v", err)
-	case conn := <-connCh:
-		t.Log("connection has been created")
-		if conn.RemoteAddr().String() != playerAddr.String() {
-			t.Errorf("expcted: %v \ngot: %v", playerAddr, conn.RemoteAddr())
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+			reqCh := setupBasicTestWorkers(serverCfg)
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action != tc.unknownAction {
+				t.Errorf("expcted: %v \ngot: %v", tc.unknownAction, answer.Action)
+			}
+			if tc.reqType == proxy.STATUS {
+				defaultStatusPk := unknownServerStatusPk()
+				if !samePk(defaultStatusPk, answer.StatusPk) {
+					defaultStatus, _ := mc.UnmarshalClientBoundResponse(defaultStatusPk)
+					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
+					t.Errorf("expcted: %v \ngot: %v", defaultStatus, receivedStatus)
+				}
+			}
+		})
 	}
 }
 
-func TestLoginKnownAddr_Offline_ShouldDisconnect_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	disconPacket := mc.ClientBoundDisconnect{
-		Reason: "Some disconnect message right here",
-	}.Marshal()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		State:            proxy.OFFLINE,
-		DisconnectPacket: disconPacket,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.DISCONNECT {
-			t.Errorf("expcted: %v got: %v", proxy.DISCONNECT, answer.Action)
-		}
-		if !samePk(disconPacket, answer.DisconMessage) {
-			t.Errorf("expcted: %v \ngot: %v", disconPacket, answer.DisconMessage)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestStatusKnownAddr_ProxyConnection_WhenServerOnline_Old(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: targetAddr,
-		State:   proxy.ONLINE,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	createListener(t, targetAddr)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.STATUS,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.PROXY {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.PROXY, answer.Action)
-		}
-		err := answer.ServerConn.WritePacket(mc.Packet{Data: []byte{0}})
-		if err != nil {
-			t.Fatalf("Got an unexpected error: %v", err)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+// Add test for when offline status isnt configured...?
+func TestKnownAddr_OfflineServer(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			disconnectMessage := "Some disconnect message right here"
+			disconPacket := mc.ClientBoundDisconnect{
+				Reason: mc.Chat(disconnectMessage),
+			}.Marshal()
+			serverCfg := config.ServerConfig{
+				MainDomain:        serverAddr,
+				OfflineStatus:     defaultOfflineStatus(),
+				DisconnectMessage: disconnectMessage,
+			}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			offlineStatusPk := defaultOfflineStatusPacket()
+			reqCh := setupBasicTestWorkers(serverCfg)
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action != tc.offlineAction {
+				t.Errorf("expcted: %v \ngot: %v", tc.offlineAction, answer.Action)
+			}
+			if tc.reqType == proxy.STATUS {
+				if !samePk(offlineStatusPk, answer.StatusPk) {
+					offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
+					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
+					t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
+				}
+			} else if tc.reqType == proxy.LOGIN {
+				if !samePk(disconPacket, answer.DisconMessage) {
+					expected, _ := mc.UnmarshalClientDisconnect(disconPacket)
+					received, _ := mc.UnmarshalClientDisconnect(answer.DisconMessage)
+					t.Errorf("expcted: %v \ngot: %v", expected, received)
+				}
+			}
+		})
 	}
 }
 
-func TestProxyManyRequests_WillRateLimit(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	rateLimit := 3
-	rateLimitDuration := 1 * time.Minute
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:           targetAddr,
-		RateLimit:         rateLimit,
-		RateLimitDuration: rateLimitDuration,
-		State:             proxy.ONLINE,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	connCh, _ := createListener(t, targetAddr)
-	go func() {
-		for {
-			<-connCh
-		}
-	}()
-
-	sendRequest := func() chan proxy.McAnswer {
-		answerCh := make(chan proxy.McAnswer)
-		reqCh <- proxy.McRequest{
-			Type:       proxy.STATUS,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-		return answerCh
-	}
-
-	for i := 0; i < rateLimit; i++ {
-		ch := sendRequest()
-		go func(ch chan proxy.McAnswer) {
-			<-ch
-		}(ch)
-	}
-
-	answerCh := sendRequest()
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.CLOSE {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.CLOSE, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+func TestKnownAddr_OnlineServer(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			serverCfg := config.ServerConfig{
+				MainDomain: serverAddr,
+				ProxyTo:    targetAddr,
+			}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			createListener(t, targetAddr)
+			reqCh := setupBasicTestWorkers(serverCfg)
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action != tc.onlineAction {
+				t.Fatalf("expcted: %v \ngot: %v", tc.onlineAction, answer.Action)
+			}
+			testCloseConnection(t, answer.ServerConn)
+			if answer.ProxyCh == nil {
+				t.Error("No proxy channel provided")
+			}
+		})
 	}
 }
 
-func TestProxyRateLimited_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	rateLimit := 1
-	rateLimitDuration := 10 * time.Millisecond
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:           targetAddr,
-		RateLimit:         rateLimit,
-		RateLimitDuration: rateLimitDuration,
-		State:             proxy.ONLINE,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	connCh, _ := createListener(t, targetAddr)
-	go func() {
-		for {
-			<-connCh
-		}
-	}()
-
-	sendRequest := func() chan proxy.McAnswer {
-		answerCh := make(chan proxy.McAnswer)
-		reqCh <- proxy.McRequest{
-			Type:       proxy.STATUS,
-			ServerAddr: serverAddr,
-			Ch:         answerCh,
-		}
-		return answerCh
-	}
-
-	for i := 0; i < rateLimit; i++ {
-		ch := sendRequest()
-		go func(ch chan proxy.McAnswer) {
-			<-ch
-		}(ch)
-	}
-
-	time.Sleep(rateLimitDuration)
-	answerCh := sendRequest()
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.PROXY {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.PROXY, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+func TestProxyBind(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			proxyBind := "127.0.0.2"
+			serverCfg := config.ServerConfig{
+				MainDomain: serverAddr,
+				ProxyTo:    targetAddr,
+				ProxyBind:  proxyBind,
+			}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			connCh, errorCh := createListener(t, targetAddr)
+			reqCh := setupBasicTestWorkers(serverCfg)
+			sendRequest_IgnoreResult(reqCh, req)
+			conn := <-connCh // State check call (proxy bind should be used here too)
+			receivedBind := netAddrToIp(conn.RemoteAddr())
+			if receivedBind != proxyBind {
+				t.Errorf("expcted: %v \ngot: %v", proxyBind, receivedBind)
+			}
+			select {
+			case err := <-errorCh:
+				t.Fatalf("error while accepting connection: %v", err)
+			case conn := <-connCh:
+				t.Log("connection has been created")
+				receivedBind := netAddrToIp(conn.RemoteAddr())
+				if receivedBind != proxyBind {
+					t.Errorf("expcted: %v \ngot: %v", proxyBind, receivedBind)
+				}
+			case <-time.After(defaultChTimeout):
+				t.Error("timed out")
+			}
+		})
 	}
 }
 
-func TestLoginKnownAddr_UNKNOWNStateWithoutListener_ShouldDisconnect(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: targetAddr,
-		State:   proxy.UNKNOWN,
-	}
-	reqCh := setupBasicWorkers(servers)
+func TestProxyProtocol(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			t.Log(targetAddr)
+			playerAddr := &net.TCPAddr{
+				IP:   net.ParseIP("187.34.26.123"),
+				Port: 49473,
+			}
+			serverCfg := config.ServerConfig{
+				MainDomain:        serverAddr,
+				ProxyTo:           targetAddr,
+				SendProxyProtocol: true,
+			}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+				Addr:       playerAddr,
+			}
+			listener, err := net.Listen("tcp", targetAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			proxyListener := &proxyproto.Listener{Listener: listener}
+			connCh := make(chan net.Conn)
+			errorCh := make(chan error)
+			go func() {
+				for {
+					conn, err := proxyListener.Accept()
+					if err != nil {
+						errorCh <- err
+					}
+					connCh <- conn
+				}
+			}()
 
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.DISCONNECT {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.DISCONNECT, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestStatusKnownAddr_UNKNOWNStateWithListener_ShouldProxyConnection(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: targetAddr,
-		State:   proxy.UNKNOWN,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	createListener(t, targetAddr)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.STATUS,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.PROXY {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.PROXY, answer.Action)
-		}
-		err := answer.ServerConn.WritePacket(mc.Packet{Data: []byte{0}})
-		if err != nil {
-			t.Fatalf("Got an unexpected error: %v", err)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+			reqCh := setupBasicTestWorkers(serverCfg)
+			sendRequest_IgnoreResult(reqCh, req)
+			<-connCh // State check call (no proxy protocol in here)
+			select {
+			case err := <-errorCh:
+				t.Fatalf("error while accepting connection: %v", err)
+			case conn := <-connCh:
+				t.Log("connection has been created")
+				if conn.RemoteAddr().String() != playerAddr.String() {
+					t.Errorf("expcted: %v \ngot: %v", playerAddr, conn.RemoteAddr())
+				}
+			case <-time.After(defaultChTimeout):
+				t.Error("timed out")
+			}
+		})
 	}
 }
 
-func TestStatusKnownAddr_UNKNOWNStateWithoutListener_ShouldSendStatus(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo: targetAddr,
-		State:   proxy.UNKNOWN,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	reqCh <- proxy.McRequest{
-		Type:       proxy.STATUS,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	select {
-	case answer := <-answerCh:
-		t.Log("worker has successfully responded")
-		if answer.Action != proxy.SEND_STATUS {
-			t.Fatalf("expcted: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
-	}
-}
-
-func TestUnknownState_Should_NOT_CallAgainWithinCooldown(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:             targetAddr,
-		State:               proxy.UNKNOWN,
-		StateUpdateCooldown: time.Minute,
-	}
-	reqCh := setupBasicWorkers(servers)
-
-	answerCh := make(chan proxy.McAnswer)
-	request := proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
-	}
-
-	reqCh <- request
-	<-answerCh
-
-	connCh, _ := createListener(t, targetAddr)
-	reqCh <- request
-	select {
-	case <-connCh:
-		t.Error("worker called server again")
-	case <-time.After(defaultChTimeout):
-		t.Log("worker didnt call again")
+func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			rateLimit := 3
+			rateLimitDuration := time.Minute
+			serverCfg := config.ServerConfig{
+				MainDomain:   serverAddr,
+				ProxyTo:      targetAddr,
+				RateLimit:    rateLimit,
+				RateDuration: rateLimitDuration.String(),
+			}
+			reqCh := setupBasicTestWorkers(serverCfg)
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			acceptAllConnsListener(t, targetAddr)
+			for i := 0; i < rateLimit; i++ {
+				sendRequest_IgnoreResult(reqCh, req)
+			}
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action != tc.rateLimitAction {
+				t.Fatalf("expcted: %v \ngot: %v", tc.rateLimitAction, answer.Action)
+			}
+		})
 	}
 }
 
-func TestUnknownState_ShouldCallAgainOutOfCooldown(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
-	serverAddr := "ultraviolet"
-	targetAddr := testAddr()
-	cooldown := defaultChTimeout
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
-		ProxyTo:             targetAddr,
-		State:               proxy.UNKNOWN,
-		StateUpdateCooldown: cooldown,
-	}
-	reqCh := setupBasicWorkers(servers)
+func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			rateLimit := 1
+			rateLimitDuration := defaultChTimeout
+			serverCfg := config.ServerConfig{
+				MainDomain:   serverAddr,
+				ProxyTo:      targetAddr,
+				RateLimit:    rateLimit,
+				RateDuration: rateLimitDuration.String(),
+			}
+			reqCh := setupBasicTestWorkers(serverCfg)
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			acceptAllConnsListener(t, targetAddr)
+			for i := 0; i < rateLimit; i++ {
+				sendRequest_IgnoreResult(reqCh, req)
+			}
+			time.Sleep(longerChTimeout)
 
-	answerCh := make(chan proxy.McAnswer)
-	request := proxy.McRequest{
-		Type:       proxy.LOGIN,
-		ServerAddr: serverAddr,
-		Ch:         answerCh,
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action != tc.onlineAction {
+				t.Fatalf("expcted: %v \ngot: %v", tc.onlineAction, answer.Action)
+			}
+		})
 	}
+}
 
-	reqCh <- request
-	<-answerCh
-	connCh, _ := createListener(t, targetAddr)
-	time.Sleep(cooldown * 2)
-	reqCh <- request
-	select {
-	case <-connCh:
-		t.Log("worker has successfully responded")
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			updateCooldown := time.Minute
+			serverCfg := config.ServerConfig{
+				MainDomain:     serverAddr,
+				ProxyTo:        targetAddr,
+				UpdateCooldown: updateCooldown.String(),
+			}
+			reqCh := setupBasicTestWorkers(serverCfg)
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			sendRequest_TestTimeout(t, reqCh, req)
+			connCh, _ := createListener(t, targetAddr)
+			sendRequest_IgnoreResult(reqCh, req)
+			select {
+			case <-connCh:
+				t.Error("worker called server again")
+			case <-time.After(defaultChTimeout):
+				t.Log("worker didnt call again")
+			}
+		})
+	}
+}
+
+func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			updateCooldown := defaultChTimeout
+			serverCfg := config.ServerConfig{
+				MainDomain:     serverAddr,
+				ProxyTo:        targetAddr,
+				UpdateCooldown: updateCooldown.String(),
+			}
+			reqCh := setupBasicTestWorkers(serverCfg)
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			sendRequest_TestTimeout(t, reqCh, req)
+			time.Sleep(longerChTimeout)
+			connCh, _ := createListener(t, targetAddr)
+			sendRequest_IgnoreResult(reqCh, req)
+			select {
+			case <-connCh:
+				t.Log("worker has successfully responded")
+			case <-time.After(defaultChTimeout):
+				t.Error("timed out")
+			}
+		})
 	}
 }
 
 func TestStatusWorker_ShareServerData(t *testing.T) {
-	logger := testLogger{t: t}
-	log.SetOutput(logger)
 	serverAddr := "ultraviolet"
 	targetAddr := testAddr()
 	cooldown := time.Minute
@@ -728,7 +523,7 @@ func TestStatusWorker_ShareServerData(t *testing.T) {
 		Type:     proxy.STATE_REQUEST,
 		AnswerCh: answerCh,
 	}
-	time.Sleep(defaultChTimeout)
+	time.Sleep(longerChTimeout)
 	answerCh2 := make(chan proxy.StatusAnswer)
 	statusCh <- proxy.StatusRequest{
 		ServerId: serverAddr,

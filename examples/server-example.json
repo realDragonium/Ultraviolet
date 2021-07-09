@@ -3,14 +3,15 @@
     "extraDomains": ["127.0.0.1", "0.0.0.0"],
     "proxyTo": ":25566",
     "proxyBind": "127.0.0.1",
+    "dialTimeout": "1000ms",
     "sendProxyProtocol": false,
-    "disconnectMessage": "Sorry {{username}}, but the server is offline.",
+    "disconnectMessage": "Sorry, but the server is offline.",
     "offlineStatus": {
         "name": "Ultraviolet",
         "protocol": 755,
         "text": "Some offline server"
     },
     "rateLimit": 5,
-    "rateCooldown": "4s"
-
+    "rateCooldown": "4s",
+    "stateUpdateCooldown": "10s"
 }

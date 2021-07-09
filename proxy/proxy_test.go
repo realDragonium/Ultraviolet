@@ -16,6 +16,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		ExtraDomains:      []string{"Ultraviolet2", "UltraV", "UV"},
 		ProxyTo:           "127.0.10.5:25565",
 		ProxyBind:         "127.0.0.5",
+		DialTimeout:       "1s",
 		SendProxyProtocol: true,
 		DisconnectMessage: "HelloThereWeAreClosed...Sorry",
 		OfflineStatus: mc.AnotherStatusResponse{
@@ -23,8 +24,9 @@ func TestFileToWorkerConfig(t *testing.T) {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		RateLimit:    5,
-		RateDuration: "1m",
+		RateLimit:      5,
+		RateDuration:   "1m",
+		UpdateCooldown: "1m",
 	}
 
 	expectedDisconPk := mc.ClientBoundDisconnect{
@@ -36,9 +38,10 @@ func TestFileToWorkerConfig(t *testing.T) {
 		Description: "Some broken proxy",
 	}.Marshal()
 	expectedRateDuration := 1 * time.Minute
+	expectedUpdateCooldown := 1 * time.Minute
+	expectedDialTimeout := 1 * time.Second
 
 	workerCfg := proxy.FileToWorkerConfig(serverCfg)
-
 	if workerCfg.ProxyTo != serverCfg.ProxyTo {
 		t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
 	}
@@ -53,6 +56,12 @@ func TestFileToWorkerConfig(t *testing.T) {
 	}
 	if expectedRateDuration != workerCfg.RateLimitDuration {
 		t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.RateLimitDuration)
+	}
+	if expectedUpdateCooldown != workerCfg.StateUpdateCooldown {
+		t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.StateUpdateCooldown)
+	}
+	if expectedDialTimeout != workerCfg.DialTimeout {
+		t.Errorf("expected: %v - got: %v", expectedDialTimeout, workerCfg.DialTimeout)
 	}
 	if !samePk(expectedOfflineStatus, workerCfg.OfflineStatus) {
 		offlineStatus, _ := mc.UnmarshalClientBoundResponse(expectedOfflineStatus)

@@ -12,7 +12,10 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
-var defaultChTimeout time.Duration = 10 * time.Millisecond
+var (
+	defaultChTimeout = 10 * time.Millisecond
+	longerChTimeout  = 100 * time.Millisecond
+)
 
 type testNetConn struct {
 	conn       net.Conn

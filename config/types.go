@@ -10,29 +10,17 @@ type ServerConfig struct {
 
 	ProxyTo           string `json:"proxyTo"`
 	ProxyBind         string `json:"proxyBind"`
+	DialTimeout       string `json:"dialTimeout"`
 	SendProxyProtocol bool   `json:"sendProxyProtocol"`
 
-	DisconnectMessage string                   `json:"disconnectMessage"`
-	OfflineStatus     mc.AnotherStatusResponse `json:"offlineStatus"`
+	DisconnectMessage string `json:"disconnectMessage"`
 
-	RateLimit    int    `json:"rateLimit"`
-	RateDuration string `json:"rateCooldown"`
-}
+	OfflineStatus mc.AnotherStatusResponse `json:"offlineStatus"`
+	OnlineStatus  mc.AnotherStatusResponse `json:"onlineStatus"`
 
-func DefaultServerConfig() ServerConfig {
-	return ServerConfig{
-		ProxyBind:         "0.0.0.0",
-		ProxyTo:           ":25566",
-		MainDomain:        "localhost",
-		DisconnectMessage: "Sorry {{username}}, but the server is offline.",
-		OfflineStatus: mc.AnotherStatusResponse{
-			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "Some broken proxy",
-		},
-		RateLimit:    5,
-		RateDuration: "1s",
-	}
+	RateLimit      int    `json:"rateLimit"`
+	RateDuration   string `json:"rateCooldown"`
+	UpdateCooldown string `json:"stateUpdateCooldown"`
 }
 
 type UltravioletConfig struct {
@@ -43,20 +31,4 @@ type UltravioletConfig struct {
 	NumberOfWorkers       int `json:"numberOfWorkers"`
 	NumberOfConnWorkers   int `json:"numberOfConnWorkers"`
 	NumberOfStatusWorkers int `json:"numberOfStatusWorkers"`
-}
-
-func DefaultUltravioletConfig() UltravioletConfig {
-	return UltravioletConfig{
-		ListenTo:             ":25565",
-		ReceiveProxyProtocol: false,
-		DefaultStatus: mc.AnotherStatusResponse{
-			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "One dangerous proxy",
-		},
-
-		NumberOfWorkers:       5,
-		NumberOfConnWorkers:   1,
-		NumberOfStatusWorkers: 1,
-	}
 }
