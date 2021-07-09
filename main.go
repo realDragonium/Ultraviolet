@@ -41,7 +41,6 @@ func main() {
 	reqCh := make(chan proxy.McRequest)
 	shouldNotifyCh, notifyCh := proxy.Serve(mainCfg, serverCfgs, reqCh)
 
-	// Do the tableflip stuff which makes the upgrade definitive
 	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
 	upg, err := tableflip.New(tableflip.Options{
 		PIDFile: *pidFile,
@@ -63,7 +62,7 @@ func main() {
 
 	ln, err := upg.Listen("tcp", mainCfg.ListenTo)
 	if err != nil {
-		log.Fatalln("Can't listen:", err)
+		log.Fatalf("Can't listen: %v", err)
 	}
 	defer ln.Close()
 	go proxy.ServeListener(ln, reqCh)

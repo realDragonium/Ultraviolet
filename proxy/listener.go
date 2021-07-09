@@ -110,9 +110,6 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		serverConn.WritePacket(handshakePacket)
 		if isLoginReq {
 			serverConn.WritePacket(loginPacket)
-		} else {
-			// Not sure or this is necessary proxying status works but it times out
-			serverConn.WritePacket(mc.Packet{ID: 0x00})
 		}
 		go func(client, server net.Conn, proxyCh chan ProxyAction) {
 			ProxyConnections(client, server, proxyCh)
@@ -137,7 +134,6 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 // - doesnt give too much trouble with copy the connections
 func ProxyConnections(client, server net.Conn, proxyCh chan ProxyAction) {
 	proxyCh <- PROXY_OPEN
-	log.Println("Start proxying connection")
 	go func() {
 		io.Copy(server, client)
 		client.Close()

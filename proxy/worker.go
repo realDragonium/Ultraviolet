@@ -18,7 +18,7 @@ var (
 
 	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
 
-	dialTimeout = 1000 * time.Millisecond
+	dialTimeout = 1 * time.Millisecond
 )
 
 type ServerState byte
@@ -84,6 +84,28 @@ type WorkerServerConfig struct {
 	RateLimitDuration time.Duration
 }
 
+func RunBasicWorkers(amount int, cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest, stateCh chan StateRequest, updateCh chan StateUpdate) {
+	worker := NewBasicWorker(cfg, statusCh, connCh, stateCh, updateCh)
+	for i := 0; i < amount; i++ {
+		go func(worker BasicWorker) {
+			worker.Work()
+		}(worker)
+	}
+}
+
+func NewBasicWorker(cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest, stateCh chan StateRequest, updateCh chan StateUpdate) BasicWorker {
+	return BasicWorker{
+		reqCh:         cfg.ReqCh,
+		defaultStatus: cfg.DefaultStatus,
+		servers:       cfg.Servers,
+		ProxyCh:       cfg.ProxyCh,
+
+		stateCh:  stateCh,
+		statusCh: statusCh,
+		connCh:   connCh,
+	}
+}
+
 func NewWorker(cfg WorkerConfig) BasicWorker {
 	stateCh := make(chan StateRequest)
 	connCh := make(chan ConnRequest)
@@ -141,8 +163,8 @@ func (w BasicWorker) Work() {
 		}
 		stateAnswerCh := make(chan ServerState)
 		w.stateCh <- StateRequest{
-			serverId: request.ServerAddr,
-			answerCh: stateAnswerCh,
+			ServerId: request.ServerAddr,
+			AnswerCh: stateAnswerCh,
 		}
 		state := <-stateAnswerCh
 
@@ -151,8 +173,8 @@ func (w BasicWorker) Work() {
 			if request.Type == STATUS {
 				statusAnswerCh := make(chan mc.Packet)
 				w.statusCh <- StatusRequest{
-					serverId: request.ServerAddr,
-					answerCh: statusAnswerCh,
+					ServerId: request.ServerAddr,
+					AnswerCh: statusAnswerCh,
 				}
 				statusPk := <-statusAnswerCh
 				request.Ch <- McAnswer{
@@ -201,6 +223,15 @@ func (w BasicWorker) Work() {
 	}
 }
 
+func RunConnWorkers(amount int, reqCh chan ConnRequest, updateCh chan StateUpdate, proxies map[string]WorkerServerConfig) {
+	worker := NewConnWorker(reqCh, updateCh, proxies)
+	for i := 0; i < amount; i++ {
+		go func(worker ConnWorker) {
+			worker.Work()
+		}(worker)
+	}
+}
+
 func NewConnWorker(reqCh chan ConnRequest, updateCh chan StateUpdate, proxies map[string]WorkerServerConfig) ConnWorker {
 	servers := make(map[string]*ConnectionData)
 	for id, proxy := range proxies {
@@ -217,7 +248,7 @@ func NewConnWorker(reqCh chan ConnRequest, updateCh chan StateUpdate, proxies ma
 
 	return ConnWorker{
 		reqCh:   reqCh,
-		servers: servers,
+		servers: &servers,
 	}
 }
 
@@ -238,7 +269,7 @@ type ConnectionData struct {
 
 type ConnWorker struct {
 	reqCh   chan ConnRequest
-	servers map[string]*ConnectionData
+	servers *map[string]*ConnectionData
 }
 
 func (w ConnWorker) Work() {
@@ -247,7 +278,7 @@ func (w ConnWorker) Work() {
 	var request ConnRequest
 	for {
 		request = <-w.reqCh
-		data = w.servers[request.serverId]
+		data = (*w.servers)[request.serverId]
 		data.mu.Lock()
 		if data.connLimit == 0 {
 			connFunc = func() (net.Conn, error) {
@@ -274,7 +305,16 @@ func (w ConnWorker) Work() {
 	}
 }
 
-func NewStatusWorker(reqCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
+func RunStatusWorkers(amount int, reqCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) {
+	stateWorker := NewStatusWorker(reqCh, stateCh, updateCh, connCh, proxies)
+	for i := 0; i < amount; i++ {
+		go func(worker StatusWorker) {
+			stateWorker.Work()
+		}(stateWorker)
+	}
+}
+
+func NewStatusWorker(reqStatusCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
 	servers := make(map[string]*ServerData)
 	for id, proxy := range proxies {
 		cooldown := proxy.StateUpdateCooldown
@@ -292,25 +332,25 @@ func NewStatusWorker(reqCh chan StatusRequest, stateCh chan StateRequest, update
 	return StatusWorker{
 		reqConnCh:     connCh,
 		reqStateCh:    stateCh,
-		reqStatusCh:   reqCh,
+		reqStatusCh:   reqStatusCh,
 		updateStateCh: updateCh,
 		serverData:    servers,
 	}
 }
 
 type StateUpdate struct {
-	serverId string
-	state    ServerState
+	ServerId string
+	State    ServerState
 }
 
 type StateRequest struct {
-	serverId string
-	answerCh chan ServerState
+	ServerId string
+	AnswerCh chan ServerState
 }
 
 type StatusRequest struct {
-	serverId string
-	answerCh chan mc.Packet
+	ServerId string
+	AnswerCh chan mc.Packet
 }
 
 type ServerData struct {
@@ -338,10 +378,10 @@ func (w *StatusWorker) Work() {
 	for {
 		select {
 		case request := <-w.reqStatusCh:
-			data := w.serverData[request.serverId]
+			data := w.serverData[request.ServerId]
 			if data.State == UNKNOWN {
-				w.UpdateState(request.serverId)
-				data = w.serverData[request.serverId]
+				w.UpdateState(request.ServerId)
+				data = w.serverData[request.ServerId]
 			}
 			var statusPk mc.Packet
 			switch data.State {
@@ -350,23 +390,23 @@ func (w *StatusWorker) Work() {
 			case OFFLINE:
 				statusPk = data.OfflineStatus
 			}
-			request.answerCh <- statusPk
+			request.AnswerCh <- statusPk
 		case request := <-w.reqStateCh:
-			data := w.serverData[request.serverId]
+			data := w.serverData[request.ServerId]
 			if data.State == UNKNOWN {
-				w.UpdateState(request.serverId)
-				data = w.serverData[request.serverId]
+				w.UpdateState(request.ServerId)
+				data = w.serverData[request.ServerId]
 			}
-			request.answerCh <- data.State
+			request.AnswerCh <- data.State
 		case update := <-w.updateStateCh:
-			data := w.serverData[update.serverId]
-			if update.state == UPDATE {
-				w.UpdateState(update.serverId)
-				data = w.serverData[update.serverId]
+			data := w.serverData[update.ServerId]
+			if update.State == UPDATE {
+				w.UpdateState(update.ServerId)
+				data = w.serverData[update.ServerId]
 			} else {
-				data.State = update.state
+				data.State = update.State
 			}
-			w.serverData[update.serverId] = data
+			w.serverData[update.ServerId] = data
 		}
 	}
 }
@@ -389,8 +429,8 @@ func (w *StatusWorker) UpdateState(serverId string) {
 	go func(serverId string, sleepTime time.Duration, updateCh chan StateUpdate) {
 		time.Sleep(sleepTime)
 		updateCh <- StateUpdate{
-			serverId: serverId,
-			state:    UNKNOWN,
+			ServerId: serverId,
+			State:    UNKNOWN,
 		}
 	}(serverId, data.StateUpdateCooldown, w.updateStateCh)
 }

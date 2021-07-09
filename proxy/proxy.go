@@ -36,6 +36,15 @@ type Proxy struct {
 func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) (chan struct{}, chan struct{}) {
 	p := NewProxy()
 	go p.manageConnections()
+	SetupWorkers(cfg, serverCfgs, reqCh, p.ProxyCh)
+	return p.ShouldNotifyCh, p.NotifyCh
+}
+
+func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest, proxyCh chan ProxyAction) {
+	stateCh := make(chan StateRequest)
+	connCh := make(chan ConnRequest)
+	statusCh := make(chan StatusRequest)
+	stateUpdateCh := make(chan StateUpdate)
 
 	defaultStatus := cfg.DefaultStatus.Marshal()
 	workerServerCfgs := make(map[string]WorkerServerConfig)
@@ -48,11 +57,10 @@ func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh
 	}
 
 	workerCfg := NewWorkerConfig(reqCh, workerServerCfgs, defaultStatus)
-	workerCfg.ProxyCh = p.ProxyCh
-	worker := NewWorker(workerCfg)
-	go worker.Work()
-
-	return p.ShouldNotifyCh, p.NotifyCh
+	workerCfg.ProxyCh = proxyCh
+	RunBasicWorkers(cfg.NumberOfWorkers, workerCfg, statusCh, connCh, stateCh, stateUpdateCh)
+	RunConnWorkers(cfg.NumberOfConnWorkers, connCh, stateUpdateCh, workerServerCfgs)
+	RunStatusWorkers(cfg.NumberOfStatusWorkers, statusCh, stateCh, stateUpdateCh, connCh, workerServerCfgs)
 }
 
 func (p *Proxy) manageConnections() {
