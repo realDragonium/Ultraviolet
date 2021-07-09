@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 )
@@ -22,7 +21,6 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		return nil
 	})
 	if err != nil {
-		log.Println(err)
 		return cfgs, err
 	}
 	for _, filePath := range filePaths {

@@ -1,6 +1,8 @@
 package config
 
 import (
+	"io"
+
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -31,4 +33,6 @@ type UltravioletConfig struct {
 	NumberOfWorkers       int `json:"numberOfWorkers"`
 	NumberOfConnWorkers   int `json:"numberOfConnWorkers"`
 	NumberOfStatusWorkers int `json:"numberOfStatusWorkers"`
+
+	LogOutput io.Writer
 }

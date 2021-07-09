@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -43,6 +44,10 @@ func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh
 func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest, proxyCh chan ProxyAction) {
 	connCh := make(chan ConnRequest)
 	statusCh := make(chan StatusRequest)
+
+	if cfg.LogOutput != nil {
+		log.SetOutput(cfg.LogOutput)
+	}
 
 	defaultStatus := cfg.DefaultStatus.Marshal()
 	workerServerCfgs := make(map[string]WorkerServerConfig)

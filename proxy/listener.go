@@ -63,11 +63,11 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 	// Add better error handling
 	handshakePacket, err := conn.ReadPacket()
 	if err != nil {
-		log.Printf("Error while reading handshake packet: %v", err)
+	// 	log.Printf("Error while reading handshake packet: %v", err)
 	}
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
 	if err != nil {
-		log.Printf("Error while unmarshaling handshake packet: %v", err)
+	// 	log.Printf("Error while unmarshaling handshake packet: %v", err)
 	}
 
 	if handshake.NextState != mc.HandshakeLoginState && handshake.NextState != mc.HandshakeStatusState {
@@ -92,11 +92,11 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		// Add better error handling
 		loginPacket, err = conn.ReadPacket()
 		if err != nil {
-			log.Printf("Error while reading login start packet: %v", err)
+			// log.Printf("Error while reading login start packet: %v", err)
 		}
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(loginPacket)
 		if err != nil {
-			log.Printf("Error while unmarshaling login start packet: %v", err)
+			// log.Printf("Error while unmarshaling login start packet: %v", err)
 		}
 		req.Type = LOGIN
 		req.Username = string(loginStart.Name)
