@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"errors"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -40,7 +39,7 @@ func newServerConn(cfg connectionConfig) (net.Conn, error) {
 	}
 	serverConn, err := dialer.Dial("tcp", cfg.ProxyTo)
 	if err != nil {
-		log.Println(err)
+		// log.Println(err)
 		return serverConn, err
 	}
 	return serverConn, nil
@@ -162,12 +161,12 @@ func (w BasicWorker) Work() {
 		connAnswerCh := make(chan func() (net.Conn, error))
 		w.connCh <- ConnRequest{
 			serverId: request.ServerAddr,
-			answerCh: connAnswerCh,
+			AnswerCh: connAnswerCh,
 		}
 		connFunc := <-connAnswerCh
 		netConn, err := connFunc()
 		if err != nil {
-			log.Printf("error while creating connection to server: %v", err)
+			// log.Printf("error while creating connection to server: %v", err)
 			request.Ch <- McAnswer{
 				Action: CLOSE,
 			}
@@ -227,7 +226,7 @@ func NewConnWorker(reqCh chan ConnRequest, updateCh chan StatusRequest, proxies 
 }
 
 type ConnRequest struct {
-	answerCh chan func() (net.Conn, error)
+	AnswerCh chan func() (net.Conn, error)
 	serverId string
 }
 
@@ -275,7 +274,7 @@ func (w ConnWorker) Work() {
 			}
 		}
 		data.mu.Unlock()
-		request.answerCh <- connFunc
+		request.AnswerCh <- connFunc
 	}
 }
 
@@ -350,53 +349,62 @@ type StatusWorker struct {
 func (w *StatusWorker) Work() {
 	for {
 		request := <-w.reqCh
-		data := w.serverData[request.ServerId]
-		if request.Type == STATE_UPDATE {
-			data.State = request.State
-			w.serverData[request.ServerId] = data
+		answer := w.WorkSingle(request)
+		if len(answer.Pk.Data) == 0 && answer.State == UNKNOWN {
 			continue
 		}
-		if data.State == UNKNOWN {
-			connAnswerCh := make(chan func() (net.Conn, error))
-			w.reqConnCh <- ConnRequest{
-				serverId: request.ServerId,
-				answerCh: connAnswerCh,
-			}
-			connFunc := <-connAnswerCh
-			_, err := connFunc()
-			if err != nil {
-				data.State = OFFLINE
-			} else {
-				data.State = ONLINE
-			}
-			w.serverData[request.ServerId] = data
-			go func(serverId string, sleepTime time.Duration, updateCh chan StatusRequest) {
-				time.Sleep(sleepTime)
-				updateCh <- StatusRequest{
-					ServerId: serverId,
-					Type:     STATE_UPDATE,
-					State:    UNKNOWN,
-				}
-			}(request.ServerId, data.StateUpdateCooldown, w.reqCh)
-		}
-
-		switch request.Type {
-		case STATUS_REQUEST:
-			var statusPk mc.Packet
-			switch data.State {
-			case ONLINE:
-				statusPk = data.OnlineStatus
-			case OFFLINE:
-				statusPk = data.OfflineStatus
-			}
-			request.AnswerCh <- StatusAnswer{
-				Pk: statusPk,
-			}
-		case STATE_REQUEST:
-			request.AnswerCh <- StatusAnswer{
-				State: data.State,
-			}
-
-		}
+		request.AnswerCh <- answer
 	}
+}
+
+func (w *StatusWorker) WorkSingle(request StatusRequest) StatusAnswer {
+	data := w.serverData[request.ServerId]
+	if request.Type == STATE_UPDATE {
+		data.State = request.State
+		w.serverData[request.ServerId] = data
+		return StatusAnswer{}
+	}
+	if data.State == UNKNOWN {
+		connAnswerCh := make(chan func() (net.Conn, error))
+		w.reqConnCh <- ConnRequest{
+			serverId: request.ServerId,
+			AnswerCh: connAnswerCh,
+		}
+		connFunc := <-connAnswerCh
+		_, err := connFunc()
+		if err != nil {
+			data.State = OFFLINE
+		} else {
+			data.State = ONLINE
+		}
+		w.serverData[request.ServerId] = data
+		go func(serverId string, sleepTime time.Duration, updateCh chan StatusRequest) {
+			time.Sleep(sleepTime)
+			updateCh <- StatusRequest{
+				ServerId: serverId,
+				Type:     STATE_UPDATE,
+				State:    UNKNOWN,
+			}
+		}(request.ServerId, data.StateUpdateCooldown, w.reqCh)
+	}
+
+	switch request.Type {
+	case STATUS_REQUEST:
+		var statusPk mc.Packet
+		switch data.State {
+		case ONLINE:
+			statusPk = data.OnlineStatus
+		case OFFLINE:
+			statusPk = data.OfflineStatus
+		}
+		return StatusAnswer{
+			Pk: statusPk,
+		}
+	case STATE_REQUEST:
+		return StatusAnswer{
+			State: data.State,
+		}
+
+	}
+	return StatusAnswer{}
 }

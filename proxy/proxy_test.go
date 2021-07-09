@@ -1,7 +1,6 @@
 package proxy_test
 
 import (
-	"net"
 	"testing"
 	"time"
 
@@ -73,86 +72,5 @@ func TestFileToWorkerConfig(t *testing.T) {
 		expectedDiscon, _ := mc.UnmarshalClientDisconnect(expectedDisconPk)
 		receivedDiscon, _ := mc.UnmarshalClientDisconnect(workerCfg.DisconnectPacket)
 		t.Errorf("expcted: %v \ngot: %v", expectedDiscon, receivedDiscon)
-	}
-}
-
-func BenchmarkWorkerStatusRequest_UnknownServer(b *testing.B) {
-	cfg := config.UltravioletConfig{
-		NumberOfWorkers:       1,
-		NumberOfConnWorkers:   1,
-		NumberOfStatusWorkers: 1,
-		DefaultStatus: mc.AnotherStatusResponse{
-			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "Another proxy server",
-		},
-	}
-	servers := []config.ServerConfig{}
-	reqCh := make(chan proxy.McRequest)
-	proxy.SetupWorkers(cfg, servers, reqCh, nil)
-
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		answerCh := make(chan proxy.McAnswer)
-		request := proxy.McRequest{
-			ServerAddr: "something",
-			Type:       proxy.STATUS,
-			Ch:         answerCh,
-		}
-		reqCh <- request
-		go func(answerCh chan proxy.McAnswer) {
-			<-answerCh
-		}(answerCh)
-	}
-}
-
-func BenchmarkNetworkStatusRequest_UnknownServer(b *testing.B) {
-	targetAddr := testAddr()
-	cfg := config.UltravioletConfig{
-		NumberOfWorkers:       1,
-		NumberOfConnWorkers:   1,
-		NumberOfStatusWorkers: 1,
-		DefaultStatus: mc.AnotherStatusResponse{
-			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "Another proxy server",
-		},
-	}
-	servers := []config.ServerConfig{}
-	reqCh := make(chan proxy.McRequest)
-	ln, err := net.Listen("tcp", targetAddr)
-	if err != nil {
-		b.Fatalf("Can't listen: %v", err)
-	}
-	go proxy.ServeListener(ln, reqCh)
-
-	proxy.SetupWorkers(cfg, servers, reqCh, nil)
-
-	handshakePk := mc.ServerBoundHandshake{
-		ProtocolVersion: 755,
-		ServerAddress:   "unknown",
-		ServerPort:      25565,
-		NextState:       mc.HandshakeStatusState,
-	}.Marshal()
-	handshakeBytes, _ := handshakePk.Marshal()
-
-	statusRequestPk := mc.ServerBoundRequest{}.Marshal()
-	statusRequestBytes, _ := statusRequestPk.Marshal()
-	pingPk := mc.NewServerBoundPing().Marshal()
-	pingBytes, _ := pingPk.Marshal()
-
-	readBuffer := make([]byte, 0xffff)
-
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		conn, err := net.Dial("tcp", targetAddr)
-		if err != nil {
-			b.Fatalf("error while trying to connect: %v", err)
-		}
-		conn.Write(handshakeBytes)
-		conn.Write(statusRequestBytes)
-		conn.Read(readBuffer)
-		conn.Write(pingBytes)
-		conn.Read(readBuffer)
 	}
 }
