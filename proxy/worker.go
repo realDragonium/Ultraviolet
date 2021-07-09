@@ -12,13 +12,9 @@ import (
 )
 
 var (
-	ErrCantWriteToServer     = errors.New("can't write to proxy target")
-	ErrCantWriteToClient     = errors.New("can't write to client")
-	ErrCantConnectWithServer = errors.New("cant connect with server")
-
 	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
 
-	dialTimeout = 1 * time.Millisecond
+	dialTimeout = 1000 * time.Millisecond
 )
 
 type ServerState byte
