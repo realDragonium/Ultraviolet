@@ -80,8 +80,8 @@ type WorkerServerConfig struct {
 	RateLimitDuration time.Duration
 }
 
-func RunBasicWorkers(amount int, cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest, stateCh chan StateRequest, updateCh chan StateUpdate) {
-	worker := NewBasicWorker(cfg, statusCh, connCh, stateCh, updateCh)
+func RunBasicWorkers(amount int, cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest) {
+	worker := NewBasicWorker(cfg, statusCh, connCh)
 	for i := 0; i < amount; i++ {
 		go func(worker BasicWorker) {
 			worker.Work()
@@ -89,29 +89,26 @@ func RunBasicWorkers(amount int, cfg WorkerConfig, statusCh chan StatusRequest, 
 	}
 }
 
-func NewBasicWorker(cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest, stateCh chan StateRequest, updateCh chan StateUpdate) BasicWorker {
+func NewBasicWorker(cfg WorkerConfig, statusCh chan StatusRequest, connCh chan ConnRequest) BasicWorker {
 	return BasicWorker{
 		reqCh:         cfg.ReqCh,
 		defaultStatus: cfg.DefaultStatus,
 		servers:       cfg.Servers,
 		ProxyCh:       cfg.ProxyCh,
 
-		stateCh:  stateCh,
 		statusCh: statusCh,
 		connCh:   connCh,
 	}
 }
 
 func NewWorker(cfg WorkerConfig) BasicWorker {
-	stateCh := make(chan StateRequest)
 	connCh := make(chan ConnRequest)
 	statusCh := make(chan StatusRequest)
-	stateUpdateCh := make(chan StateUpdate)
 
-	connWorker := NewConnWorker(connCh, stateUpdateCh, cfg.Servers)
+	connWorker := NewConnWorker(connCh, statusCh, cfg.Servers)
 	go connWorker.Work()
 
-	statusWorker := NewStatusWorker(statusCh, stateCh, stateUpdateCh, connCh, cfg.Servers)
+	statusWorker := NewStatusWorker(statusCh, connCh, cfg.Servers)
 	go statusWorker.Work()
 
 	return BasicWorker{
@@ -120,7 +117,6 @@ func NewWorker(cfg WorkerConfig) BasicWorker {
 		servers:       cfg.Servers,
 		ProxyCh:       cfg.ProxyCh,
 
-		stateCh:  stateCh,
 		statusCh: statusCh,
 		connCh:   connCh,
 	}
@@ -132,7 +128,6 @@ type BasicWorker struct {
 	servers       map[string]WorkerServerConfig
 	ProxyCh       chan ProxyAction
 
-	stateCh  chan StateRequest
 	statusCh chan StatusRequest
 	connCh   chan ConnRequest
 }
@@ -157,25 +152,27 @@ func (w BasicWorker) Work() {
 			}
 			continue
 		}
-		stateAnswerCh := make(chan ServerState)
-		w.stateCh <- StateRequest{
+		stateAnswerCh := make(chan StatusAnswer)
+		w.statusCh <- StatusRequest{
 			ServerId: request.ServerAddr,
+			Type:     STATE_REQUEST,
 			AnswerCh: stateAnswerCh,
 		}
-		state := <-stateAnswerCh
+		answer := <-stateAnswerCh
 
-		if state == OFFLINE {
+		if answer.State == OFFLINE {
 			// This need to be modified later when online status cache is being added
 			if request.Type == STATUS {
-				statusAnswerCh := make(chan mc.Packet)
+				statusAnswerCh := make(chan StatusAnswer)
 				w.statusCh <- StatusRequest{
 					ServerId: request.ServerAddr,
+					Type:     STATUS_REQUEST,
 					AnswerCh: statusAnswerCh,
 				}
-				statusPk := <-statusAnswerCh
+				answer := <-statusAnswerCh
 				request.Ch <- McAnswer{
 					Action:   SEND_STATUS,
-					StatusPk: statusPk,
+					StatusPk: answer.Pk,
 				}
 			} else if request.Type == LOGIN {
 				request.Ch <- McAnswer{
@@ -219,7 +216,7 @@ func (w BasicWorker) Work() {
 	}
 }
 
-func RunConnWorkers(amount int, reqCh chan ConnRequest, updateCh chan StateUpdate, proxies map[string]WorkerServerConfig) {
+func RunConnWorkers(amount int, reqCh chan ConnRequest, updateCh chan StatusRequest, proxies map[string]WorkerServerConfig) {
 	worker := NewConnWorker(reqCh, updateCh, proxies)
 	for i := 0; i < amount; i++ {
 		go func(worker ConnWorker) {
@@ -228,7 +225,7 @@ func RunConnWorkers(amount int, reqCh chan ConnRequest, updateCh chan StateUpdat
 	}
 }
 
-func NewConnWorker(reqCh chan ConnRequest, updateCh chan StateUpdate, proxies map[string]WorkerServerConfig) ConnWorker {
+func NewConnWorker(reqCh chan ConnRequest, updateCh chan StatusRequest, proxies map[string]WorkerServerConfig) ConnWorker {
 	servers := make(map[string]*ConnectionData)
 	for id, proxy := range proxies {
 		servers[id] = &ConnectionData{
@@ -301,8 +298,8 @@ func (w ConnWorker) Work() {
 	}
 }
 
-func RunStatusWorkers(amount int, reqCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) {
-	stateWorker := NewStatusWorker(reqCh, stateCh, updateCh, connCh, proxies)
+func RunStatusWorkers(amount int, reqCh chan StatusRequest, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) {
+	stateWorker := NewStatusWorker(reqCh, connCh, proxies)
 	for i := 0; i < amount; i++ {
 		go func(worker StatusWorker) {
 			stateWorker.Work()
@@ -310,7 +307,7 @@ func RunStatusWorkers(amount int, reqCh chan StatusRequest, stateCh chan StateRe
 	}
 }
 
-func NewStatusWorker(reqStatusCh chan StatusRequest, stateCh chan StateRequest, updateCh chan StateUpdate, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
+func NewStatusWorker(reqStatusCh chan StatusRequest, connCh chan ConnRequest, proxies map[string]WorkerServerConfig) StatusWorker {
 	servers := make(map[string]*ServerData)
 	for id, proxy := range proxies {
 		cooldown := proxy.StateUpdateCooldown
@@ -326,27 +323,30 @@ func NewStatusWorker(reqStatusCh chan StatusRequest, stateCh chan StateRequest, 
 	}
 
 	return StatusWorker{
-		reqConnCh:     connCh,
-		reqStateCh:    stateCh,
-		reqStatusCh:   reqStatusCh,
-		updateStateCh: updateCh,
-		serverData:    servers,
+		reqConnCh:  connCh,
+		reqCh:      reqStatusCh,
+		serverData: servers,
 	}
 }
 
-type StateUpdate struct {
-	ServerId string
-	State    ServerState
-}
+type StatusReqType byte
 
-type StateRequest struct {
-	ServerId string
-	AnswerCh chan ServerState
-}
+const (
+	STATE_UPDATE StatusReqType = iota + 1
+	STATE_REQUEST
+	STATUS_REQUEST
+)
 
 type StatusRequest struct {
 	ServerId string
-	AnswerCh chan mc.Packet
+	State    ServerState
+	Type     StatusReqType
+	AnswerCh chan StatusAnswer
+}
+
+type StatusAnswer struct {
+	Pk    mc.Packet
+	State ServerState
 }
 
 type ServerData struct {
@@ -361,24 +361,46 @@ type ServerData struct {
 // - check or state is still valid or expired before replying
 // - add online status caching when doesnt proxy client requests to actual server
 type StatusWorker struct {
-	reqConnCh chan ConnRequest
-
-	reqStatusCh   chan StatusRequest
-	reqStateCh    chan StateRequest
-	updateStateCh chan StateUpdate
-
+	reqConnCh  chan ConnRequest
+	reqCh      chan StatusRequest
 	serverData map[string]*ServerData
 }
 
 func (w *StatusWorker) Work() {
 	for {
-		select {
-		case request := <-w.reqStatusCh:
-			data := w.serverData[request.ServerId]
-			if data.State == UNKNOWN {
-				w.UpdateState(request.ServerId)
-				data = w.serverData[request.ServerId]
+		request := <-w.reqCh
+		data := w.serverData[request.ServerId]
+		if request.Type == STATE_UPDATE {
+			data.State = request.State
+			w.serverData[request.ServerId] = data
+			continue
+		}
+		if data.State == UNKNOWN {
+			connAnswerCh := make(chan func() (net.Conn, error))
+			w.reqConnCh <- ConnRequest{
+				serverId: request.ServerId,
+				answerCh: connAnswerCh,
 			}
+			connFunc := <-connAnswerCh
+			_, err := connFunc()
+			if err != nil {
+				data.State = OFFLINE
+			} else {
+				data.State = ONLINE
+			}
+			w.serverData[request.ServerId] = data
+			go func(serverId string, sleepTime time.Duration, updateCh chan StatusRequest) {
+				time.Sleep(sleepTime)
+				updateCh <- StatusRequest{
+					ServerId: serverId,
+					Type:     STATE_UPDATE,
+					State:    UNKNOWN,
+				}
+			}(request.ServerId, data.StateUpdateCooldown, w.reqCh)
+		}
+
+		switch request.Type {
+		case STATUS_REQUEST:
 			var statusPk mc.Packet
 			switch data.State {
 			case ONLINE:
@@ -386,47 +408,14 @@ func (w *StatusWorker) Work() {
 			case OFFLINE:
 				statusPk = data.OfflineStatus
 			}
-			request.AnswerCh <- statusPk
-		case request := <-w.reqStateCh:
-			data := w.serverData[request.ServerId]
-			if data.State == UNKNOWN {
-				w.UpdateState(request.ServerId)
-				data = w.serverData[request.ServerId]
+			request.AnswerCh <- StatusAnswer{
+				Pk: statusPk,
 			}
-			request.AnswerCh <- data.State
-		case update := <-w.updateStateCh:
-			data := w.serverData[update.ServerId]
-			if update.State == UPDATE {
-				w.UpdateState(update.ServerId)
-				data = w.serverData[update.ServerId]
-			} else {
-				data.State = update.State
+		case STATE_REQUEST:
+			request.AnswerCh <- StatusAnswer{
+				State: data.State,
 			}
-			w.serverData[update.ServerId] = data
-		}
-	}
-}
 
-func (w *StatusWorker) UpdateState(serverId string) {
-	data := w.serverData[serverId]
-	connAnswerCh := make(chan func() (net.Conn, error))
-	w.reqConnCh <- ConnRequest{
-		serverId: serverId,
-		answerCh: connAnswerCh,
-	}
-	connFunc := <-connAnswerCh
-	_, err := connFunc()
-	if err != nil {
-		data.State = OFFLINE
-	} else {
-		data.State = ONLINE
-	}
-	w.serverData[serverId] = data
-	go func(serverId string, sleepTime time.Duration, updateCh chan StateUpdate) {
-		time.Sleep(sleepTime)
-		updateCh <- StateUpdate{
-			ServerId: serverId,
-			State:    UNKNOWN,
 		}
-	}(serverId, data.StateUpdateCooldown, w.updateStateCh)
+	}
 }

@@ -29,6 +29,7 @@ func defaultOfflineStatusPacket() mc.Packet {
 
 var port *int16
 var portLock sync.Mutex = sync.Mutex{}
+
 // To make sure every test gets its own unique port
 func testAddr() string {
 	portLock.Lock()
@@ -712,34 +713,32 @@ func TestStatusWorker_ShareServerData(t *testing.T) {
 		State:               proxy.UNKNOWN,
 		StateUpdateCooldown: cooldown,
 	}
-	stateCh := make(chan proxy.StateRequest)
 	connCh := make(chan proxy.ConnRequest)
 	statusCh := make(chan proxy.StatusRequest)
-	stateUpdateCh := make(chan proxy.StateUpdate)
-	proxy.RunConnWorkers(1, connCh, stateUpdateCh, servers)
-	proxy.RunStatusWorkers(2, statusCh, stateCh, stateUpdateCh, connCh, servers)
+	proxy.RunConnWorkers(1, connCh, statusCh, servers)
+	proxy.RunStatusWorkers(2, statusCh, connCh, servers)
 
-	answerCh := make(chan proxy.ServerState)
-	stateCh <- proxy.StateRequest{
+	answerCh := make(chan proxy.StatusAnswer)
+	statusCh <- proxy.StatusRequest{
 		ServerId: serverAddr,
+		Type:     proxy.STATE_REQUEST,
 		AnswerCh: answerCh,
 	}
 	time.Sleep(defaultChTimeout)
-	answerCh2 := make(chan proxy.ServerState)
-	stateCh <- proxy.StateRequest{
+	answerCh2 := make(chan proxy.StatusAnswer)
+	statusCh <- proxy.StatusRequest{
 		ServerId: serverAddr,
+		Type:     proxy.STATE_REQUEST,
 		AnswerCh: answerCh2,
 	}
 
 	select {
 	case answer := <-answerCh2:
 		t.Log("worker has successfully responded")
-		if answer != proxy.OFFLINE {
+		if answer.State != proxy.OFFLINE {
 			t.Errorf("expected: %v got: %v", proxy.OFFLINE, answer)
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
 	}
 }
-
-

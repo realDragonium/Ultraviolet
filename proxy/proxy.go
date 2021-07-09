@@ -41,10 +41,8 @@ func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh
 }
 
 func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest, proxyCh chan ProxyAction) {
-	stateCh := make(chan StateRequest)
 	connCh := make(chan ConnRequest)
 	statusCh := make(chan StatusRequest)
-	stateUpdateCh := make(chan StateUpdate)
 
 	defaultStatus := cfg.DefaultStatus.Marshal()
 	workerServerCfgs := make(map[string]WorkerServerConfig)
@@ -58,9 +56,9 @@ func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 
 	workerCfg := NewWorkerConfig(reqCh, workerServerCfgs, defaultStatus)
 	workerCfg.ProxyCh = proxyCh
-	RunBasicWorkers(cfg.NumberOfWorkers, workerCfg, statusCh, connCh, stateCh, stateUpdateCh)
-	RunConnWorkers(cfg.NumberOfConnWorkers, connCh, stateUpdateCh, workerServerCfgs)
-	RunStatusWorkers(cfg.NumberOfStatusWorkers, statusCh, stateCh, stateUpdateCh, connCh, workerServerCfgs)
+	RunBasicWorkers(cfg.NumberOfWorkers, workerCfg, statusCh, connCh)
+	RunConnWorkers(cfg.NumberOfConnWorkers, connCh, statusCh, workerServerCfgs)
+	RunStatusWorkers(cfg.NumberOfStatusWorkers, statusCh, connCh, workerServerCfgs)
 }
 
 func (p *Proxy) manageConnections() {
