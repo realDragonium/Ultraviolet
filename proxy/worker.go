@@ -24,28 +24,6 @@ const (
 	UPDATE
 )
 
-type connectionConfig struct {
-	ProxyTo     string
-	ProxyBind   string
-	DialTimeout time.Duration
-}
-
-func newServerConn(cfg connectionConfig) (net.Conn, error) {
-	dialer := net.Dialer{
-		Timeout: cfg.DialTimeout,
-		LocalAddr: &net.TCPAddr{
-			// TODO: Add something for invalid ProxyBind ips
-			IP: net.ParseIP(cfg.ProxyBind),
-		},
-	}
-	serverConn, err := dialer.Dial("tcp", cfg.ProxyTo)
-	if err != nil {
-		// log.Println(err)
-		return serverConn, err
-	}
-	return serverConn, nil
-}
-
 func NewWorkerConfig(reqCh chan McRequest, serverDict map[string]int, servers map[int]WorkerServerConfig, defaultStatus mc.Packet) WorkerConfig {
 	return WorkerConfig{
 		DefaultStatus: defaultStatus,
@@ -189,10 +167,15 @@ func (w BasicWorker) Work() {
 			header.WriteTo(netConn)
 		}
 
+		connFunc2 := func(net.Addr) (net.Conn, error) {
+			return netConn, nil
+		}
+
 		request.Ch <- McAnswer{
-			Action:     PROXY,
-			ProxyCh:    w.ProxyCh,
-			ServerConn: NewMcConn(netConn),
+			Action:  PROXY,
+			ProxyCh: w.ProxyCh,
+			// ServerConn: NewMcConn(netConn),
+			ServerConnFunc: connFunc2,
 		}
 	}
 }
@@ -421,25 +404,172 @@ func (w *StatusWorker) Work() {
 	}
 }
 
-
-type privateRequest struct{
-
+type ServerWorkerData struct {
+	connReqCh chan McRequest
 }
 
-func newPrivateWorker() privateWorker {
-	return privateWorker{}
+type PublicWorker struct {
+	reqCh         chan McRequest
+	defaultStatus mc.Packet
+
+	serverDict map[string]int
+	servers    map[int]ServerWorkerData
 }
 
-type privateWorker struct {
-	connCounter  int
-	timeStamp    time.Time
-	connLimit    int
-	connCooldown time.Duration
+func (worker PublicWorker) PublicWork() {
+	for {
+		request := <-worker.reqCh
+		serverId, ok := worker.serverDict[request.ServerAddr]
+		if !ok {
+			//Unknown server address
+			if request.Type == STATUS {
+				request.Ch <- McAnswer{
+					Action:   SEND_STATUS,
+					StatusPk: worker.defaultStatus,
+				}
+			} else {
+				request.Ch <- McAnswer{
+					Action: CLOSE,
+				}
+			}
+			continue
+		}
+		data := worker.servers[serverId]
+		data.connReqCh <- request
+	}
+}
+
+func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
+	dialer := net.Dialer{
+		Timeout: cfg.DialTimeout,
+		LocalAddr: &net.TCPAddr{
+			// TODO: Add something for invalid ProxyBind ips
+			IP: net.ParseIP(cfg.ProxyBind),
+		},
+	}
+	proxyTo := cfg.ProxyTo
+	createConnFeature := func(addr net.Addr) (net.Conn, error) {
+		serverConn, err := dialer.Dial("tcp", proxyTo)
+		if err != nil {
+			return serverConn, err
+		}
+
+		if cfg.SendProxyProtocol {
+			header := &proxyproto.Header{
+				Version:           2,
+				Command:           proxyproto.PROXY,
+				TransportProtocol: proxyproto.TCPv4,
+				SourceAddr:        addr,
+				DestinationAddr:   serverConn.RemoteAddr(),
+			}
+			header.WriteTo(serverConn)
+		}
+		return serverConn, nil
+	}
+
+	return PrivateWorker{
+		serverId:          serverId,
+		proxyCh:           make(chan ProxyAction),
+		rateLimit:         cfg.RateLimit,
+		rateCooldown:      cfg.RateLimitDuration,
+		stateCooldown:     cfg.StateUpdateCooldown,
+		sendProxyProtocol: cfg.SendProxyProtocol,
+		offlineStatus:     cfg.OfflineStatus,
+
+		createServerConn: createConnFeature,
+	}
+}
+
+type PrivateWorker struct {
+	serverId          int
+	activeConnections int
+	proxyCh           chan ProxyAction
+	reqCh             chan McRequest
+
+	rateCounter   int
+	rateStartTime time.Time
+	rateLimit     int
+	rateCooldown  time.Duration
 
 	state         ServerState
 	stateCooldown time.Duration
+	stateUpdateCh chan ServerState
+
+	sendProxyProtocol bool
+	createServerConn  func(net.Addr) (net.Conn, error)
+
+	offlineStatus    mc.Packet
+	onlineStatus     mc.Packet
+	disconnectPacket mc.Packet
 }
 
-func privateWork(reqCh chan privateRequest, worker privateWorker){
-	
+func (worker *PrivateWorker) PrivateWork() {
+	stateUpdateCh := make(chan ServerState)
+	for {
+		select {
+		case state := <-stateUpdateCh:
+			worker.state = state
+		case request := <-worker.reqCh:
+			worker.HandleRequest(request)
+		case proxyAction := <-worker.proxyCh:
+			switch proxyAction {
+			case PROXY_OPEN:
+				worker.activeConnections++
+			case PROXY_CLOSE:
+				worker.activeConnections--
+			}
+		}
+	}
+}
+
+func (worker *PrivateWorker) HandleRequest(request McRequest) {
+	if worker.state == UNKNOWN {
+		_, err := worker.createServerConn(&net.IPAddr{})
+		if err != nil {
+			worker.state = OFFLINE
+		} else {
+			worker.state = ONLINE
+		}
+		go func(serverId int, sleepTime time.Duration, updateCh chan ServerState) {
+			time.Sleep(sleepTime)
+			updateCh <- UNKNOWN
+		}(worker.serverId, worker.stateCooldown, worker.stateUpdateCh)
+	}
+	if worker.state == OFFLINE {
+		if request.Type == STATUS {
+			request.Ch <- McAnswer{
+				Action:   SEND_STATUS,
+				StatusPk: worker.offlineStatus,
+			}
+		} else if request.Type == LOGIN {
+			request.Ch <- McAnswer{
+				Action:        DISCONNECT,
+				DisconMessage: worker.disconnectPacket,
+			}
+		}
+		return
+	}
+	var connFunc func(net.Addr) (net.Conn, error)
+	if worker.rateLimit == 0 {
+		connFunc = worker.createServerConn
+	} else {
+		if time.Since(worker.rateStartTime) >= worker.rateCooldown {
+			worker.rateCounter = 0
+			worker.rateStartTime = time.Now()
+		}
+		if worker.rateCounter < worker.rateLimit {
+			worker.rateCounter++
+			connFunc = worker.createServerConn
+		} else {
+			connFunc = func(net.Addr) (net.Conn, error) {
+				return nil, ErrOverConnRateLimit
+			}
+		}
+	}
+	request.Ch <- McAnswer{
+		Action:         PROXY,
+		ProxyCh:        worker.proxyCh,
+		ServerConnFunc: connFunc,
+		// ServerConn: NewMcConn(netConn),
+	}
 }

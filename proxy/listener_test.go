@@ -289,10 +289,15 @@ func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
 	client.WritePacket(loginPk)
 	request := <-reqCh
 
+	connFunc := func(net.Addr) (net.Conn, error) {
+		return proxyBackend, nil
+	}
+
 	request.Ch <- proxy.McAnswer{
-		Action:     proxy.PROXY,
-		ProxyCh:    newProxyChan(),
-		ServerConn: proxy.NewMcConn(proxyBackend),
+		Action:  proxy.PROXY,
+		ProxyCh: newProxyChan(),
+		// ServerConn:     proxy.NewMcConn(proxyBackend),
+		ServerConnFunc: connFunc,
 	}
 
 	server := proxy.NewMcConn(serverConn)
@@ -389,10 +394,15 @@ func TestReadConnection_CanProxyConnToServer(t *testing.T) {
 		client.WritePacket(hsPk)
 		request := <-reqCh
 
+		connFunc := func(net.Addr) (net.Conn, error) {
+			return proxyBackend, nil
+		}
+
 		request.Ch <- proxy.McAnswer{
-			Action:     proxy.PROXY,
-			ProxyCh:    newProxyChan(),
-			ServerConn: proxy.NewMcConn(proxyBackend),
+			Action:  proxy.PROXY,
+			ProxyCh: newProxyChan(),
+			// ServerConn: proxy.NewMcConn(proxyBackend),
+			ServerConnFunc: connFunc,
 		}
 	}()
 

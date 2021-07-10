@@ -154,9 +154,8 @@ func sendRequest_IgnoreResult(reqCh chan<- proxy.McRequest, req proxy.McRequest)
 	}()
 }
 
-func testCloseConnection(t *testing.T, conn proxy.McConn) {
-	emptyPk := mc.Packet{Data: []byte{0}}
-	if err := conn.WritePacket(emptyPk); err != nil {
+func testCloseConnection(t *testing.T, conn net.Conn) {
+	if _, err := conn.Write([]byte{0}); err != nil {
 		t.Errorf("Got an unexpected error: %v", err)
 	}
 }
@@ -297,7 +296,8 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 			if answer.Action != tc.onlineAction {
 				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
 			}
-			testCloseConnection(t, answer.ServerConn)
+			serverConn, _ := answer.ServerConnFunc(&net.IPAddr{})
+			testCloseConnection(t, serverConn)
 			if answer.ProxyCh == nil {
 				t.Error("No proxy channel provided")
 			}

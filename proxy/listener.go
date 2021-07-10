@@ -35,11 +35,12 @@ type McRequest struct {
 }
 
 type McAnswer struct {
-	ServerConn    McConn
-	DisconMessage mc.Packet
-	Action        McAction
-	StatusPk      mc.Packet
-	ProxyCh       chan ProxyAction
+	// ServerConn     McConn
+	ServerConnFunc func(net.Addr) (net.Conn, error)
+	DisconMessage  mc.Packet
+	Action         McAction
+	StatusPk       mc.Packet
+	ProxyCh        chan ProxyAction
 }
 
 func ServeListener(listener net.Listener, reqCh chan McRequest) {
@@ -106,7 +107,8 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 
 	switch ans.Action {
 	case PROXY:
-		serverConn := ans.ServerConn
+		sConn, _ := ans.ServerConnFunc(c.RemoteAddr())
+		serverConn := NewMcConn(sConn)
 		serverConn.WritePacket(handshakePacket)
 		if isLoginReq {
 			serverConn.WritePacket(loginPacket)

@@ -1,7 +1,9 @@
 package proxy_test
 
 import (
+	"net"
 	"testing"
+	"time"
 
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -47,6 +49,132 @@ func basicBenchUVConfig(b *testing.B, w, cw, sw int) config.UltravioletConfig {
 			Description: "Another proxy server",
 		},
 		LogOutput: &benchLogger{b: b},
+	}
+}
+
+var serverWorkerCfg = proxy.WorkerServerConfig{
+	State:               proxy.UNKNOWN,
+	StateUpdateCooldown: time.Second * 10,
+	OfflineStatus: mc.AnotherStatusResponse{
+		Name:        "Ultraviolet",
+		Protocol:    755,
+		Description: "Some benchmark status",
+	}.Marshal(),
+	ProxyTo: "127.0.0.1:29870",
+	DisconnectPacket: mc.ClientBoundDisconnect{
+		Reason: "Benchmarking stay out!",
+	}.Marshal(),
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Status_Offline(b *testing.B) {
+	privateWorker := proxy.NewPrivateWorker(0, serverWorkerCfg)
+
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type: proxy.STATUS,
+		Ch:   answerCh,
+	}
+
+	go func() {
+		for {
+			<-answerCh
+		}
+	}()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		privateWorker.HandleRequest(req)
+	}
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Status_Online(b *testing.B) {
+	serverCfg := serverWorkerCfg
+	serverCfg.ProxyTo = testAddr()
+	privateWorker := proxy.NewPrivateWorker(0, serverCfg)
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type: proxy.STATUS,
+		Ch:   answerCh,
+	}
+
+	go func() {
+		for {
+			<-answerCh
+		}
+	}()
+
+	listener, err := net.Listen("tcp", serverCfg.ProxyTo)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	go func() {
+		for {
+			listener.Accept()
+		}
+	}()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		privateWorker.HandleRequest(req)
+	}
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Login_Offline(b *testing.B) {
+	privateWorker := proxy.NewPrivateWorker(0, serverWorkerCfg)
+
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type: proxy.STATUS,
+		Ch:   answerCh,
+	}
+
+	go func() {
+		for {
+			<-answerCh
+		}
+	}()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		privateWorker.HandleRequest(req)
+	}
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Login_Online(b *testing.B) {
+	serverCfg := serverWorkerCfg
+	serverCfg.ProxyTo = testAddr()
+	privateWorker := proxy.NewPrivateWorker(0, serverCfg)
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type: proxy.LOGIN,
+		Ch:   answerCh,
+	}
+
+	go func() {
+		for {
+			<-answerCh
+		}
+	}()
+
+	listener, err := net.Listen("tcp", serverCfg.ProxyTo)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	go func() {
+		for {
+			listener.Accept()
+		}
+	}()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		privateWorker.HandleRequest(req)
 	}
 }
 

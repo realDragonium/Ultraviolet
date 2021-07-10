@@ -22,16 +22,12 @@ Check their [documentation](https://pkg.go.dev/github.com/cloudflare/tableflip) 
 
 ## How does some stuff work
 
-### rate limiting connections
-
-
 ### state update Cooldown
 To prevent a lot of calls being made to the backend without a reason Ultraviolet will keep track of the state from the backend. The state is currently being based on whether or not the backend will accept an tcp connection or not. When this happened and ultraviolet knows that the backend is `ONLINE` or `OFFLINE` it will wait the time the `stateUpdateCooldown` before it will set the state of the server back to `UNKNOWN`. 
 
 ## Config
 
 time config values are based on go's duration formatting. They can be used in combination with each other "1m30s". Valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". 
-
 
 
 ### Server Config
