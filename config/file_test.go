@@ -13,8 +13,8 @@ import (
 
 func TestReadServerConfigFile(t *testing.T) {
 	cfg := config.ServerConfig{
-		MainDomain: "infrared",
-		ProxyTo:    ":25566",
+		Domains: []string{"infrared"},
+		ProxyTo: ":25566",
 	}
 	file, _ := json.MarshalIndent(cfg, "", " ")
 	tmpfile, err := ioutil.TempFile("", "example")
@@ -40,8 +40,8 @@ func TestReadServerConfigFile(t *testing.T) {
 
 func TestReadServerConfigs(t *testing.T) {
 	cfg := config.ServerConfig{
-		MainDomain: "infrared",
-		ProxyTo:    ":25566",
+		Domains: []string{"infrared"},
+		ProxyTo: ":25566",
 	}
 	tmpDir, _ := ioutil.TempDir("", "configs")
 	for i := 0; i < 3; i++ {

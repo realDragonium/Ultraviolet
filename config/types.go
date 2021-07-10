@@ -7,8 +7,7 @@ import (
 )
 
 type ServerConfig struct {
-	MainDomain   string   `json:"mainDomain"`
-	ExtraDomains []string `json:"extraDomains"`
+	Domains []string `json:"domains"`
 
 	ProxyTo           string `json:"proxyTo"`
 	ProxyBind         string `json:"proxyBind"`
@@ -18,7 +17,6 @@ type ServerConfig struct {
 	DisconnectMessage string `json:"disconnectMessage"`
 
 	OfflineStatus mc.AnotherStatusResponse `json:"offlineStatus"`
-	OnlineStatus  mc.AnotherStatusResponse `json:"onlineStatus"`
 
 	RateLimit      int    `json:"rateLimit"`
 	RateDuration   string `json:"rateCooldown"`

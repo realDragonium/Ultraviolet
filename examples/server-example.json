@@ -1,6 +1,5 @@
 {
-    "mainDomain": "localhost",
-    "extraDomains": ["127.0.0.1", "0.0.0.0"],
+    "mainDomain": ["localhost", "127.0.0.1", "0.0.0.0"],
     "proxyTo": ":25566",
     "proxyBind": "127.0.0.1",
     "dialTimeout": "1000ms",

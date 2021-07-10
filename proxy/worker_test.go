@@ -67,7 +67,7 @@ type testLogger struct {
 }
 
 func (tLog *testLogger) Write(b []byte) (n int, err error) {
-	tLog.t.Log(string(b))
+	tLog.t.Logf(string(b))
 	return 0, nil
 }
 
@@ -119,6 +119,8 @@ func setupTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerC
 }
 
 func simpleUltravioletConfig(logOutput io.Writer) config.UltravioletConfig {
+	log.SetPrefix("log-text: ")
+	log.SetFlags(0)
 	return config.UltravioletConfig{
 		DefaultStatus:         unknownServerStatus(),
 		NumberOfWorkers:       1,
@@ -221,14 +223,14 @@ func TestUnknownAddr(t *testing.T) {
 			reqCh := setupBasicTestWorkers(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.unknownAction {
-				t.Errorf("expcted: %v \ngot: %v", tc.unknownAction, answer.Action)
+				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, answer.Action)
 			}
 			if tc.reqType == proxy.STATUS {
 				defaultStatusPk := unknownServerStatusPk()
 				if !samePk(defaultStatusPk, answer.StatusPk) {
 					defaultStatus, _ := mc.UnmarshalClientBoundResponse(defaultStatusPk)
 					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
-					t.Errorf("expcted: %v \ngot: %v", defaultStatus, receivedStatus)
+					t.Errorf("expected: %v \ngot: %v", defaultStatus, receivedStatus)
 				}
 			}
 		})
@@ -245,7 +247,7 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 				Reason: mc.Chat(disconnectMessage),
 			}.Marshal()
 			serverCfg := config.ServerConfig{
-				MainDomain:        serverAddr,
+				Domains:           []string{serverAddr},
 				OfflineStatus:     defaultOfflineStatus(),
 				DisconnectMessage: disconnectMessage,
 			}
@@ -257,19 +259,19 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 			reqCh := setupBasicTestWorkers(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.offlineAction {
-				t.Errorf("expcted: %v \ngot: %v", tc.offlineAction, answer.Action)
+				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action)
 			}
 			if tc.reqType == proxy.STATUS {
 				if !samePk(offlineStatusPk, answer.StatusPk) {
 					offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
 					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
-					t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
+					t.Errorf("expected: %v \ngot: %v", offlineStatus, receivedStatus)
 				}
 			} else if tc.reqType == proxy.LOGIN {
 				if !samePk(disconPacket, answer.DisconMessage) {
 					expected, _ := mc.UnmarshalClientDisconnect(disconPacket)
 					received, _ := mc.UnmarshalClientDisconnect(answer.DisconMessage)
-					t.Errorf("expcted: %v \ngot: %v", expected, received)
+					t.Errorf("expected: %v \ngot: %v", expected, received)
 				}
 			}
 		})
@@ -282,8 +284,8 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 			serverAddr := "ultraviolet"
 			targetAddr := testAddr()
 			serverCfg := config.ServerConfig{
-				MainDomain: serverAddr,
-				ProxyTo:    targetAddr,
+				Domains: []string{serverAddr},
+				ProxyTo: targetAddr,
 			}
 			req := proxy.McRequest{
 				Type:       tc.reqType,
@@ -293,7 +295,7 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 			reqCh := setupBasicTestWorkers(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.onlineAction {
-				t.Fatalf("expcted: %v \ngot: %v", tc.onlineAction, answer.Action)
+				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
 			}
 			testCloseConnection(t, answer.ServerConn)
 			if answer.ProxyCh == nil {
@@ -310,9 +312,9 @@ func TestProxyBind(t *testing.T) {
 			targetAddr := testAddr()
 			proxyBind := "127.0.0.2"
 			serverCfg := config.ServerConfig{
-				MainDomain: serverAddr,
-				ProxyTo:    targetAddr,
-				ProxyBind:  proxyBind,
+				Domains:   []string{serverAddr},
+				ProxyTo:   targetAddr,
+				ProxyBind: proxyBind,
 			}
 			req := proxy.McRequest{
 				Type:       tc.reqType,
@@ -324,7 +326,7 @@ func TestProxyBind(t *testing.T) {
 			conn := <-connCh // State check call (proxy bind should be used here too)
 			receivedBind := netAddrToIp(conn.RemoteAddr())
 			if receivedBind != proxyBind {
-				t.Errorf("expcted: %v \ngot: %v", proxyBind, receivedBind)
+				t.Errorf("expected: %v \ngot: %v", proxyBind, receivedBind)
 			}
 			select {
 			case err := <-errorCh:
@@ -333,7 +335,7 @@ func TestProxyBind(t *testing.T) {
 				t.Log("connection has been created")
 				receivedBind := netAddrToIp(conn.RemoteAddr())
 				if receivedBind != proxyBind {
-					t.Errorf("expcted: %v \ngot: %v", proxyBind, receivedBind)
+					t.Errorf("expected: %v \ngot: %v", proxyBind, receivedBind)
 				}
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")
@@ -353,7 +355,7 @@ func TestProxyProtocol(t *testing.T) {
 				Port: 49473,
 			}
 			serverCfg := config.ServerConfig{
-				MainDomain:        serverAddr,
+				Domains:           []string{serverAddr},
 				ProxyTo:           targetAddr,
 				SendProxyProtocol: true,
 			}
@@ -388,7 +390,7 @@ func TestProxyProtocol(t *testing.T) {
 			case conn := <-connCh:
 				t.Log("connection has been created")
 				if conn.RemoteAddr().String() != playerAddr.String() {
-					t.Errorf("expcted: %v \ngot: %v", playerAddr, conn.RemoteAddr())
+					t.Errorf("expected: %v \ngot: %v", playerAddr, conn.RemoteAddr())
 				}
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")
@@ -405,7 +407,7 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 			rateLimit := 3
 			rateLimitDuration := time.Minute
 			serverCfg := config.ServerConfig{
-				MainDomain:   serverAddr,
+				Domains:      []string{serverAddr},
 				ProxyTo:      targetAddr,
 				RateLimit:    rateLimit,
 				RateDuration: rateLimitDuration.String(),
@@ -421,7 +423,7 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 			}
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.rateLimitAction {
-				t.Fatalf("expcted: %v \ngot: %v", tc.rateLimitAction, answer.Action)
+				t.Fatalf("expected: %v \ngot: %v", tc.rateLimitAction, answer.Action)
 			}
 		})
 	}
@@ -435,7 +437,7 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 			rateLimit := 1
 			rateLimitDuration := defaultChTimeout
 			serverCfg := config.ServerConfig{
-				MainDomain:   serverAddr,
+				Domains:      []string{serverAddr},
 				ProxyTo:      targetAddr,
 				RateLimit:    rateLimit,
 				RateDuration: rateLimitDuration.String(),
@@ -453,7 +455,7 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.onlineAction {
-				t.Fatalf("expcted: %v \ngot: %v", tc.onlineAction, answer.Action)
+				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
 			}
 		})
 	}
@@ -466,7 +468,7 @@ func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 			targetAddr := testAddr()
 			updateCooldown := time.Minute
 			serverCfg := config.ServerConfig{
-				MainDomain:     serverAddr,
+				Domains:        []string{serverAddr},
 				ProxyTo:        targetAddr,
 				UpdateCooldown: updateCooldown.String(),
 			}
@@ -493,10 +495,9 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
 			targetAddr := testAddr()
-			t.Log(targetAddr)
 			updateCooldown := defaultChTimeout
 			serverCfg := config.ServerConfig{
-				MainDomain:     serverAddr,
+				Domains:        []string{serverAddr},
 				ProxyTo:        targetAddr,
 				UpdateCooldown: updateCooldown.String(),
 				DialTimeout:    "1s",
@@ -508,7 +509,7 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 			}
 			// sendRequest_IgnoreResult(reqCh, req)
 			sendRequest_TestTimeout(t, reqCh, req)
-			time.Sleep(longerChTimeout)
+			time.Sleep(defaultChTimeout * 2)
 			connCh, _ := createListener(t, targetAddr)
 			sendRequest_IgnoreResult(reqCh, req)
 			select {
@@ -522,11 +523,10 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 }
 
 func TestStatusWorker_ShareServerData(t *testing.T) {
-	serverAddr := "ultraviolet"
 	targetAddr := testAddr()
 	cooldown := time.Minute
-	servers := make(map[string]proxy.WorkerServerConfig)
-	servers[serverAddr] = proxy.WorkerServerConfig{
+	servers := make(map[int]proxy.WorkerServerConfig)
+	servers[0] = proxy.WorkerServerConfig{
 		ProxyTo:             targetAddr,
 		State:               proxy.UNKNOWN,
 		StateUpdateCooldown: cooldown,
@@ -538,14 +538,14 @@ func TestStatusWorker_ShareServerData(t *testing.T) {
 
 	answerCh := make(chan proxy.StatusAnswer)
 	statusCh <- proxy.StatusRequest{
-		ServerId: serverAddr,
+		ServerId: 0,
 		Type:     proxy.STATE_REQUEST,
 		AnswerCh: answerCh,
 	}
 	time.Sleep(longerChTimeout)
 	answerCh2 := make(chan proxy.StatusAnswer)
 	statusCh <- proxy.StatusRequest{
-		ServerId: serverAddr,
+		ServerId: 0,
 		Type:     proxy.STATE_REQUEST,
 		AnswerCh: answerCh2,
 	}

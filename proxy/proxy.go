@@ -50,16 +50,17 @@ func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	}
 
 	defaultStatus := cfg.DefaultStatus.Marshal()
-	workerServerCfgs := make(map[string]WorkerServerConfig)
-	for _, serverCfg := range serverCfgs {
+	workerServerCfgs := make(map[int]WorkerServerConfig)
+	serverDict := make(map[string]int)
+	for i, serverCfg := range serverCfgs {
 		workerServerCfg := FileToWorkerConfig(serverCfg)
-		workerServerCfgs[serverCfg.MainDomain] = workerServerCfg
-		for _, extraDomains := range serverCfg.ExtraDomains {
-			workerServerCfgs[extraDomains] = workerServerCfg
+		workerServerCfgs[i] = workerServerCfg
+		for _, domain := range serverCfg.Domains {
+			serverDict[domain] = i
 		}
 	}
 
-	workerCfg := NewWorkerConfig(reqCh, workerServerCfgs, defaultStatus)
+	workerCfg := NewWorkerConfig(reqCh, serverDict, workerServerCfgs, defaultStatus)
 	workerCfg.ProxyCh = proxyCh
 	RunBasicWorkers(cfg.NumberOfWorkers, workerCfg, statusCh, connCh)
 	RunConnWorkers(cfg.NumberOfConnWorkers, connCh, statusCh, workerServerCfgs)

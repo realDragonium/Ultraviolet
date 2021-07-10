@@ -11,8 +11,7 @@ import (
 
 func TestFileToWorkerConfig(t *testing.T) {
 	serverCfg := config.ServerConfig{
-		MainDomain:        "Ultraviolet",
-		ExtraDomains:      []string{"Ultraviolet2", "UltraV", "UV"},
+		Domains:           []string{"Ultraviolet", "Ultraviolet2", "UltraV", "UV"},
 		ProxyTo:           "127.0.10.5:25565",
 		ProxyBind:         "127.0.0.5",
 		DialTimeout:       "1s",
@@ -41,6 +40,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 	expectedDialTimeout := 1 * time.Second
 
 	workerCfg := proxy.FileToWorkerConfig(serverCfg)
+
 	if workerCfg.ProxyTo != serverCfg.ProxyTo {
 		t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
 	}

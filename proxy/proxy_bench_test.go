@@ -10,23 +10,20 @@ import (
 
 var basicServerCfgs = []config.ServerConfig{
 	{
-		MainDomain: "uv1",
-		ProxyTo:    testAddr(),
+		Domains: []string{"uv1"},
+		ProxyTo: testAddr(),
 	},
 	{
-		MainDomain:   "uv2",
-		ExtraDomains: []string{"uve1"},
-		ProxyTo:      testAddr(),
+		Domains: []string{"uv2", "uve1"},
+		ProxyTo: testAddr(),
 	},
 	{
-		MainDomain:   "uv3",
-		ExtraDomains: []string{"uve2"},
-		ProxyTo:      testAddr(),
+		Domains: []string{"uv3", "uve2"},
+		ProxyTo: testAddr(),
 	},
 	{
-		MainDomain:   "uv4",
-		ExtraDomains: []string{"uve3", "uve4"},
-		ProxyTo:      testAddr(),
+		Domains: []string{"uv4", "uve3", "uve4"},
+		ProxyTo: testAddr(),
 	},
 }
 
@@ -53,126 +50,126 @@ func basicBenchUVConfig(b *testing.B, w, cw, sw int) config.UltravioletConfig {
 	}
 }
 
-func basicWorkerServerConfigMap(cfgs []config.ServerConfig) map[string]proxy.WorkerServerConfig {
-	servers := make(map[string]proxy.WorkerServerConfig)
-	for _, cfg := range cfgs {
-		workerCfg := proxy.FileToWorkerConfig(cfg)
-		servers[cfg.MainDomain] = workerCfg
-		for _, extraDomains := range cfg.ExtraDomains {
-			servers[extraDomains] = workerCfg
-		}
-	}
+// func basicWorkerServerConfigMap(cfgs []config.ServerConfig) map[string]proxy.WorkerServerConfig {
+// 	servers := make(map[string]proxy.WorkerServerConfig)
+// 	for _, cfg := range cfgs {
+// 		workerCfg := proxy.FileToWorkerConfig(cfg)
+// 		servers[cfg.MainDomain] = workerCfg
+// 		for _, extraDomains := range cfg.ExtraDomains {
+// 			servers[extraDomains] = workerCfg
+// 		}
+// 	}
 
-	return servers
-}
+// 	return servers
+// }
 
-// func BenchmarkStatusWorker_dialTime_5s_stateCooldown_5s(b *testing.B) {
+// func BenchmarkStatusWorker_dialTimeout_5s_stateCooldown_5s(b *testing.B) {
 // 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "5s", "5s")
 // }
 
-// func BenchmarkStatusWorker_dialTime_1s_stateCooldown_1s(b *testing.B) {
+// func BenchmarkStatusWorker_dialTimeout_1s_stateCooldown_1s(b *testing.B) {
 // 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "1s", "1s")
 // }
 
-// func BenchmarkStatusWorker_dialTime_100ms_stateCooldown_1s(b *testing.B) {
+// func BenchmarkStatusWorker_dialTimeout_100ms_stateCooldown_1s(b *testing.B) {
 // 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "100ms", "1s")
 // }
 
-func BenchmarkStatusWorker_dialTime_1s_stateCooldown_100ms(b *testing.B) {
-	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "1s", "100ms")
-}
+// func BenchmarkStatusWorker_dialTimeout_1s_stateCooldown_100ms(b *testing.B) {
+// 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "1s", "100ms")
+// }
 
-func BenchmarkStatusWorker_dialTime_100ms_stateCooldown_100ms(b *testing.B) {
-	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "100ms", "100ms")
-}
+// func BenchmarkStatusWorker_dialTimeout_100ms_stateCooldown_100ms(b *testing.B) {
+// 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "100ms", "100ms")
+// }
 
-func BenchmarkStatusWorker_dialTime_100ms_stateCooldown_10ms(b *testing.B) {
-	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "100ms", "10ms")
-}
+// func BenchmarkStatusWorker_dialTimeout_100ms_stateCooldown_10ms(b *testing.B) {
+// 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "100ms", "10ms")
+// }
 
-func BenchmarkStatusWorker_dialTime_10ms_stateCooldown_10ms(b *testing.B) {
-	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "10ms", "10ms")
-}
+// func BenchmarkStatusWorker_dialTimeout_10ms_stateCooldown_10ms(b *testing.B) {
+// 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "10ms", "10ms")
+// }
 
-func BenchmarkStatusWorker_dialTime_1ms_stateCooldown_10ms(b *testing.B) {
-	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "1ms", "10ms")
-}
+// func BenchmarkStatusWorker_dialTimeout_1ms_stateCooldown_10ms(b *testing.B) {
+// 	benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b, "1ms", "10ms")
+// }
 
-func benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b *testing.B, dialTime, cooldown string) {
-	connCh := make(chan proxy.ConnRequest)
-	statusCh := make(chan proxy.StatusRequest)
-	serverCfgs := basicServerCfgs
-	for _, cfg := range serverCfgs {
-		cfg.DialTimeout = dialTime
-		cfg.UpdateCooldown = cooldown
-	}
-	servers := basicWorkerServerConfigMap(serverCfgs)
+// func benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b *testing.B, dialTime, cooldown string) {
+// 	connCh := make(chan proxy.ConnRequest)
+// 	statusCh := make(chan proxy.StatusRequest)
+// 	serverCfgs := basicServerCfgs
+// 	for _, cfg := range serverCfgs {
+// 		cfg.DialTimeout = dialTime
+// 		cfg.UpdateCooldown = cooldown
+// 	}
+// 	servers := basicWorkerServerConfigMap(serverCfgs)
 
-	proxy.RunConnWorkers(50, connCh, statusCh, servers)
-	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-	req := proxy.StatusRequest{
-		ServerId: "uv1",
-		Type:     proxy.STATUS_REQUEST,
-	}
-	b.ResetTimer()
-	b.ReportAllocs()
-	for n := 0; n < b.N; n++ {
-		statusWorker.WorkSingle(req)
-	}
-}
+// 	proxy.RunConnWorkers(10, connCh, statusCh, servers)
+// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := proxy.StatusRequest{
+// 		ServerId: "uv1",
+// 		Type:     proxy.STATUS_REQUEST,
+// 	}
+// 	b.ResetTimer()
+// 	b.ReportAllocs()
+// 	for n := 0; n < b.N; n++ {
+// 		statusWorker.WorkSingle(req)
+// 	}
+// }
 
-func BenchmarkStatusWorker_StatusUpdate_To_Online(b *testing.B) {
-	connCh := make(chan proxy.ConnRequest)
-	statusCh := make(chan proxy.StatusRequest)
-	servers := basicWorkerServerConfigMap(basicServerCfgs)
-	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-	req := proxy.StatusRequest{
-		ServerId: "uv1",
-		Type:     proxy.STATE_UPDATE,
-		State:    proxy.ONLINE,
-	}
+// func BenchmarkStatusWorker_StatusUpdate_To_Online(b *testing.B) {
+// 	connCh := make(chan proxy.ConnRequest)
+// 	statusCh := make(chan proxy.StatusRequest)
+// 	servers := basicWorkerServerConfigMap(basicServerCfgs)
+// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := proxy.StatusRequest{
+// 		ServerId: "uv1",
+// 		Type:     proxy.STATE_UPDATE,
+// 		State:    proxy.ONLINE,
+// 	}
 
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		statusWorker.WorkSingle(req)
-	}
-}
+// 	b.ResetTimer()
+// 	for n := 0; n < b.N; n++ {
+// 		statusWorker.WorkSingle(req)
+// 	}
+// }
 
-func BenchmarkStatusWorker_StatusUpdate_To_Online_CHANNEL(b *testing.B) {
-	connCh := make(chan proxy.ConnRequest)
-	statusCh := make(chan proxy.StatusRequest)
-	servers := basicWorkerServerConfigMap(basicServerCfgs)
-	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-	go statusWorker.Work()
+// func BenchmarkStatusWorker_StatusUpdate_To_Online_CHANNEL(b *testing.B) {
+// 	connCh := make(chan proxy.ConnRequest)
+// 	statusCh := make(chan proxy.StatusRequest)
+// 	servers := basicWorkerServerConfigMap(basicServerCfgs)
+// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	go statusWorker.Work()
 
-	req := proxy.StatusRequest{
-		ServerId: "uv1",
-		Type:     proxy.STATE_UPDATE,
-		State:    proxy.ONLINE,
-	}
+// 	req := proxy.StatusRequest{
+// 		ServerId: "uv1",
+// 		Type:     proxy.STATE_UPDATE,
+// 		State:    proxy.ONLINE,
+// 	}
 
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		statusCh <- req
-	}
-}
+// 	b.ResetTimer()
+// 	for n := 0; n < b.N; n++ {
+// 		statusCh <- req
+// 	}
+// }
 
-func BenchmarkStatusWorker_StatusUpdate_To_Offline(b *testing.B) {
-	connCh := make(chan proxy.ConnRequest)
-	statusCh := make(chan proxy.StatusRequest)
-	servers := basicWorkerServerConfigMap(basicServerCfgs)
-	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-	req := proxy.StatusRequest{
-		ServerId: "uv4",
-		Type:     proxy.STATE_UPDATE,
-		State:    proxy.OFFLINE,
-	}
+// func BenchmarkStatusWorker_StatusUpdate_To_Offline(b *testing.B) {
+// 	connCh := make(chan proxy.ConnRequest)
+// 	statusCh := make(chan proxy.StatusRequest)
+// 	servers := basicWorkerServerConfigMap(basicServerCfgs)
+// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := proxy.StatusRequest{
+// 		ServerId: "uv4",
+// 		Type:     proxy.STATE_UPDATE,
+// 		State:    proxy.OFFLINE,
+// 	}
 
-	b.ResetTimer()
-	for n := 0; n < b.N; n++ {
-		statusWorker.WorkSingle(req)
-	}
-}
+// 	b.ResetTimer()
+// 	for n := 0; n < b.N; n++ {
+// 		statusWorker.WorkSingle(req)
+// 	}
+// }
 
 func BenchmarkWorkerStatusRequest_KnownServer_Offline_CHANNEL(b *testing.B) {
 	req := proxy.McRequest{
@@ -191,27 +188,7 @@ func BenchmarkWorkerStatusRequest_UnknownServer_CHANNEL(b *testing.B) {
 
 func benchmarkWorker(b *testing.B, req proxy.McRequest) {
 	cfg := basicBenchUVConfig(b, 1, 1, 1)
-	servers := []config.ServerConfig{
-		{
-			MainDomain: "uv1",
-			ProxyTo:    testAddr(),
-		},
-		{
-			MainDomain:   "uv2",
-			ExtraDomains: []string{"uve1"},
-			ProxyTo:      testAddr(),
-		},
-		{
-			MainDomain:   "uv3",
-			ExtraDomains: []string{"uve2"},
-			ProxyTo:      testAddr(),
-		},
-		{
-			MainDomain:   "uv4",
-			ExtraDomains: []string{"uve3", "uve4"},
-			ProxyTo:      testAddr(),
-		},
-	}
+	servers := basicServerCfgs
 	reqCh := make(chan proxy.McRequest)
 	proxy.SetupWorkers(cfg, servers, reqCh, nil)
 
