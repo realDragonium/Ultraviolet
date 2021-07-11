@@ -9,6 +9,11 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
+var (
+	defaultChTimeout = 10 * time.Millisecond
+	longerChTimeout  = 100 * time.Millisecond
+)
+
 func TestFileToWorkerConfig(t *testing.T) {
 	serverCfg := config.ServerConfig{
 		Domains:           []string{"Ultraviolet", "Ultraviolet2", "UltraV", "UV"},

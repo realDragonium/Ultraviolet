@@ -53,7 +53,6 @@ func basicBenchUVConfig(b *testing.B, w, cw, sw int) config.UltravioletConfig {
 }
 
 var serverWorkerCfg = proxy.WorkerServerConfig{
-	State:               proxy.UNKNOWN,
 	StateUpdateCooldown: time.Second * 10,
 	OfflineStatus: mc.AnotherStatusResponse{
 		Name:        "Ultraviolet",
@@ -64,6 +63,27 @@ var serverWorkerCfg = proxy.WorkerServerConfig{
 	DisconnectPacket: mc.ClientBoundDisconnect{
 		Reason: "Benchmarking stay out!",
 	}.Marshal(),
+}
+
+func BenchmarkPublicWorker_ProcessMcRequest_UnknownAddress_ReturnsValues(b *testing.B) {
+	serverAddr := "ultraviolet"
+	servers := make(map[int]proxy.ServerWorkerData)
+	serverDict := make(map[string]int)
+	reqCh := make(chan proxy.McRequest)
+	publicWorker := proxy.NewPublicWorker(servers, serverDict, mc.Packet{}, reqCh)
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type:       proxy.STATUS,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+	go publicWorker.Work()
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		reqCh <- req
+		<-answerCh
+	}
 }
 
 func BenchmarkPrivateWorker_HandleRequest_Status_Offline(b *testing.B) {
@@ -81,7 +101,6 @@ func BenchmarkPrivateWorker_HandleRequest_Status_Offline(b *testing.B) {
 		}
 	}()
 
-	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		privateWorker.HandleRequest(req)
@@ -98,12 +117,6 @@ func BenchmarkPrivateWorker_HandleRequest_Status_Online(b *testing.B) {
 		Ch:   answerCh,
 	}
 
-	go func() {
-		for {
-			<-answerCh
-		}
-	}()
-
 	listener, err := net.Listen("tcp", serverCfg.ProxyTo)
 	if err != nil {
 		b.Fatal(err)
@@ -115,7 +128,6 @@ func BenchmarkPrivateWorker_HandleRequest_Status_Online(b *testing.B) {
 		}
 	}()
 
-	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		privateWorker.HandleRequest(req)
@@ -131,36 +143,44 @@ func BenchmarkPrivateWorker_HandleRequest_Login_Offline(b *testing.B) {
 		Ch:   answerCh,
 	}
 
-	go func() {
-		for {
-			<-answerCh
-		}
-	}()
-
-	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
 		privateWorker.HandleRequest(req)
 	}
 }
 
-func BenchmarkPrivateWorker_HandleRequest_Login_Online(b *testing.B) {
+func BenchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate100us(b *testing.B) {
+	benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b, 100*time.Microsecond)
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate10ms(b *testing.B) {
+	benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b, 10*time.Millisecond)
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate1us(b *testing.B) {
+	benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b, time.Microsecond)
+}
+
+func BenchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate10s(b *testing.B) {
+	benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b, 10*time.Second)
+}
+
+func benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b *testing.B, stateCooldown time.Duration) {
+	testAddr := testAddr()
 	serverCfg := serverWorkerCfg
-	serverCfg.ProxyTo = testAddr()
+	serverCfg.ProxyTo = testAddr
+	serverCfg.StateUpdateCooldown = stateCooldown
 	privateWorker := proxy.NewPrivateWorker(0, serverCfg)
-	answerCh := make(chan proxy.McAnswer)
+
 	req := proxy.McRequest{
 		Type: proxy.LOGIN,
-		Ch:   answerCh,
 	}
 
-	go func() {
-		for {
-			<-answerCh
-		}
-	}()
+	benchmarkPrivateWorker_HandleRequest_Online(b, privateWorker, req, testAddr)
+}
 
-	listener, err := net.Listen("tcp", serverCfg.ProxyTo)
+func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.PrivateWorker, req proxy.McRequest, addr string) {
+	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -171,10 +191,9 @@ func BenchmarkPrivateWorker_HandleRequest_Login_Online(b *testing.B) {
 		}
 	}()
 
-	b.ReportAllocs()
 	b.ResetTimer()
 	for n := 0; n < b.N; n++ {
-		privateWorker.HandleRequest(req)
+		pWorker.HandleRequest(req)
 	}
 }
 

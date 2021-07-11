@@ -100,9 +100,10 @@ func defaultOfflineStatus() mc.AnotherStatusResponse {
 }
 
 //Test Help methods
-func setupBasicTestWorkers(t *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
-	logOutput := &testLogger{t: t}
-	reqCh, proxyCh := setupTestWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
+func setupTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+	reqCh := make(chan proxy.McRequest)
+	proxyCh := make(chan proxy.ProxyAction)
+	proxy.SetupWorkers(cfg, serverCfgs, reqCh, proxyCh)
 	go func() {
 		for {
 			<-proxyCh
@@ -111,11 +112,10 @@ func setupBasicTestWorkers(t *testing.T, serverCfgs ...config.ServerConfig) chan
 	return reqCh
 }
 
-func setupTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) (chan<- proxy.McRequest, <-chan proxy.ProxyAction) {
+func setupPublicTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
 	reqCh := make(chan proxy.McRequest)
-	proxyCh := make(chan proxy.ProxyAction)
-	proxy.SetupWorkers(cfg, serverCfgs, reqCh, proxyCh)
-	return reqCh, proxyCh
+	proxy.SetupNewWorkers(cfg, serverCfgs, reqCh)
+	return reqCh
 }
 
 func simpleUltravioletConfig(logOutput io.Writer) config.UltravioletConfig {
@@ -199,10 +199,63 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 	return connCh, errorCh
 }
 
+type createWorker func(t *testing.T, serverCfg ...config.ServerConfig) chan<- proxy.McRequest
+
 // Actual Tests
-func TestWorker_CanReceiveRequests(t *testing.T) {
+func TestBasicWorkers(t *testing.T) {
+	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+		logOutput := &testLogger{t: tLocal}
+		reqCh := setupTestWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
+		return reqCh
+	}
+	runAllWorkerTests(t, setupWorker)
+}
+
+func TestPublicAndPrivateWorkers(t *testing.T) {
+	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+		logOutput := &testLogger{t: tLocal}
+		reqCh := setupPublicTestWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
+		return reqCh
+	}
+	runAllWorkerTests(t, setupWorker)
+}
+
+func runAllWorkerTests(t *testing.T, newWorker createWorker) {
+	t.Run("Can receive request", func(t *testing.T) {
+		testWorker_CanReceiveRequest(t, newWorker)
+	})
+	t.Run("unkown address", func(t *testing.T) {
+		testUnknownAddr(t, newWorker)
+	})
+	t.Run("known address - offline server", func(t *testing.T) {
+		testKnownAddr_OfflineServer(t, newWorker)
+	})
+	t.Run("known address - online server", func(t *testing.T) {
+		testKnownAddr_OnlineServer(t, newWorker)
+	})
+	t.Run("proxy bind", func(t *testing.T) {
+		testProxyBind(t, newWorker)
+	})
+	t.Run("proxy protocol", func(t *testing.T) {
+		testProxyProtocol(t, newWorker)
+	})
+	t.Run("many request will rate limit connection to backend", func(t *testing.T) {
+		testProxy_ManyRequestsWillRateLimit(t, newWorker)
+	})
+	t.Run("will allow new connections after ratelimit cooldown", func(t *testing.T) {
+		testProxy_WillAllowNewConn_AfterDurationEnded(t, newWorker)
+	})
+	t.Run("server state - doesnt call backend again before cooldown is over", func(t *testing.T) {
+		testServerState_DoesntCallBeforeCooldownIsOver(t, newWorker)
+	})
+	t.Run("server state - call backend again when cooldown is over", func(t *testing.T) {
+		testServerState_ShouldCallAgainOutOfCooldown(t, newWorker)
+	})
+}
+
+func testWorker_CanReceiveRequest(t *testing.T, newWorker createWorker) {
 	serverCfg := config.ServerConfig{}
-	reqCh := setupBasicTestWorkers(t, serverCfg)
+	reqCh := newWorker(t, serverCfg)
 	select {
 	case reqCh <- proxy.McRequest{}:
 		t.Log("worker has successfully received request")
@@ -211,7 +264,7 @@ func TestWorker_CanReceiveRequests(t *testing.T) {
 	}
 }
 
-func TestUnknownAddr(t *testing.T) {
+func testUnknownAddr(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverCfg := config.ServerConfig{}
@@ -219,7 +272,7 @@ func TestUnknownAddr(t *testing.T) {
 				Type:       tc.reqType,
 				ServerAddr: "some weird server address",
 			}
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.unknownAction {
 				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, answer.Action)
@@ -237,7 +290,7 @@ func TestUnknownAddr(t *testing.T) {
 }
 
 // Add test for when offline status isnt configured...?
-func TestKnownAddr_OfflineServer(t *testing.T) {
+func testKnownAddr_OfflineServer(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -255,7 +308,7 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 				ServerAddr: serverAddr,
 			}
 			offlineStatusPk := defaultOfflineStatusPacket()
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.offlineAction {
 				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action)
@@ -277,7 +330,7 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 	}
 }
 
-func TestKnownAddr_OnlineServer(t *testing.T) {
+func testKnownAddr_OnlineServer(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -291,12 +344,12 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 				ServerAddr: serverAddr,
 			}
 			createListener(t, targetAddr)
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action != tc.onlineAction {
 				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
 			}
-			serverConn, _ := answer.ServerConnFunc(&net.IPAddr{})
+			serverConn, _ := answer.ServerConnFunc()
 			testCloseConnection(t, serverConn)
 			if answer.ProxyCh == nil {
 				t.Error("No proxy channel provided")
@@ -305,7 +358,7 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 	}
 }
 
-func TestProxyBind(t *testing.T) {
+func testProxyBind(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -320,22 +373,26 @@ func TestProxyBind(t *testing.T) {
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
+
+			go func() {
+				reqCh := newWorker(t, serverCfg)
+				answer := sendRequest_TestTimeout(t, reqCh, req)
+				answer.ServerConnFunc() // Calling it instead of the player's goroutine
+			}()
+
 			connCh, errorCh := createListener(t, targetAddr)
-			reqCh := setupBasicTestWorkers(t, serverCfg)
-			sendRequest_IgnoreResult(reqCh, req)
 			conn := <-connCh // State check call (proxy bind should be used here too)
-			receivedBind := netAddrToIp(conn.RemoteAddr())
-			if receivedBind != proxyBind {
-				t.Errorf("expected: %v \ngot: %v", proxyBind, receivedBind)
+			if netAddrToIp(conn.RemoteAddr()) != proxyBind {
+				t.Errorf("expected: %v \ngot: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
 			}
+
 			select {
 			case err := <-errorCh:
 				t.Fatalf("error while accepting connection: %v", err)
 			case conn := <-connCh:
 				t.Log("connection has been created")
-				receivedBind := netAddrToIp(conn.RemoteAddr())
-				if receivedBind != proxyBind {
-					t.Errorf("expected: %v \ngot: %v", proxyBind, receivedBind)
+				if netAddrToIp(conn.RemoteAddr()) != proxyBind {
+					t.Errorf("expected: %v \ngot: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
 				}
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")
@@ -344,7 +401,7 @@ func TestProxyBind(t *testing.T) {
 	}
 }
 
-func TestProxyProtocol(t *testing.T) {
+func testProxyProtocol(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -381,8 +438,12 @@ func TestProxyProtocol(t *testing.T) {
 				}
 			}()
 
-			reqCh := setupBasicTestWorkers(t, serverCfg)
-			sendRequest_IgnoreResult(reqCh, req)
+			go func() {
+				reqCh := newWorker(t, serverCfg)
+				answer := sendRequest_TestTimeout(t, reqCh, req)
+				answer.ServerConnFunc() // Calling it instead of the player's goroutine
+			}()
+
 			<-connCh // State check call (no proxy protocol in here)
 			select {
 			case err := <-errorCh:
@@ -399,7 +460,7 @@ func TestProxyProtocol(t *testing.T) {
 	}
 }
 
-func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
+func testProxy_ManyRequestsWillRateLimit(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -412,7 +473,7 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 				RateLimit:    rateLimit,
 				RateDuration: rateLimitDuration.String(),
 			}
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
@@ -429,7 +490,7 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 	}
 }
 
-func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
+func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -442,7 +503,7 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 				RateLimit:    rateLimit,
 				RateDuration: rateLimitDuration.String(),
 			}
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
@@ -461,7 +522,7 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 	}
 }
 
-func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
+func testServerState_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -472,7 +533,7 @@ func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 				ProxyTo:        targetAddr,
 				UpdateCooldown: updateCooldown.String(),
 			}
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
@@ -490,7 +551,7 @@ func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 	}
 }
 
-func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
+func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -502,18 +563,17 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 				UpdateCooldown: updateCooldown.String(),
 				DialTimeout:    "1s",
 			}
-			reqCh := setupBasicTestWorkers(t, serverCfg)
+			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
-			// sendRequest_IgnoreResult(reqCh, req)
 			sendRequest_TestTimeout(t, reqCh, req)
-			time.Sleep(defaultChTimeout * 2)
 			connCh, _ := createListener(t, targetAddr)
+			time.Sleep(defaultChTimeout * 2)
 			sendRequest_IgnoreResult(reqCh, req)
 			select {
-			case <-connCh:
+			case <-connCh: // receiving the state call
 				t.Log("worker has successfully responded")
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")

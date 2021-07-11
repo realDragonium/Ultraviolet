@@ -67,6 +67,42 @@ func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	RunStatusWorkers(cfg.NumberOfStatusWorkers, statusCh, connCh, workerServerCfgs)
 }
 
+func SetupNewWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) {
+	if cfg.LogOutput != nil {
+		log.SetOutput(cfg.LogOutput)
+	}
+
+	defaultStatus := cfg.DefaultStatus.Marshal()
+	servers := make(map[int]ServerWorkerData)
+	serverDict := make(map[string]int)
+	for i, serverCfg := range serverCfgs {
+		workerRequestCh := make(chan McRequest)
+		workerServerCfg := FileToWorkerConfig(serverCfg)
+		privateWorker := NewPrivateWorker(i, workerServerCfg)
+		privateWorker.reqCh = workerRequestCh
+		go privateWorker.Work()
+		for _, domain := range serverCfg.Domains {
+			serverDict[domain] = i
+			servers[i] = ServerWorkerData{
+				connReqCh: workerRequestCh,
+			}
+		}
+	}
+
+	publicWorker := PublicWorker{
+		reqCh:         reqCh,
+		defaultStatus: defaultStatus,
+		serverDict:    serverDict,
+		servers:       servers,
+	}
+	for i := 0; i < cfg.NumberOfWorkers; i++ {
+		go func(worker PublicWorker){
+			worker.Work()
+		}(publicWorker)
+	}
+
+}
+
 func (p *Proxy) manageConnections() {
 	go func() {
 		<-p.ShouldNotifyCh
@@ -102,7 +138,6 @@ func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
 		DisconnectPacket:    disconPk,
 		RateLimit:           cfg.RateLimit,
 		RateLimitDuration:   duration,
-		State:               UNKNOWN,
 		StateUpdateCooldown: cooldown,
 	}
 }

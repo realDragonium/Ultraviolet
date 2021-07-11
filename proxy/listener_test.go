@@ -12,10 +12,6 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
-var (
-	defaultChTimeout = 10 * time.Millisecond
-	longerChTimeout  = 100 * time.Millisecond
-)
 
 type testNetConn struct {
 	conn       net.Conn
@@ -289,14 +285,13 @@ func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
 	client.WritePacket(loginPk)
 	request := <-reqCh
 
-	connFunc := func(net.Addr) (net.Conn, error) {
+	connFunc := func() (net.Conn, error) {
 		return proxyBackend, nil
 	}
 
 	request.Ch <- proxy.McAnswer{
-		Action:  proxy.PROXY,
-		ProxyCh: newProxyChan(),
-		// ServerConn:     proxy.NewMcConn(proxyBackend),
+		Action:         proxy.PROXY,
+		ProxyCh:        newProxyChan(),
 		ServerConnFunc: connFunc,
 	}
 
@@ -394,14 +389,13 @@ func TestReadConnection_CanProxyConnToServer(t *testing.T) {
 		client.WritePacket(hsPk)
 		request := <-reqCh
 
-		connFunc := func(net.Addr) (net.Conn, error) {
+		connFunc := func() (net.Conn, error) {
 			return proxyBackend, nil
 		}
 
 		request.Ch <- proxy.McAnswer{
-			Action:  proxy.PROXY,
-			ProxyCh: newProxyChan(),
-			// ServerConn: proxy.NewMcConn(proxyBackend),
+			Action:         proxy.PROXY,
+			ProxyCh:        newProxyChan(),
 			ServerConnFunc: connFunc,
 		}
 	}()

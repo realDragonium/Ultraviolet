@@ -21,10 +21,38 @@ const (
 	ERROR
 )
 
+func (state McAction) String() string {
+	var text string
+	switch state {
+	case PROXY:
+		text = "Proxy"
+	case DISCONNECT:
+		text = "Disconnect"
+	case SEND_STATUS:
+		text = "Send Status"
+	case CLOSE:
+		text = "Close"
+	case ERROR:
+		text = "Error"
+	}
+	return text
+}
+
 const (
 	STATUS McRequestType = iota + 1
 	LOGIN
 )
+
+func (t McRequestType) String() string {
+	var text string
+	switch t {
+	case STATUS:
+		text = "Status"
+	case LOGIN:
+		text = "Login"
+	}
+	return text
+}
 
 type McRequest struct {
 	Type       McRequestType
@@ -35,8 +63,7 @@ type McRequest struct {
 }
 
 type McAnswer struct {
-	// ServerConn     McConn
-	ServerConnFunc func(net.Addr) (net.Conn, error)
+	ServerConnFunc func() (net.Conn, error)
 	DisconMessage  mc.Packet
 	Action         McAction
 	StatusPk       mc.Packet
@@ -107,7 +134,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 
 	switch ans.Action {
 	case PROXY:
-		sConn, _ := ans.ServerConnFunc(c.RemoteAddr())
+		sConn, _ := ans.ServerConnFunc()
 		serverConn := NewMcConn(sConn)
 		serverConn.WritePacket(handshakePacket)
 		if isLoginReq {
