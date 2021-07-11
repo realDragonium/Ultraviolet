@@ -15,7 +15,9 @@ IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultravio
 
 ## Command-Line Flags
 `-pid-file` specifies the path of the pid file ultraviolet will use [default: `"/run/ultraviolet.pid"`]
+
 `-config` specifies the path to the main config [default: `"/etc/ultraviolet/ultraviolet.json"`]
+
 `-server-configs` specifies the path to all your server configs [default: `"/etc/ultraviolet/config/"`]
 
 
