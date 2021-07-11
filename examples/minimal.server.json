@@ -1,0 +1,4 @@
+{
+    "domains": ["localhost"],
+    "proxyTo": ":25566"
+}
