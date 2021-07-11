@@ -18,6 +18,7 @@ type ServerConfig struct {
 
 	CacheStatus         bool            `json:"cacheStatus"`
 	CacheUpdateCooldown string          `json:"cacheUpdateCooldown"`
+	ValidProtocol       int             `json:"validProtocol"`
 	OfflineStatus       mc.SimpleStatus `json:"offlineStatus"`
 
 	RateLimit           int    `json:"rateLimit"`

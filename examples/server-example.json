@@ -6,6 +6,7 @@
     "sendProxyProtocol": false,
     "disconnectMessage": "Sorry, but the server is offline.",
     "cacheStatus": true,
+    "validProtocol": 755,
     "cacheUpdateCooldown": "5s",
     "offlineStatus": {
         "name": "Ultraviolet",

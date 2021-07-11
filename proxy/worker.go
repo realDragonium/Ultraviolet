@@ -42,6 +42,7 @@ type WorkerServerConfig struct {
 	StateUpdateCooldown time.Duration
 	CacheStatus         bool
 	CacheUpdateCooldown time.Duration
+	ValidProtocol       int
 	OfflineStatus       mc.Packet
 	DisconnectPacket    mc.Packet
 	ProxyTo             string
@@ -130,6 +131,12 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 			return serverConn, nil
 		}
 	}
+	handshakePacket := mc.ServerBoundHandshake{
+		ProtocolVersion: mc.VarInt(cfg.ValidProtocol),
+		ServerAddress:   "Ultraviolet",
+		ServerPort:      25565,
+		NextState:       1,
+	}.Marshal()
 
 	return PrivateWorker{
 		proxyCh:           make(chan ProxyAction),
@@ -142,6 +149,7 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 		stateUpdateCh:     make(chan ServerState),
 		disconnectPacket:  cfg.DisconnectPacket,
 		serverConnFactory: createConnFeature,
+		statusHandshake:   handshakePacket,
 	}
 }
 
@@ -165,6 +173,8 @@ type PrivateWorker struct {
 	statusCache     bool
 	statusCooldown  time.Duration
 	statusCacheTime time.Time
+	statusLatency   time.Duration
+	statusHandshake mc.Packet
 
 	serverConnFactory func(net.Addr) func() (net.Conn, error)
 	disconnectPacket  mc.Packet
@@ -217,8 +227,9 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 			worker.updateCacheStatus()
 		}
 		return McAnswer{
-			Action:   SEND_STATUS,
+			Action:   SEND_STATUS_CACHE,
 			StatusPk: worker.cachedStatus,
+			Latency:  worker.statusLatency,
 		}
 	}
 	var connFunc func() (net.Conn, error)
@@ -260,7 +271,6 @@ func (worker *PrivateWorker) updateServerState() {
 }
 
 func (worker *PrivateWorker) updateCacheStatus() {
-
 	connFunc := worker.serverConnFactory(&net.IPAddr{})
 	conn, err := connFunc()
 	go func(sleepTime time.Duration, updateCh chan ServerState) {
@@ -274,8 +284,13 @@ func (worker *PrivateWorker) updateCacheStatus() {
 		worker.state = ONLINE
 	}
 	mcConn := NewMcConn(conn)
+	mcConn.WritePacket(worker.statusHandshake)
 	mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal())
 	worker.cachedStatus, _ = mcConn.ReadPacket()
+	beginTime := time.Now()
+	mcConn.WritePacket(mc.NewServerBoundPing().Marshal())
+	mcConn.ReadPacket()
+	worker.statusLatency = time.Since(beginTime)
 	conn.Close()
 	worker.statusCacheTime = time.Now()
 }

@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
 )
@@ -17,6 +18,7 @@ const (
 	PROXY McAction = iota
 	DISCONNECT
 	SEND_STATUS
+	SEND_STATUS_CACHE
 	CLOSE
 	ERROR
 )
@@ -30,6 +32,8 @@ func (state McAction) String() string {
 		text = "Disconnect"
 	case SEND_STATUS:
 		text = "Send Status"
+	case SEND_STATUS_CACHE:
+		text = "Send Status Cache"
 	case CLOSE:
 		text = "Close"
 	case ERROR:
@@ -68,6 +72,7 @@ type McAnswer struct {
 	Action         McAction
 	StatusPk       mc.Packet
 	ProxyCh        chan ProxyAction
+	Latency        time.Duration
 }
 
 func ServeListener(listener net.Listener, reqCh chan McRequest) {
@@ -150,6 +155,13 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)
 		pingPk, _ := conn.ReadPacket()
+		conn.WritePacket(pingPk)
+		conn.netConn.Close()
+	case SEND_STATUS_CACHE:
+		conn.ReadPacket()
+		conn.WritePacket(ans.StatusPk)
+		pingPk, _ := conn.ReadPacket()
+		time.Sleep(ans.Latency)
 		conn.WritePacket(pingPk)
 		conn.netConn.Close()
 	case CLOSE:

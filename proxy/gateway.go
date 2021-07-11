@@ -136,6 +136,7 @@ func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
 		DialTimeout:         dialTimeout,
 		SendProxyProtocol:   cfg.SendProxyProtocol,
 		CacheStatus:         cfg.CacheStatus,
+		ValidProtocol:       cfg.ValidProtocol,
 		CacheUpdateCooldown: cacheCooldown,
 		OfflineStatus:       offlineStatusPk,
 		DisconnectPacket:    disconPk,

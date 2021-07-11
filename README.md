@@ -11,6 +11,7 @@ Im not planning on writing code to prevent Ultraviolet from crashing if you did 
 This has implemented [tableflip](https://github.com/cloudflare/tableflip) which should make it able to reload/restart Ultraviolet without closing existing connections on Linux and macOS. Ultraviolet should still be usable on windows (testing purposes only pls). 
 Check their [documentation](https://pkg.go.dev/github.com/cloudflare/tableflip) to know what or how. 
 
+IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultraviolet once you need to wait until the parent process is closed (all previous connections have been closed) before you can reload it again. 
 
 ## Command-Line Flags
 
@@ -48,6 +49,7 @@ time config values are based on go's duration formatting. They can be used in co
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
 |cacheStatus|false|Turn on or off whether it should cache the online cache of the server. If the server is recognized as offline it will send the offline status to the player.|
+|validProtocol|0|validProtocol is the protocol interger the handshake will have when sending the handshake to the backend. Its only necessary to have this when cacheStatus is on.|
 |cacheUpdateCooldown|1s|The time it will assume that the statys of the server isnt changed (including player count). |
 
 
