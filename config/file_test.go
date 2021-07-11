@@ -70,7 +70,7 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 	cfg := config.UltravioletConfig{
 		ListenTo:             ":25565",
 		ReceiveProxyProtocol: false,
-		DefaultStatus: mc.AnotherStatusResponse{
+		DefaultStatus: mc.SimpleStatus{
 			Name:        "Ultraviolet",
 			Protocol:    755,
 			Description: "One dangerous proxy",

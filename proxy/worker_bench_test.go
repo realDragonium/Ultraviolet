@@ -41,7 +41,7 @@ func (bLog *benchLogger) Write(b []byte) (n int, err error) {
 func basicBenchUVConfig(b *testing.B, w int) config.UltravioletConfig {
 	return config.UltravioletConfig{
 		NumberOfWorkers: w,
-		DefaultStatus: mc.AnotherStatusResponse{
+		DefaultStatus: mc.SimpleStatus{
 			Name:        "Ultraviolet",
 			Protocol:    755,
 			Description: "Another proxy server",
@@ -52,7 +52,7 @@ func basicBenchUVConfig(b *testing.B, w int) config.UltravioletConfig {
 
 var serverWorkerCfg = proxy.WorkerServerConfig{
 	StateUpdateCooldown: time.Second * 10,
-	OfflineStatus: mc.AnotherStatusResponse{
+	OfflineStatus: mc.SimpleStatus{
 		Name:        "Ultraviolet",
 		Protocol:    755,
 		Description: "Some benchmark status",

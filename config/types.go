@@ -16,7 +16,7 @@ type ServerConfig struct {
 
 	DisconnectMessage string `json:"disconnectMessage"`
 
-	OfflineStatus mc.AnotherStatusResponse `json:"offlineStatus"`
+	OfflineStatus mc.SimpleStatus `json:"offlineStatus"`
 
 	RateLimit      int    `json:"rateLimit"`
 	RateDuration   string `json:"rateCooldown"`
@@ -24,11 +24,10 @@ type ServerConfig struct {
 }
 
 type UltravioletConfig struct {
-	ListenTo             string                   `json:"listenTo"`
-	ReceiveProxyProtocol bool                     `json:"receiveProxyProtocol"`
-	DefaultStatus        mc.AnotherStatusResponse `json:"defaultStatus"`
-
-	NumberOfWorkers       int `json:"numberOfWorkers"`
+	ListenTo             string          `json:"listenTo"`
+	ReceiveProxyProtocol bool            `json:"receiveProxyProtocol"`
+	DefaultStatus        mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers      int             `json:"numberOfWorkers"`
 
 	LogOutput io.Writer
 }

@@ -22,7 +22,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		DialTimeout:       "1s",
 		SendProxyProtocol: true,
 		DisconnectMessage: "HelloThereWeAreClosed...Sorry",
-		OfflineStatus: mc.AnotherStatusResponse{
+		OfflineStatus: mc.SimpleStatus{
 			Name:        "Ultraviolet",
 			Protocol:    755,
 			Description: "Some broken proxy",
@@ -35,7 +35,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 	expectedDisconPk := mc.ClientBoundDisconnect{
 		Reason: mc.String(serverCfg.DisconnectMessage),
 	}.Marshal()
-	expectedOfflineStatus := mc.AnotherStatusResponse{
+	expectedOfflineStatus := mc.SimpleStatus{
 		Name:        "Ultraviolet",
 		Protocol:    755,
 		Description: "Some broken proxy",

@@ -419,7 +419,7 @@ func TestReadConnection_CanReplyToStatus(t *testing.T) {
 	client.WritePacket(hsPk)
 
 	request := <-reqCh
-	statusPk := mc.AnotherStatusResponse{
+	statusPk := mc.SimpleStatus{
 		Name:        "Ultraviolet",
 		Protocol:    751,
 		Description: "Some broken proxy",
@@ -453,7 +453,7 @@ func TestReadConnection_CloseConnAfterNonProxiedStatusResponse(t *testing.T) {
 	client.WritePacket(hsPk)
 
 	request := <-reqCh
-	statusPk := mc.AnotherStatusResponse{
+	statusPk := mc.SimpleStatus{
 		Name:        "Ultraviolet",
 		Protocol:    751,
 		Description: "Some broken proxy",

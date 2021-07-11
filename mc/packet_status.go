@@ -12,14 +12,14 @@ const (
 	ClientBoundPongPacketID     byte = 0x01
 )
 
-type AnotherStatusResponse struct {
+type SimpleStatus struct {
 	Name        string `json:"name"`
 	Protocol    int    `json:"protocol"`
 	Description string `json:"text"`
 	Favicon     string `json:"favicon,omitempty"`
 }
 
-func (pk AnotherStatusResponse) Marshal() Packet {
+func (pk SimpleStatus) Marshal() Packet {
 	jsonResponse := ResponseJSON{
 		Version: VersionJSON{
 			Name:     pk.Name,

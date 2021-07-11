@@ -75,8 +75,8 @@ func unknownServerStatusPk() mc.Packet {
 	return unknownServerStatus().Marshal()
 }
 
-func unknownServerStatus() mc.AnotherStatusResponse {
-	return mc.AnotherStatusResponse{
+func unknownServerStatus() mc.SimpleStatus {
+	return mc.SimpleStatus{
 		Name:        "Ultraviolet",
 		Protocol:    0,
 		Description: "No server found",
@@ -87,8 +87,8 @@ func defaultOfflineStatusPacket() mc.Packet {
 	return defaultOfflineStatus().Marshal()
 }
 
-func defaultOfflineStatus() mc.AnotherStatusResponse {
-	return mc.AnotherStatusResponse{
+func defaultOfflineStatus() mc.SimpleStatus {
+	return mc.SimpleStatus{
 		Name:        "Ultraviolet-ff",
 		Protocol:    755,
 		Description: "offline proxy being tested",
