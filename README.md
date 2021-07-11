@@ -44,11 +44,11 @@ time config values are based on go's duration formatting. They can be used in co
 |sendProxyProtocol|false|Whether or not it should send a ProxyProtocolv2 header to the target.|
 |disconnectMessage|""|The message a user will get when its tries to connect to a offline server|
 |offlineStatus|-|The status it will send the player when the server is offline.|
-|rateLimit|0|The number of connections it will make to the backend. This includes connection used by Ultraviolet internally. It will reset when the `rateCooldown` time has passed. When the number has been exceeded but the cooldown isnt over yet Ultraviolet will behave like the server is offline. (this will stay like this until (online) status caching is possible.) |
+|rateLimit|0|The number of connections it will make to the backend. It will reset when the `rateCooldown` time has passed. When the number has been exceeded but the cooldown isnt over yet Ultraviolet will behave like the server is offline. (this will stay like this until (online) status caching is possible.) |
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
-
-
+|cacheStatus|false|Turn on or off whether it should cache the online cache of the server. If the server is recognized as offline it will send the offline status to the player.|
+|cacheUpdateCooldown|1s|The time it will assume that the statys of the server isnt changed (including player count). |
 
 
 ## Idea notes

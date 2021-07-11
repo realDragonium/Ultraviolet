@@ -107,9 +107,9 @@ func simpleUltravioletConfig(logOutput io.Writer) config.UltravioletConfig {
 	log.SetPrefix("log-text: ")
 	log.SetFlags(0)
 	return config.UltravioletConfig{
-		DefaultStatus:         unknownServerStatus(),
-		NumberOfWorkers:       1,
-		LogOutput:             logOutput,
+		DefaultStatus:   unknownServerStatus(),
+		NumberOfWorkers: 1,
+		LogOutput:       logOutput,
 	}
 }
 
@@ -224,6 +224,12 @@ func runAllWorkerTests(t *testing.T, newWorker createWorker) {
 	})
 	t.Run("server state - call backend again when cooldown is over", func(t *testing.T) {
 		testServerState_ShouldCallAgainOutOfCooldown(t, newWorker)
+	})
+	t.Run("status cache - doesnt call backend again before cooldown is over", func(t *testing.T) {
+		testStatusCache_DoesntCallBeforeCooldownIsOver(t, newWorker)
+	})
+	t.Run("status cache - call backend again when cooldown is over", func(t *testing.T) {
+		testStatusCache_ShouldCallAgainOutOfCooldown(t, newWorker)
 	})
 }
 
@@ -503,9 +509,9 @@ func testServerState_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker crea
 			targetAddr := testAddr()
 			updateCooldown := time.Minute
 			serverCfg := config.ServerConfig{
-				Domains:        []string{serverAddr},
-				ProxyTo:        targetAddr,
-				UpdateCooldown: updateCooldown.String(),
+				Domains:             []string{serverAddr},
+				ProxyTo:             targetAddr,
+				StateUpdateCooldown: updateCooldown.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
@@ -532,10 +538,10 @@ func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 			targetAddr := testAddr()
 			updateCooldown := defaultChTimeout
 			serverCfg := config.ServerConfig{
-				Domains:        []string{serverAddr},
-				ProxyTo:        targetAddr,
-				UpdateCooldown: updateCooldown.String(),
-				DialTimeout:    "1s",
+				Domains:             []string{serverAddr},
+				ProxyTo:             targetAddr,
+				StateUpdateCooldown: updateCooldown.String(),
+				DialTimeout:         "1s",
 			}
 			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
@@ -553,5 +559,100 @@ func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 				t.Error("timed out")
 			}
 		})
+	}
+}
+
+func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker createWorker) {
+	serverAddr := "ultraviolet"
+	targetAddr := testAddr()
+	cacheCooldown := time.Minute
+	serverCfg := config.ServerConfig{
+		Domains:             []string{serverAddr},
+		ProxyTo:             targetAddr,
+		CacheStatus:         true,
+		CacheUpdateCooldown: cacheCooldown.String(),
+		StateUpdateCooldown: cacheCooldown.String(),
+	}
+	reqCh := newWorker(t, serverCfg)
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type:       proxy.STATUS,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+	sendRequest_TestTimeout(t, reqCh, req)
+	connCh, _ := createListener(t, targetAddr)
+	reqCh <- req
+	select {
+	case <-connCh:
+		t.Error("worker called server again")
+	case <-time.After(defaultChTimeout):
+		t.Log("worker didnt call again")
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if answer.Action != proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+}
+
+func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker createWorker) {
+	statusPacket := mc.SimpleStatus{
+		Name:        "UV",
+		Protocol:    700,
+		Description: "Some test text",
+	}.Marshal()
+	serverAddr := "ultraviolet"
+	targetAddr := testAddr()
+	updateCooldown := defaultChTimeout
+	serverCfg := config.ServerConfig{
+		Domains:             []string{serverAddr},
+		ProxyTo:             targetAddr,
+		CacheStatus:         true,
+		StateUpdateCooldown: time.Minute.String(),
+		CacheUpdateCooldown: updateCooldown.String(),
+	}
+	reqCh := newWorker(t, serverCfg)
+	answerCh := make(chan proxy.McAnswer)
+	req := proxy.McRequest{
+		Type:       proxy.STATUS,
+		ServerAddr: serverAddr,
+		Ch:         answerCh,
+	}
+	connCh, _ := createListener(t, targetAddr)
+	go func() {
+		<-connCh
+		conn := <-connCh
+		mcConn := proxy.NewMcConn(conn)
+		mcConn.ReadPacket()
+		mcConn.WritePacket(statusPacket)
+	}()
+	sendRequest_TestTimeout(t, reqCh, req)
+	time.Sleep(updateCooldown * 2)
+	reqCh <- req
+
+	select {
+	case conn := <-connCh: //state is still in cooldown
+		t.Log("worker has successfully responded")
+		mcConn := proxy.NewMcConn(conn)
+		mcConn.ReadPacket()
+		mcConn.WritePacket(statusPacket)
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
+	}
+
+	select {
+	case answer := <-answerCh:
+		t.Log("worker has successfully responded")
+		if answer.Action != proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
+		}
+	case <-time.After(defaultChTimeout):
+		t.Error("timed out")
 	}
 }

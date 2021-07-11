@@ -29,7 +29,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		},
 		RateLimit:      5,
 		RateDuration:   "1m",
-		UpdateCooldown: "1m",
+		StateUpdateCooldown: "1m",
 	}
 
 	expectedDisconPk := mc.ClientBoundDisconnect{

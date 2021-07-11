@@ -40,17 +40,16 @@ func (state ServerState) String() string {
 type WorkerServerConfig struct {
 	State               ServerState
 	StateUpdateCooldown time.Duration
-
-	OfflineStatus    mc.Packet
-	DisconnectPacket mc.Packet
-
-	ProxyTo           string
-	ProxyBind         string
-	DialTimeout       time.Duration
-	SendProxyProtocol bool
-
-	RateLimit         int
-	RateLimitDuration time.Duration
+	CacheStatus         bool
+	CacheUpdateCooldown time.Duration
+	OfflineStatus       mc.Packet
+	DisconnectPacket    mc.Packet
+	ProxyTo             string
+	ProxyBind           string
+	DialTimeout         time.Duration
+	SendProxyProtocol   bool
+	RateLimit           int
+	RateLimitDuration   time.Duration
 }
 
 type ServerWorkerData struct {
@@ -118,7 +117,6 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 			if err != nil {
 				return serverConn, err
 			}
-
 			if cfg.SendProxyProtocol {
 				header := &proxyproto.Header{
 					Version:           2,
@@ -134,29 +132,24 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 	}
 
 	return PrivateWorker{
-		serverId:      serverId,
-		proxyCh:       make(chan ProxyAction),
-		stateUpdateCh: make(chan ServerState),
-
-		rateLimit:    cfg.RateLimit,
-		rateCooldown: cfg.RateLimitDuration,
-
-		state:         UNKNOWN,
-		stateCooldown: cfg.StateUpdateCooldown,
-
-		offlineStatus:    cfg.OfflineStatus,
-		disconnectPacket: cfg.DisconnectPacket,
-
+		proxyCh:           make(chan ProxyAction),
+		rateLimit:         cfg.RateLimit,
+		rateCooldown:      cfg.RateLimitDuration,
+		stateCooldown:     cfg.StateUpdateCooldown,
+		statusCache:       cfg.CacheStatus,
+		statusCooldown:    cfg.CacheUpdateCooldown,
+		offlineStatus:     cfg.OfflineStatus,
+		stateUpdateCh:     make(chan ServerState),
+		disconnectPacket:  cfg.DisconnectPacket,
 		serverConnFactory: createConnFeature,
 	}
 }
 
 type PrivateWorker struct {
-	serverId          int
-	activeConnections int
-	proxyCh           chan ProxyAction
-	gatewayCh         chan gatewayRequest
-	reqCh             chan McRequest
+	activeConns int
+	proxyCh     chan ProxyAction
+	gatewayCh   chan gatewayRequest
+	reqCh       chan McRequest
 
 	rateCounter   int
 	rateStartTime time.Time
@@ -167,10 +160,14 @@ type PrivateWorker struct {
 	stateCooldown time.Duration
 	stateUpdateCh chan ServerState
 
-	serverConnFactory func(net.Addr) func() (net.Conn, error)
+	offlineStatus   mc.Packet
+	cachedStatus    mc.Packet
+	statusCache     bool
+	statusCooldown  time.Duration
+	statusCacheTime time.Time
 
-	offlineStatus    mc.Packet
-	disconnectPacket mc.Packet
+	serverConnFactory func(net.Addr) func() (net.Conn, error)
+	disconnectPacket  mc.Packet
 }
 
 func (worker *PrivateWorker) Work() {
@@ -184,9 +181,7 @@ func (worker *PrivateWorker) Work() {
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
 		case request := <-worker.gatewayCh:
-			request.ch <- gatewayAnswer{
-				hasOpenConnections: worker.activeConnections > 0,
-			}
+			request.ch <- worker.activeConns > 0
 		}
 	}
 }
@@ -194,25 +189,15 @@ func (worker *PrivateWorker) Work() {
 func (worker *PrivateWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case PROXY_OPEN:
-		worker.activeConnections++
+		worker.activeConns++
 	case PROXY_CLOSE:
-		worker.activeConnections--
+		worker.activeConns--
 	}
 }
 
 func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 	if worker.state == UNKNOWN {
-		connFunc := worker.serverConnFactory(&net.IPAddr{})
-		_, err := connFunc()
-		if err != nil {
-			worker.state = OFFLINE
-		} else {
-			worker.state = ONLINE
-		}
-		go func(serverId int, sleepTime time.Duration, updateCh chan ServerState) {
-			time.Sleep(sleepTime)
-			updateCh <- UNKNOWN
-		}(worker.serverId, worker.stateCooldown, worker.stateUpdateCh)
+		worker.updateServerState()
 	}
 	if worker.state == OFFLINE {
 		if request.Type == STATUS {
@@ -225,6 +210,15 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 				Action:        DISCONNECT,
 				DisconMessage: worker.disconnectPacket,
 			}
+		}
+	}
+	if request.Type == STATUS && worker.statusCache {
+		if time.Since(worker.statusCacheTime) >= worker.statusCooldown {
+			worker.updateCacheStatus()
+		}
+		return McAnswer{
+			Action:   SEND_STATUS,
+			StatusPk: worker.cachedStatus,
 		}
 	}
 	var connFunc func() (net.Conn, error)
@@ -249,4 +243,39 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 		ProxyCh:        worker.proxyCh,
 		ServerConnFunc: connFunc,
 	}
+}
+
+func (worker *PrivateWorker) updateServerState() {
+	connFunc := worker.serverConnFactory(&net.IPAddr{})
+	_, err := connFunc()
+	if err != nil {
+		worker.state = OFFLINE
+	} else {
+		worker.state = ONLINE
+	}
+	go func(sleepTime time.Duration, updateCh chan ServerState) {
+		time.Sleep(sleepTime)
+		updateCh <- UNKNOWN
+	}(worker.stateCooldown, worker.stateUpdateCh)
+}
+
+func (worker *PrivateWorker) updateCacheStatus() {
+
+	connFunc := worker.serverConnFactory(&net.IPAddr{})
+	conn, err := connFunc()
+	go func(sleepTime time.Duration, updateCh chan ServerState) {
+		time.Sleep(sleepTime)
+		updateCh <- UNKNOWN
+	}(worker.stateCooldown, worker.stateUpdateCh)
+	if err != nil {
+		worker.state = OFFLINE
+		return
+	} else {
+		worker.state = ONLINE
+	}
+	mcConn := NewMcConn(conn)
+	mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal())
+	worker.cachedStatus, _ = mcConn.ReadPacket()
+	conn.Close()
+	worker.statusCacheTime = time.Now()
 }

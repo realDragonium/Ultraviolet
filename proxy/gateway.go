@@ -29,44 +29,32 @@ func (action ProxyAction) String() string {
 
 func NewGateway() Gateway {
 	return Gateway{
-		NotifyCh:       make(chan struct{}),
-		ShouldNotifyCh: make(chan struct{}),
-
 		serverWorkers: make(map[int]chan gatewayRequest),
-
-		proxyCh: make(chan ProxyAction),
-		wg:      &sync.WaitGroup{},
+		proxyCh:       make(chan ProxyAction),
+		wg:            &sync.WaitGroup{},
 	}
 }
 
 type gatewayRequest struct {
-	ch chan gatewayAnswer
-}
-
-type gatewayAnswer struct {
-	hasOpenConnections bool
+	ch chan bool
 }
 
 type Gateway struct {
-	NotifyCh       chan struct{}
-	ShouldNotifyCh chan struct{}
-
 	serverWorkers map[int]chan gatewayRequest
-
-	proxyCh chan ProxyAction
-	wg      *sync.WaitGroup
+	proxyCh       chan ProxyAction
+	wg            *sync.WaitGroup
 }
 
 func (gw *Gateway) Shutdown() {
 	for {
 		activeConns := false
 		for _, ch := range gw.serverWorkers {
-			answerCh := make(chan gatewayAnswer)
+			answerCh := make(chan bool)
 			ch <- gatewayRequest{
 				ch: answerCh,
 			}
 			answer := <-answerCh
-			if answer.hasOpenConnections {
+			if answer {
 				activeConns = true
 			}
 		}
@@ -85,19 +73,20 @@ func (gw *Gateway) StartWorkers(cfg config.UltravioletConfig, serverCfgs []confi
 	defaultStatus := cfg.DefaultStatus.Marshal()
 	servers := make(map[int]ServerWorkerData)
 	serverDict := make(map[string]int)
-	for i, serverCfg := range serverCfgs {
-		workerRequestCh := make(chan McRequest)
+	for id, serverCfg := range serverCfgs {
 		workerServerCfg := FileToWorkerConfig(serverCfg)
-		privateWorker := NewPrivateWorker(i, workerServerCfg)
+		privateWorker := NewPrivateWorker(id, workerServerCfg)
+		gw.registerPrivateWorker(id, &privateWorker)
+
+		workerRequestCh := make(chan McRequest)
 		privateWorker.reqCh = workerRequestCh
-		gw.registerPrivateWorker(&privateWorker)
-		go privateWorker.Work()
-		for _, domain := range serverCfg.Domains {
-			serverDict[domain] = i
-			servers[i] = ServerWorkerData{
-				connReqCh: workerRequestCh,
-			}
+		servers[id] = ServerWorkerData{
+			connReqCh: workerRequestCh,
 		}
+		for _, domain := range serverCfg.Domains {
+			serverDict[domain] = id
+		}
+		go privateWorker.Work()
 	}
 
 	publicWorker := PublicWorker{
@@ -106,7 +95,7 @@ func (gw *Gateway) StartWorkers(cfg config.UltravioletConfig, serverCfgs []confi
 		serverDict:    serverDict,
 		servers:       servers,
 	}
-	
+
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
 		go func(worker PublicWorker) {
 			worker.Work()
@@ -114,9 +103,9 @@ func (gw *Gateway) StartWorkers(cfg config.UltravioletConfig, serverCfgs []confi
 	}
 }
 
-func (gw *Gateway) registerPrivateWorker(worker *PrivateWorker) {
+func (gw *Gateway) registerPrivateWorker(id int, worker *PrivateWorker) {
 	gatewayCh := make(chan gatewayRequest)
-	gw.serverWorkers[worker.serverId] = gatewayCh
+	gw.serverWorkers[id] = gatewayCh
 	worker.gatewayCh = gatewayCh
 }
 
@@ -126,13 +115,28 @@ func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
 	}.Marshal()
 	offlineStatusPk := cfg.OfflineStatus.Marshal()
 	duration, _ := time.ParseDuration(cfg.RateDuration)
-	cooldown, _ := time.ParseDuration(cfg.UpdateCooldown)
+	if duration == 0 {
+		duration = time.Second
+	}
+	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
+	if cooldown == 0 {
+		cooldown = time.Second
+	}
 	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
+	if dialTimeout == 0 {
+		dialTimeout = time.Second
+	}
+	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
+	if cacheCooldown == 0 {
+		cacheCooldown = time.Second
+	}
 	return WorkerServerConfig{
 		ProxyTo:             cfg.ProxyTo,
 		ProxyBind:           cfg.ProxyBind,
 		DialTimeout:         dialTimeout,
 		SendProxyProtocol:   cfg.SendProxyProtocol,
+		CacheStatus:         cfg.CacheStatus,
+		CacheUpdateCooldown: cacheCooldown,
 		OfflineStatus:       offlineStatusPk,
 		DisconnectPacket:    disconPk,
 		RateLimit:           cfg.RateLimit,
