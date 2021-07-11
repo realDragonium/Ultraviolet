@@ -16,58 +16,68 @@ const (
 	PROXY_CLOSE
 )
 
-func NewProxy() Proxy {
-	return Proxy{
+func (action ProxyAction) String() string {
+	var text string
+	switch action {
+	case PROXY_CLOSE:
+		text = "Proxy Close"
+	case PROXY_OPEN:
+		text = "Proxy Open"
+	}
+	return text
+}
+
+func NewGateway() Gateway {
+	return Gateway{
 		NotifyCh:       make(chan struct{}),
 		ShouldNotifyCh: make(chan struct{}),
 
-		ProxyCh: make(chan ProxyAction),
+		serverWorkers: make(map[int]chan gatewayRequest),
+
+		proxyCh: make(chan ProxyAction),
 		wg:      &sync.WaitGroup{},
 	}
 }
 
-type Proxy struct {
+type gatewayRequest struct {
+	ch chan gatewayAnswer
+}
+
+type gatewayAnswer struct {
+	hasOpenConnections bool
+}
+
+type Gateway struct {
 	NotifyCh       chan struct{}
 	ShouldNotifyCh chan struct{}
 
-	ProxyCh chan ProxyAction
+	serverWorkers map[int]chan gatewayRequest
+
+	proxyCh chan ProxyAction
 	wg      *sync.WaitGroup
 }
 
-func Serve(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) (chan struct{}, chan struct{}) {
-	p := NewProxy()
-	go p.manageConnections()
-	SetupWorkers(cfg, serverCfgs, reqCh, p.ProxyCh)
-	return p.ShouldNotifyCh, p.NotifyCh
-}
-
-func SetupWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest, proxyCh chan ProxyAction) {
-	connCh := make(chan ConnRequest)
-	statusCh := make(chan StatusRequest)
-
-	if cfg.LogOutput != nil {
-		log.SetOutput(cfg.LogOutput)
-	}
-
-	defaultStatus := cfg.DefaultStatus.Marshal()
-	workerServerCfgs := make(map[int]WorkerServerConfig)
-	serverDict := make(map[string]int)
-	for i, serverCfg := range serverCfgs {
-		workerServerCfg := FileToWorkerConfig(serverCfg)
-		workerServerCfgs[i] = workerServerCfg
-		for _, domain := range serverCfg.Domains {
-			serverDict[domain] = i
+func (gw *Gateway) Shutdown() {
+	for {
+		activeConns := false
+		for _, ch := range gw.serverWorkers {
+			answerCh := make(chan gatewayAnswer)
+			ch <- gatewayRequest{
+				ch: answerCh,
+			}
+			answer := <-answerCh
+			if answer.hasOpenConnections {
+				activeConns = true
+			}
 		}
+		if !activeConns {
+			return
+		}
+		time.Sleep(time.Minute)
 	}
-
-	workerCfg := NewWorkerConfig(reqCh, serverDict, workerServerCfgs, defaultStatus)
-	workerCfg.ProxyCh = proxyCh
-	RunBasicWorkers(cfg.NumberOfWorkers, workerCfg, statusCh, connCh)
-	RunConnWorkers(cfg.NumberOfConnWorkers, connCh, statusCh, workerServerCfgs)
-	RunStatusWorkers(cfg.NumberOfStatusWorkers, statusCh, connCh, workerServerCfgs)
 }
 
-func SetupNewWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) {
+func (gw *Gateway) StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan McRequest) {
 	if cfg.LogOutput != nil {
 		log.SetOutput(cfg.LogOutput)
 	}
@@ -80,6 +90,7 @@ func SetupNewWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerCon
 		workerServerCfg := FileToWorkerConfig(serverCfg)
 		privateWorker := NewPrivateWorker(i, workerServerCfg)
 		privateWorker.reqCh = workerRequestCh
+		gw.registerPrivateWorker(&privateWorker)
 		go privateWorker.Work()
 		for _, domain := range serverCfg.Domains {
 			serverDict[domain] = i
@@ -95,30 +106,18 @@ func SetupNewWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerCon
 		serverDict:    serverDict,
 		servers:       servers,
 	}
+	
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		go func(worker PublicWorker){
+		go func(worker PublicWorker) {
 			worker.Work()
 		}(publicWorker)
 	}
-
 }
 
-func (p *Proxy) manageConnections() {
-	go func() {
-		<-p.ShouldNotifyCh
-		p.wg.Wait()
-		p.NotifyCh <- struct{}{}
-	}()
-
-	for {
-		action := <-p.ProxyCh
-		switch action {
-		case PROXY_OPEN:
-			p.wg.Add(1)
-		case PROXY_CLOSE:
-			p.wg.Done()
-		}
-	}
+func (gw *Gateway) registerPrivateWorker(worker *PrivateWorker) {
+	gatewayCh := make(chan gatewayRequest)
+	gw.serverWorkers[worker.serverId] = gatewayCh
+	worker.gatewayCh = gatewayCh
 }
 
 func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {

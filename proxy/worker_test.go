@@ -96,21 +96,10 @@ func defaultOfflineStatus() mc.AnotherStatusResponse {
 }
 
 //Test Help methods
-func setupTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+func setupWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
 	reqCh := make(chan proxy.McRequest)
-	proxyCh := make(chan proxy.ProxyAction)
-	proxy.SetupWorkers(cfg, serverCfgs, reqCh, proxyCh)
-	go func() {
-		for {
-			<-proxyCh
-		}
-	}()
-	return reqCh
-}
-
-func setupPublicTestWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
-	reqCh := make(chan proxy.McRequest)
-	proxy.SetupNewWorkers(cfg, serverCfgs, reqCh)
+	gateway := proxy.NewGateway()
+	gateway.StartWorkers(cfg, serverCfgs, reqCh)
 	return reqCh
 }
 
@@ -120,8 +109,6 @@ func simpleUltravioletConfig(logOutput io.Writer) config.UltravioletConfig {
 	return config.UltravioletConfig{
 		DefaultStatus:         unknownServerStatus(),
 		NumberOfWorkers:       1,
-		NumberOfConnWorkers:   1,
-		NumberOfStatusWorkers: 1,
 		LogOutput:             logOutput,
 	}
 }
@@ -198,19 +185,10 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 type createWorker func(t *testing.T, serverCfg ...config.ServerConfig) chan<- proxy.McRequest
 
 // Actual Tests
-func TestBasicWorkers(t *testing.T) {
-	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
-		logOutput := &testLogger{t: tLocal}
-		reqCh := setupTestWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
-		return reqCh
-	}
-	runAllWorkerTests(t, setupWorker)
-}
-
 func TestPublicAndPrivateWorkers(t *testing.T) {
 	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
 		logOutput := &testLogger{t: tLocal}
-		reqCh := setupPublicTestWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
+		reqCh := setupWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
 		return reqCh
 	}
 	runAllWorkerTests(t, setupWorker)
@@ -235,10 +213,10 @@ func runAllWorkerTests(t *testing.T, newWorker createWorker) {
 	t.Run("proxy protocol", func(t *testing.T) {
 		testProxyProtocol(t, newWorker)
 	})
-	t.Run("many request will rate limit connection to backend", func(t *testing.T) {
+	t.Run("rate limit - too many requests will trigger it", func(t *testing.T) {
 		testProxy_ManyRequestsWillRateLimit(t, newWorker)
 	})
-	t.Run("will allow new connections after ratelimit cooldown", func(t *testing.T) {
+	t.Run("rate limit - allow new connections after ratelimit cooldown", func(t *testing.T) {
 		testProxy_WillAllowNewConn_AfterDurationEnded(t, newWorker)
 	})
 	t.Run("server state - doesnt call backend again before cooldown is over", func(t *testing.T) {
@@ -575,44 +553,5 @@ func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 				t.Error("timed out")
 			}
 		})
-	}
-}
-
-func TestStatusWorker_ShareServerData(t *testing.T) {
-	targetAddr := testAddr()
-	cooldown := time.Minute
-	servers := make(map[int]proxy.WorkerServerConfig)
-	servers[0] = proxy.WorkerServerConfig{
-		ProxyTo:             targetAddr,
-		State:               proxy.UNKNOWN,
-		StateUpdateCooldown: cooldown,
-	}
-	connCh := make(chan proxy.ConnRequest)
-	statusCh := make(chan proxy.StatusRequest)
-	proxy.RunConnWorkers(1, connCh, statusCh, servers)
-	proxy.RunStatusWorkers(2, statusCh, connCh, servers)
-
-	answerCh := make(chan proxy.StatusAnswer)
-	statusCh <- proxy.StatusRequest{
-		ServerId: 0,
-		Type:     proxy.STATE_REQUEST,
-		AnswerCh: answerCh,
-	}
-	time.Sleep(longerChTimeout)
-	answerCh2 := make(chan proxy.StatusAnswer)
-	statusCh <- proxy.StatusRequest{
-		ServerId: 0,
-		Type:     proxy.STATE_REQUEST,
-		AnswerCh: answerCh2,
-	}
-
-	select {
-	case answer := <-answerCh2:
-		t.Log("worker has successfully responded")
-		if answer.State != proxy.OFFLINE {
-			t.Errorf("expected: %v got: %v", proxy.OFFLINE, answer)
-		}
-	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
 	}
 }

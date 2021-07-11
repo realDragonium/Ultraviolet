@@ -39,7 +39,8 @@ func main() {
 		log.Fatalf("Something went wrong while reading config files: %v", err)
 	}
 	reqCh := make(chan proxy.McRequest)
-	shouldNotifyCh, notifyCh := proxy.Serve(mainCfg, serverCfgs, reqCh)
+	gateway := proxy.NewGateway()
+	gateway.StartWorkers(mainCfg, serverCfgs, reqCh)
 
 	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
 	upg, err := tableflip.New(tableflip.Options{
@@ -72,8 +73,7 @@ func main() {
 		panic(err)
 	}
 	<-upg.Exit()
-	shouldNotifyCh <- struct{}{}
 	log.Println("Waiting for all open connections to close before shutting down")
-	<-notifyCh
+	gateway.Shutdown()
 	log.Println("Shutting down")
 }

@@ -29,8 +29,6 @@ type UltravioletConfig struct {
 	DefaultStatus        mc.AnotherStatusResponse `json:"defaultStatus"`
 
 	NumberOfWorkers       int `json:"numberOfWorkers"`
-	NumberOfConnWorkers   int `json:"numberOfConnWorkers"`
-	NumberOfStatusWorkers int `json:"numberOfStatusWorkers"`
 
 	LogOutput io.Writer
 }

@@ -38,11 +38,9 @@ func (bLog *benchLogger) Write(b []byte) (n int, err error) {
 	return 0, nil
 }
 
-func basicBenchUVConfig(b *testing.B, w, cw, sw int) config.UltravioletConfig {
+func basicBenchUVConfig(b *testing.B, w int) config.UltravioletConfig {
 	return config.UltravioletConfig{
-		NumberOfWorkers:       w,
-		NumberOfConnWorkers:   cw,
-		NumberOfStatusWorkers: sw,
+		NumberOfWorkers: w,
 		DefaultStatus: mc.AnotherStatusResponse{
 			Name:        "Ultraviolet",
 			Protocol:    755,
@@ -334,10 +332,11 @@ func BenchmarkWorkerStatusRequest_UnknownServer_CHANNEL(b *testing.B) {
 }
 
 func benchmarkWorker(b *testing.B, req proxy.McRequest) {
-	cfg := basicBenchUVConfig(b, 1, 1, 1)
+	cfg := basicBenchUVConfig(b, 1)
 	servers := basicServerCfgs
 	reqCh := make(chan proxy.McRequest)
-	proxy.SetupWorkers(cfg, servers, reqCh, nil)
+	gateway := proxy.NewGateway()
+	gateway.StartWorkers(cfg, servers, reqCh)
 
 	answerCh := make(chan proxy.McAnswer)
 	req.Ch = answerCh

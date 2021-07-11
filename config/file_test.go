@@ -77,8 +77,6 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 		},
 
 		NumberOfWorkers:       5,
-		NumberOfConnWorkers:   1,
-		NumberOfStatusWorkers: 3,
 	}
 	file, _ := json.MarshalIndent(cfg, "", " ")
 	tmpfile, err := ioutil.TempFile("", "example")

@@ -155,6 +155,7 @@ type PrivateWorker struct {
 	serverId          int
 	activeConnections int
 	proxyCh           chan ProxyAction
+	gatewayCh         chan gatewayRequest
 	reqCh             chan McRequest
 
 	rateCounter   int
@@ -182,6 +183,10 @@ func (worker *PrivateWorker) Work() {
 			request.Ch <- answer
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
+		case request := <-worker.gatewayCh:
+			request.ch <- gatewayAnswer{
+				hasOpenConnections: worker.activeConnections > 0,
+			}
 		}
 	}
 }
