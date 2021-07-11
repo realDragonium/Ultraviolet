@@ -169,7 +169,6 @@ type PrivateWorker struct {
 	serverConnFactory func(net.Addr) func() (net.Conn, error)
 
 	offlineStatus    mc.Packet
-	onlineStatus     mc.Packet
 	disconnectPacket mc.Packet
 }
 

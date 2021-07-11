@@ -71,10 +71,6 @@ func (tLog *testLogger) Write(b []byte) (n int, err error) {
 	return 0, nil
 }
 
-func assignTestLogger(t *testing.T) {
-	log.SetOutput(&testLogger{t: t})
-}
-
 func unknownServerStatusPk() mc.Packet {
 	return unknownServerStatus().Marshal()
 }

@@ -49,3 +49,9 @@ time config values are based on go's duration formatting. They can be used in co
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
 
 
+
+
+## Idea notes
+### More workers with atomic values
+Like how [prometheus does it](https://github.com/prometheus/client_golang/blob/master/prometheus/gauge.go#L82) but than for things like state or rate limit so we can have more workers working on it and increase the load even more. 
+
