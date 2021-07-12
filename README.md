@@ -81,8 +81,8 @@ A status config is build with the following fields
 |:---:|:---:|:---|
 |name|-|This is the 'name' of the status response. Its the text which will appear on the left of the latency bar.|
 |protocol|0|This is the protocol it will use. For more information about it or to see what numbers belong to which versions check [this website](https://wiki.vg/Protocol_version_numbers) |
-|text|""|This is also known as the motd of server.|
-|favicon|""|This is the picture it will send to the player. If you want to use this turn the picture you wanna use into a base64 encoded string.|
+|text|-|This is also known as the motd of server.|
+|favicon|-|This is the picture it will send to the player. If you want to use this turn the picture you wanna use into a base64 encoded string.|
 
 
 
