@@ -2,6 +2,7 @@ package mc
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -28,7 +29,7 @@ func (pk SimpleStatus) Marshal() Packet {
 		Description: DescriptionJSON{
 			Text: pk.Description,
 		},
-		Favicon: pk.Favicon,
+		Favicon: fmt.Sprintf("data:image/png;base64,%s", pk.Favicon),
 	}
 	text, _ := json.Marshal(jsonResponse)
 	return ClientBoundResponse{
@@ -117,7 +118,7 @@ func (pk ServerBoundRequest) Marshal() Packet {
 }
 
 func NewServerBoundPing() ServerBoundPing {
-	millisecondTime :=  time.Now().UnixNano() / 1e6
+	millisecondTime := time.Now().UnixNano() / 1e6
 	return ServerBoundPing{
 		Time: Long(millisecondTime),
 	}

@@ -4,6 +4,19 @@ Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra 
 
 
 ## Some notes
+### How to build
+Ultraviolet can be ran by using docker but you can also build it a binary yourself by running `go build -tags netgo`.
+
+### Features
+[x] HAProxy protocol(v2) support (sending only)  
+[x] Can restart without shutting down open connections (check [Tableflip](#markdown-header-Tableflip))  
+[x] Rate limiting  
+[x] Status caching (online status only)  
+[x] Offline status placeholder  
+[ ] Anti bot   
+... More coming later
+
+
 ### Im not gonna fool proof this
 Im not planning on writing code to prevent Ultraviolet from crashing if you did something stupid. If the config wants a timeout time and you put in a negative number that may or may not cause some issues and that is your own fault. 
 
@@ -32,6 +45,14 @@ To prevent a lot of calls being made to the backend without a reason Ultraviolet
 ## Config
 time config values are based on go's duration formatting, valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". They can be used in combination with each other "1m30s".
 
+### Ultraviolet Config
+|Field name|Default | Description| 
+|:---:|:---:|:---|
+|listenTo|-|The address Ultraviolet will listen to for receiving connections.|
+|defaultStatus|[this](#markdown-header-status-config-value)|The status Ultraviolet will send to callers when it receives a status handshake where the server address header isnt recognized.|
+|numberOfWorkers|0|The number of name resolve workers Ultraviolet will have running, 0 will disabled it and makes is so that the proxy will receive and accept connections but it wont proxy or respond to them. 1 Should be able to handle quite a few connections in a short amount of time but in case more is necessary its possible to increase it. |
+
+
 ### Server Config
 - All config values left blank will result into their default value. For example if you dont have `"rateLimit": 5` inside your json, it will automatically put it on 0 which will also disable rate limit.  
 - Inside the examples folder there is example of a server config file and the ultraviolet config file. 
@@ -45,7 +66,7 @@ time config values are based on go's duration formatting, valid time units are "
 |dialTimeout|1s|Timeout is the maximum amount of time a dial will wait for a connect to complete.|
 |sendProxyProtocol|false|Whether or not it should send a ProxyProtocolv2 header to the target.|
 |disconnectMessage|-|The message a user will get when its tries to connect to a offline server|
-|offlineStatus|-|The status it will send the player when the server is offline.|
+|offlineStatus|[this](#markdown-header-status-config-value)|The status it will send the player when the server is offline.|
 |rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.  |
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
@@ -54,7 +75,20 @@ time config values are based on go's duration formatting, valid time units are "
 |cacheUpdateCooldown|1s|The time it will assume that the statys of the server isnt changed (including player count). |
 
 
+### Status Config value
+A status config is build with the following fields
+|Field name|Default | Description| 
+|:---:|:---:|:---|
+|name|-|This is the 'name' of the status response. Its the text which will appear on the left of the latency bar.|
+|protocol|0|This is the protocol it will use. For more information about it or to see what numbers belong to which versions check [this website](https://wiki.vg/Protocol_version_numbers) |
+|text|""|This is also known as the motd of server.|
+|favicon|""|This is the picture it will send to the player. If you want to use this turn the picture you wanna use into a base64 encoded string.|
+
+
+
 ## Idea notes
 ### More workers with atomic values
 Like how [prometheus does it](https://github.com/prometheus/client_golang/blob/master/prometheus/gauge.go#L82) but than for things like state or rate limit so we can have more workers working on it and increase the load even more. 
 
+### Single liners
+- respond in status with the same version the client has sent. 
