@@ -5,7 +5,10 @@ Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra 
 
 ## Some notes
 ### How to build
-Ultraviolet can be ran by using docker but you can also build it a binary yourself by running `go build -tags netgo`.
+Ultraviolet can be ran by using docker or you can also build a binary yourself by running:
+```
+go build -tags netgo
+```  
 
 ### Features
 [x] HAProxy protocol(v2) support (sending only)  
