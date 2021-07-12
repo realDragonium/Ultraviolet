@@ -97,10 +97,14 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 	handshakePacket, err := conn.ReadPacket()
 	if err != nil {
 		log.Printf("Error while reading handshake packet: %v", err)
+		c.Close()
+		return
 	}
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
 	if err != nil {
 		log.Printf("Error while unmarshaling handshake packet: %v", err)
+		c.Close()
+		return
 	}
 
 	if handshake.NextState != mc.HandshakeLoginState && handshake.NextState != mc.HandshakeStatusState {
@@ -139,15 +143,30 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 
 	switch ans.Action {
 	case PROXY:
-		sConn, _ := ans.ServerConnFunc()
+		sConn, err := ans.ServerConnFunc()
+		if err != nil {
+			log.Printf("Err when creating server connection: %v", err)
+			c.Close()
+			return
+		}
 		serverConn := NewMcConn(sConn)
 		serverConn.WritePacket(handshakePacket)
 		if isLoginReq {
-			serverConn.WritePacket(loginPacket)
+			err = serverConn.WritePacket(loginPacket)
+		} else {
+			// For some unknown reason if we dont send this here
+			//  its goes wrong with proxying status requests
+			err = serverConn.WritePacket(mc.Packet{ID: 0x00})
+		}
+		if err != nil {
+			log.Printf("Error in client goroutine: %v", err)
+			c.Close()
+			sConn.Close()
+			return
 		}
 		go func(client, server net.Conn, proxyCh chan ProxyAction) {
 			ProxyConnections(client, server, proxyCh)
-		}(conn.netConn, serverConn.netConn, ans.ProxyCh)
+		}(c, sConn, ans.ProxyCh)
 	case DISCONNECT:
 		conn.WritePacket(ans.DisconMessage)
 		conn.netConn.Close()
@@ -175,6 +194,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 // - doesnt give too much trouble with copy the connections
 func ProxyConnections(client, server net.Conn, proxyCh chan ProxyAction) {
 	proxyCh <- PROXY_OPEN
+	// Close behavior might not work that well
 	go func() {
 		io.Copy(server, client)
 		client.Close()
@@ -197,7 +217,8 @@ type McConn struct {
 }
 
 func (conn McConn) ReadPacket() (mc.Packet, error) {
-	return mc.ReadPacket(conn.reader)
+	pk, err := mc.ReadPacket(conn.reader)
+	return pk, err
 }
 
 func (conn McConn) WritePacket(p mc.Packet) error {

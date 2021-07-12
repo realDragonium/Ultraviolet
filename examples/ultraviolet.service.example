@@ -1,8 +1,8 @@
 [Unit]
-Description=Ultraviolet
+Description=Ultraviolet - A Minecraft reverse proxy
 
 [Service]
-ExecStart=/usr/bin/ultraviolet -pid-file="/run/ultraviolet.pid"
+ExecStart=/usr/bin/Ultraviolet -pid-file="/run/ultraviolet.pid"
 ExecReload=/bin/kill -HUP $MAINPID
 PIDFile=/run/ultraviolet.pid
 

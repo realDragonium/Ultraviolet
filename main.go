@@ -22,7 +22,7 @@ var (
 )
 
 func main() {
-	log.Println("Starting up")
+	log.Printf("Starting up Alpha-v%d", 4)
 	var (
 		pidFile        = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
 		mainCfgPath    = flag.String("config", defaultUltravioletCfgPath, "`Path` to main config file")
