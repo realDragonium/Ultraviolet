@@ -9,7 +9,7 @@ Ultraviolet can be ran by using docker but you can also build it a binary yourse
 
 ### Features
 [x] HAProxy protocol(v2) support (sending only)  
-[x] Can restart without shutting down open connections (check [Tableflip](#markdown-header-Tableflip))  
+[x] Can restart without shutting down open connections (check [Tableflip](#tableflip))  
 [x] Rate limiting  
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
@@ -49,7 +49,7 @@ time config values are based on go's duration formatting, valid time units are "
 |Field name|Default | Description| 
 |:---:|:---:|:---|
 |listenTo|-|The address Ultraviolet will listen to for receiving connections.|
-|defaultStatus|[this](#markdown-header-status-config-value)|The status Ultraviolet will send to callers when it receives a status handshake where the server address header isnt recognized.|
+|defaultStatus|[this](#status-config-value)|The status Ultraviolet will send to callers when it receives a status handshake where the server address header isnt recognized.|
 |numberOfWorkers|0|The number of name resolve workers Ultraviolet will have running, 0 will disabled it and makes is so that the proxy will receive and accept connections but it wont proxy or respond to them. 1 Should be able to handle quite a few connections in a short amount of time but in case more is necessary its possible to increase it. |
 
 
@@ -66,7 +66,7 @@ time config values are based on go's duration formatting, valid time units are "
 |dialTimeout|1s|Timeout is the maximum amount of time a dial will wait for a connect to complete.|
 |sendProxyProtocol|false|Whether or not it should send a ProxyProtocolv2 header to the target.|
 |disconnectMessage|-|The message a user will get when its tries to connect to a offline server|
-|offlineStatus|[this](#markdown-header-status-config-value)|The status it will send the player when the server is offline.|
+|offlineStatus|[this](#status-config-value)|The status it will send the player when the server is offline.|
 |rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.  |
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
