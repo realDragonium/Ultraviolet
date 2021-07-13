@@ -88,9 +88,7 @@ func ServeListener(listener net.Listener, reqCh chan McRequest) {
 }
 
 func ReadConnection(c net.Conn, reqCh chan McRequest) {
-	// Rewrite connection code?
 	conn := NewMcConn(c)
-	// Add better error handling
 	handshakePacket, err := conn.ReadPacket()
 	if err != nil {
 		log.Printf("Error while reading handshake packet: %v", err)
@@ -193,12 +191,9 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 
 }
 
-// Check or doing this in a separate method has some adventages like:
-// - having a different stack so the other data can be collected
-// - doesnt give too much trouble with copy the connections
 func ProxyLogin(client, server net.Conn, proxyCh chan ProxyAction) {
 	proxyCh <- PROXY_OPEN
-	// Close behavior might not work that well
+	// Close behavior doesnt seem to work that well
 	go func() {
 		io.Copy(server, client)
 		client.Close()
@@ -210,7 +205,6 @@ func ProxyLogin(client, server net.Conn, proxyCh chan ProxyAction) {
 
 func ProxyStatus(client, server net.Conn, proxyCh chan ProxyAction) {
 	proxyCh <- PROXY_OPEN
-	// Close behavior might not work that well
 	go func() {
 		pipe(server, client)
 		client.Close()
