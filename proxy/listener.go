@@ -18,7 +18,6 @@ const (
 	PROXY McAction = iota
 	DISCONNECT
 	SEND_STATUS
-	SEND_STATUS_CACHE
 	CLOSE
 	ERROR
 )
@@ -32,8 +31,6 @@ func (state McAction) String() string {
 		text = "Disconnect"
 	case SEND_STATUS:
 		text = "Send Status"
-	case SEND_STATUS_CACHE:
-		text = "Send Status Cache"
 	case CLOSE:
 		text = "Close"
 	case ERROR:
@@ -80,7 +77,7 @@ func ServeListener(listener net.Listener, reqCh chan McRequest) {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				log.Printf("net.Listener was closed, shutting down listener")
+				log.Printf("net.Listener was closed, stopping with accepting calls")
 				break
 			}
 			log.Println(err)
@@ -108,25 +105,27 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 	}
 
 	if handshake.NextState != mc.HandshakeLoginState && handshake.NextState != mc.HandshakeStatusState {
-		conn.netConn.Close()
+		c.Close()
 		return
 	}
 
 	isLoginReq := false
+	requestType := STATUS
 	if handshake.NextState == mc.HandshakeLoginState {
 		isLoginReq = true
+		requestType = LOGIN
 	}
 
 	ansCh := make(chan McAnswer)
 	req := McRequest{
-		Type:       STATUS,
+		Type:       requestType,
 		Ch:         ansCh,
 		Addr:       c.RemoteAddr(),
 		ServerAddr: string(handshake.ServerAddress),
 	}
 	var loginPacket mc.Packet
 	if isLoginReq {
-		// Add better error handling
+		// Add better error handling?
 		loginPacket, err = conn.ReadPacket()
 		if err != nil {
 			log.Printf("Error while reading login start packet: %v", err)
@@ -135,7 +134,6 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		if err != nil {
 			log.Printf("Error while unmarshaling login start packet: %v", err)
 		}
-		req.Type = LOGIN
 		req.Username = string(loginStart.Name)
 	}
 	reqCh <- req
@@ -151,40 +149,46 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		}
 		serverConn := NewMcConn(sConn)
 		serverConn.WritePacket(handshakePacket)
-		if isLoginReq {
+		switch requestType {
+		case LOGIN:
 			err = serverConn.WritePacket(loginPacket)
-		} else {
+			if err != nil {
+				log.Printf("Error in client goroutine: %v", err)
+				c.Close()
+				sConn.Close()
+				return
+			}
+			go func(client, server net.Conn, proxyCh chan ProxyAction) {
+				ProxyLogin(client, server, proxyCh)
+			}(c, sConn, ans.ProxyCh)
+		case STATUS:
 			// For some unknown reason if we dont send this here
 			//  its goes wrong with proxying status requests
 			err = serverConn.WritePacket(mc.Packet{ID: 0x00})
+			if err != nil {
+				log.Printf("Error in client goroutine: %v", err)
+				c.Close()
+				sConn.Close()
+				return
+			}
+			go func(client, server net.Conn, proxyCh chan ProxyAction) {
+				ProxyStatus(client, server, proxyCh)
+			}(c, sConn, ans.ProxyCh)
 		}
-		if err != nil {
-			log.Printf("Error in client goroutine: %v", err)
-			c.Close()
-			sConn.Close()
-			return
-		}
-		go func(client, server net.Conn, proxyCh chan ProxyAction) {
-			ProxyConnections(client, server, proxyCh)
-		}(c, sConn, ans.ProxyCh)
 	case DISCONNECT:
 		conn.WritePacket(ans.DisconMessage)
-		conn.netConn.Close()
+		c.Close()
 	case SEND_STATUS:
 		conn.ReadPacket()
 		conn.WritePacket(ans.StatusPk)
 		pingPk, _ := conn.ReadPacket()
+		if ans.Latency != 0 {
+			time.Sleep(ans.Latency)
+		}
 		conn.WritePacket(pingPk)
-		conn.netConn.Close()
-	case SEND_STATUS_CACHE:
-		conn.ReadPacket()
-		conn.WritePacket(ans.StatusPk)
-		pingPk, _ := conn.ReadPacket()
-		time.Sleep(ans.Latency)
-		conn.WritePacket(pingPk)
-		conn.netConn.Close()
+		c.Close()
 	case CLOSE:
-		conn.netConn.Close()
+		c.Close()
 	}
 
 }
@@ -192,7 +196,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 // Check or doing this in a separate method has some adventages like:
 // - having a different stack so the other data can be collected
 // - doesnt give too much trouble with copy the connections
-func ProxyConnections(client, server net.Conn, proxyCh chan ProxyAction) {
+func ProxyLogin(client, server net.Conn, proxyCh chan ProxyAction) {
 	proxyCh <- PROXY_OPEN
 	// Close behavior might not work that well
 	go func() {
@@ -202,6 +206,32 @@ func ProxyConnections(client, server net.Conn, proxyCh chan ProxyAction) {
 	io.Copy(client, server)
 	server.Close()
 	proxyCh <- PROXY_CLOSE
+}
+
+func ProxyStatus(client, server net.Conn, proxyCh chan ProxyAction) {
+	proxyCh <- PROXY_OPEN
+	// Close behavior might not work that well
+	go func() {
+		pipe(server, client)
+		client.Close()
+	}()
+	pipe(client, server)
+	server.Close()
+	proxyCh <- PROXY_CLOSE
+}
+
+func pipe(c1, c2 net.Conn) {
+	buffer := make([]byte, 0xffff)
+	for {
+		n, err := c1.Read(buffer)
+		if err != nil {
+			return
+		}
+		_, err = c2.Write(buffer[:n])
+		if err != nil {
+			return
+		}
+	}
 }
 
 func NewMcConn(conn net.Conn) McConn {

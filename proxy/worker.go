@@ -227,7 +227,7 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 			worker.updateCacheStatus()
 		}
 		return McAnswer{
-			Action:   SEND_STATUS_CACHE,
+			Action:   SEND_STATUS,
 			StatusPk: worker.cachedStatus,
 			Latency:  worker.statusLatency,
 		}
@@ -249,6 +249,7 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 			}
 		}
 	}
+
 	return McAnswer{
 		Action:         PROXY,
 		ProxyCh:        worker.proxyCh,

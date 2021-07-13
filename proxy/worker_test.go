@@ -630,7 +630,10 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 		conn := <-connCh
 		mcConn := proxy.NewMcConn(conn)
 		mcConn.ReadPacket()
+		mcConn.ReadPacket()
 		mcConn.WritePacket(statusPacket)
+		pingPk, _ := mcConn.ReadPacket()
+		mcConn.WritePacket(pingPk)
 	}()
 	sendRequest_TestTimeout(t, reqCh, req)
 	time.Sleep(updateCooldown * 2)
@@ -641,7 +644,10 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 		t.Log("worker has successfully responded")
 		mcConn := proxy.NewMcConn(conn)
 		mcConn.ReadPacket()
+		mcConn.ReadPacket()
 		mcConn.WritePacket(statusPacket)
+		pingPk, _ := mcConn.ReadPacket()
+		mcConn.WritePacket(pingPk)
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
 	}

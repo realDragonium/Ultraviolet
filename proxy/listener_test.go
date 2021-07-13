@@ -516,7 +516,7 @@ func TestProxyConnection(t *testing.T) {
 		client, server := net.Pipe()
 		proxyCh := newProxyChan()
 
-		go proxy.ProxyConnections(client, server, proxyCh)
+		go proxy.ProxyLogin(client, server, proxyCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -537,7 +537,7 @@ func TestProxyConnection(t *testing.T) {
 		client, server := net.Pipe()
 		proxyCh := newProxyChan()
 
-		go proxy.ProxyConnections(client, server, proxyCh)
+		go proxy.ProxyLogin(client, server, proxyCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
