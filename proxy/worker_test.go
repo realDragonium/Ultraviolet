@@ -207,6 +207,9 @@ func runAllWorkerTests(t *testing.T, newWorker createWorker) {
 	t.Run("known address - online server", func(t *testing.T) {
 		testKnownAddr_OnlineServer(t, newWorker)
 	})
+	t.Run("known address - RealIP proxy", func(t *testing.T) {
+		testKnownAddr_RealIPProxy(t, newWorker)
+	})
 	t.Run("proxy bind", func(t *testing.T) {
 		testProxyBind(t, newWorker)
 	})
@@ -269,7 +272,6 @@ func testUnknownAddr(t *testing.T, newWorker createWorker) {
 	}
 }
 
-// Add test for when offline status isnt configured...?
 func testKnownAddr_OfflineServer(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
@@ -333,6 +335,33 @@ func testKnownAddr_OnlineServer(t *testing.T, newWorker createWorker) {
 			testCloseConnection(t, serverConn)
 			if answer.ProxyCh() == nil {
 				t.Error("No proxy channel provided")
+			}
+		})
+	}
+}
+
+func testKnownAddr_RealIPProxy(t *testing.T, newWorker createWorker) {
+	for _, tc := range LoginStatusTestCases {
+		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
+			serverAddr := "ultraviolet"
+			targetAddr := testAddr()
+			serverCfg := config.ServerConfig{
+				Domains:      []string{serverAddr},
+				ProxyTo:      targetAddr,
+				UseOldRealIp: true,
+			}
+			req := proxy.McRequest{
+				Type:       tc.reqType,
+				ServerAddr: serverAddr,
+			}
+			createListener(t, targetAddr)
+			reqCh := newWorker(t, serverCfg)
+			answer := sendRequest_TestTimeout(t, reqCh, req)
+			if answer.Action() != tc.onlineAction {
+				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
+			}
+			if !answer.UpdateToRealIp() {
+				t.Error("Should have updated to RealIP format")
 			}
 		})
 	}

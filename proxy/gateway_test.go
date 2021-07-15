@@ -19,6 +19,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		Domains:           []string{"Ultraviolet", "Ultraviolet2", "UltraV", "UV"},
 		ProxyTo:           "127.0.10.5:25565",
 		ProxyBind:         "127.0.0.5",
+		UseOldRealIp:      true,
 		DialTimeout:       "1s",
 		SendProxyProtocol: true,
 		DisconnectMessage: "HelloThereWeAreClosed...Sorry",
@@ -27,8 +28,8 @@ func TestFileToWorkerConfig(t *testing.T) {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		RateLimit:      5,
-		RateDuration:   "1m",
+		RateLimit:           5,
+		RateDuration:        "1m",
 		StateUpdateCooldown: "1m",
 	}
 
@@ -57,6 +58,9 @@ func TestFileToWorkerConfig(t *testing.T) {
 	}
 	if workerCfg.RateLimit != serverCfg.RateLimit {
 		t.Errorf("expected: %v - got: %v", serverCfg.RateLimit, workerCfg.RateLimit)
+	}
+	if workerCfg.UseOldRealIp != serverCfg.UseOldRealIp {
+		t.Errorf("expected: %v - got: %v", serverCfg.UseOldRealIp, workerCfg.UseOldRealIp)
 	}
 	if expectedRateDuration != workerCfg.RateLimitDuration {
 		t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.RateLimitDuration)

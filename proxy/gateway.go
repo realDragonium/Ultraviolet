@@ -143,5 +143,6 @@ func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
 		RateLimit:           cfg.RateLimit,
 		RateLimitDuration:   duration,
 		StateUpdateCooldown: cooldown,
+		UseOldRealIp:        cfg.UseOldRealIp,
 	}
 }

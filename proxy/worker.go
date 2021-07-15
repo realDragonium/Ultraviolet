@@ -40,6 +40,7 @@ func (state ServerState) String() string {
 type WorkerServerConfig struct {
 	State               ServerState
 	StateUpdateCooldown time.Duration
+	UseOldRealIp        bool
 	CacheStatus         bool
 	CacheUpdateCooldown time.Duration
 	ValidProtocol       int
@@ -145,6 +146,7 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 		disconnectPacket:  cfg.DisconnectPacket,
 		serverConnFactory: createConnFeature,
 		statusHandshake:   handshakePacket,
+		useOldRealIP:      cfg.UseOldRealIp,
 	}
 }
 
@@ -171,6 +173,7 @@ type PrivateWorker struct {
 	statusLatency   time.Duration
 	statusHandshake mc.Packet
 
+	useOldRealIP      bool
 	serverConnFactory func(net.Addr) func() (net.Conn, error)
 	disconnectPacket  mc.Packet
 }
@@ -231,6 +234,9 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 		} else {
 			return NewMcAnswerClose()
 		}
+	}
+	if worker.useOldRealIP {
+		return NewMcAnswerRealIPProxy(worker.proxyCh, connFunc)
 	}
 	return NewMcAnswerProxy(worker.proxyCh, connFunc)
 }

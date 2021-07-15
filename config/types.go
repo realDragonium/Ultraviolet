@@ -12,6 +12,7 @@ type ServerConfig struct {
 	ProxyTo           string `json:"proxyTo"`
 	ProxyBind         string `json:"proxyBind"`
 	DialTimeout       string `json:"dialTimeout"`
+	UseOldRealIp      bool   `json:"useRealIpv2.4"`
 	SendProxyProtocol bool   `json:"sendProxyProtocol"`
 
 	DisconnectMessage string `json:"disconnectMessage"`
