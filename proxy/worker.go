@@ -91,17 +91,12 @@ func (worker *PublicWorker) ProcessMCRequest(request McRequest) (chan McRequest,
 	if !ok {
 		//Unknown server address
 		if request.Type == STATUS {
-			return nil, McAnswer{
-				Action:   SEND_STATUS,
-				StatusPk: worker.defaultStatus,
-			}, false
+			return nil, NewMcAnswerStatus(worker.defaultStatus, 0), false
 		} else {
-			return nil, McAnswer{
-				Action: CLOSE,
-			}, false
+			return nil, NewMcAnswerClose(), false
 		}
 	}
-	return worker.servers[serverId].connReqCh, McAnswer{}, true
+	return worker.servers[serverId].connReqCh, McAnswerBasic{}, true
 }
 
 func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
@@ -211,26 +206,16 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 	}
 	if worker.state == OFFLINE {
 		if request.Type == STATUS {
-			return McAnswer{
-				Action:   SEND_STATUS,
-				StatusPk: worker.offlineStatus,
-			}
+			return NewMcAnswerStatus(worker.offlineStatus, 0)
 		} else if request.Type == LOGIN {
-			return McAnswer{
-				Action:        DISCONNECT,
-				DisconMessage: worker.disconnectPacket,
-			}
+			return NewMcAnswerDisonncet(worker.disconnectPacket)
 		}
 	}
 	if request.Type == STATUS && worker.statusCache {
 		if time.Since(worker.statusCacheTime) >= worker.statusCooldown {
 			worker.updateCacheStatus()
 		}
-		return McAnswer{
-			Action:   SEND_STATUS,
-			StatusPk: worker.cachedStatus,
-			Latency:  worker.statusLatency,
-		}
+		return NewMcAnswerStatus(worker.cachedStatus, worker.statusLatency)
 	}
 	var connFunc func() (net.Conn, error)
 	if worker.rateLimit == 0 {
@@ -244,17 +229,10 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 			worker.rateCounter++
 			connFunc = worker.serverConnFactory(request.Addr)
 		} else {
-			return McAnswer{
-				Action: CLOSE,
-			}
+			return NewMcAnswerClose()
 		}
 	}
-
-	return McAnswer{
-		Action:         PROXY,
-		ProxyCh:        worker.proxyCh,
-		ServerConnFunc: connFunc,
-	}
+	return NewMcAnswerProxy(worker.proxyCh, connFunc)
 }
 
 func (worker *PrivateWorker) updateServerState() {

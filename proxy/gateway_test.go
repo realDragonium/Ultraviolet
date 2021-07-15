@@ -174,7 +174,7 @@ func TestShutdown_ReturnsWhenThereAreNoOpenConnections(t *testing.T) {
 			Ch:         answerCh,
 		}
 		answer := <-answerCh
-		answer.ProxyCh <- proxy.PROXY_OPEN
+		answer.ProxyCh() <- proxy.PROXY_OPEN
 		time.Sleep(defaultChTimeout)
 		testShutdown_DoesntReturn(t, gw)
 	})
@@ -191,9 +191,9 @@ func TestShutdown_ReturnsWhenThereAreNoOpenConnections(t *testing.T) {
 			Ch:         answerCh,
 		}
 		answer := <-answerCh
-		answer.ProxyCh <- proxy.PROXY_OPEN
+		answer.ProxyCh() <- proxy.PROXY_OPEN
 		time.Sleep(defaultChTimeout)
-		answer.ProxyCh <- proxy.PROXY_CLOSE
+		answer.ProxyCh() <- proxy.PROXY_CLOSE
 		testShutdown_DoesReturn(t, gw)
 	})
 
@@ -209,14 +209,14 @@ func TestShutdown_ReturnsWhenThereAreNoOpenConnections(t *testing.T) {
 			Ch:         answerCh,
 		}
 		answer := <-answerCh
-		answer.ProxyCh <- proxy.PROXY_OPEN
-		answer.ProxyCh <- proxy.PROXY_OPEN
+		answer.ProxyCh() <- proxy.PROXY_OPEN
+		answer.ProxyCh() <- proxy.PROXY_OPEN
 		finishedCh := make(chan struct{})
 		go func() {
 			gw.Shutdown()
 			finishedCh <- struct{}{}
 		}()
-		answer.ProxyCh <- proxy.PROXY_CLOSE
+		answer.ProxyCh() <- proxy.PROXY_CLOSE
 		select {
 		case <-finishedCh:
 			t.Error("method call has returned")
@@ -237,7 +237,7 @@ func TestShutdown_ReturnsWhenThereAreNoOpenConnections(t *testing.T) {
 			Ch:         answerCh,
 		}
 		answer1 := <-answerCh
-		answer1.ProxyCh <- proxy.PROXY_OPEN
+		answer1.ProxyCh() <- proxy.PROXY_OPEN
 
 		answerCh2 := make(chan proxy.McAnswer)
 		reqCh <- proxy.McRequest{
@@ -246,14 +246,14 @@ func TestShutdown_ReturnsWhenThereAreNoOpenConnections(t *testing.T) {
 			Ch:         answerCh2,
 		}
 		answer2 := <-answerCh2
-		answer2.ProxyCh <- proxy.PROXY_OPEN
+		answer2.ProxyCh() <- proxy.PROXY_OPEN
 
 		finishedCh := make(chan struct{})
 		go func() {
 			gw.Shutdown()
 			finishedCh <- struct{}{}
 		}()
-		answer1.ProxyCh <- proxy.PROXY_CLOSE
+		answer1.ProxyCh() <- proxy.PROXY_CLOSE
 		select {
 		case <-finishedCh:
 			t.Error("method call has returned")

@@ -12,7 +12,6 @@ import (
 	"github.com/realDragonium/Ultraviolet/proxy"
 )
 
-
 type testNetConn struct {
 	conn       net.Conn
 	remoteAddr net.Addr
@@ -265,9 +264,7 @@ func TestReadConnection_CloseResponse_ClosesChannel(t *testing.T) {
 
 	request := <-reqCh
 
-	request.Ch <- proxy.McAnswer{
-		Action: proxy.CLOSE,
-	}
+	request.Ch <- proxy.NewMcAnswerClose()
 	testConnectedClosed(t, clientConn)
 }
 
@@ -288,12 +285,8 @@ func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
 	connFunc := func() (net.Conn, error) {
 		return proxyBackend, nil
 	}
-
-	request.Ch <- proxy.McAnswer{
-		Action:         proxy.PROXY,
-		ProxyCh:        newProxyChan(),
-		ServerConnFunc: connFunc,
-	}
+	answer := proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
+	request.Ch <- answer
 
 	server := proxy.NewMcConn(serverConn)
 	receivedHsPk, _ := server.ReadPacket()
@@ -325,10 +318,8 @@ func TestReadConnection_CanSendDisconnectPk(t *testing.T) {
 		Reason: mc.Chat(disconMessage),
 	}.Marshal()
 
-	request.Ch <- proxy.McAnswer{
-		Action:        proxy.DISCONNECT,
-		DisconMessage: disconPk,
-	}
+	answer := proxy.NewMcAnswerDisonncet(disconPk)
+	request.Ch <- answer
 
 	disconnectPacket, _ := client.ReadPacket()
 	byteReader := bytes.NewReader(disconnectPacket.Data)
@@ -351,10 +342,8 @@ func TestReadConnection_ExpectConnToBeClosed_AfterDisconnect(t *testing.T) {
 	client.WritePacket(loginPk)
 
 	request := <-reqCh
-	request.Ch <- proxy.McAnswer{
-		Action:        proxy.DISCONNECT,
-		DisconMessage: mc.ClientBoundDisconnect{}.Marshal(),
-	}
+	answer := proxy.NewMcAnswerDisonncet(mc.ClientBoundDisconnect{}.Marshal())
+	request.Ch <- answer
 	client.ReadPacket()
 
 	testConnectedClosed(t, clientConn)
@@ -376,7 +365,7 @@ func TestReadConnection_SendStatusRequest_ThroughChannel(t *testing.T) {
 	}
 }
 
-func TestReadConnection_CanProxyConnToServer(t *testing.T) {
+func TestReadConnection_CanProxyStatusConnToServer(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
 	proxyBackend, serverConn := net.Pipe()
 	reqCh := make(chan proxy.McRequest)
@@ -392,12 +381,8 @@ func TestReadConnection_CanProxyConnToServer(t *testing.T) {
 		connFunc := func() (net.Conn, error) {
 			return proxyBackend, nil
 		}
-
-		request.Ch <- proxy.McAnswer{
-			Action:         proxy.PROXY,
-			ProxyCh:        newProxyChan(),
-			ServerConnFunc: connFunc,
-		}
+		answer := proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
+		request.Ch <- answer
 	}()
 
 	server := proxy.NewMcConn(serverConn)
@@ -424,10 +409,7 @@ func TestReadConnection_CanReplyToStatus(t *testing.T) {
 		Protocol:    751,
 		Description: "Some broken proxy",
 	}.Marshal()
-	statusAnswer := proxy.McAnswer{
-		Action:   proxy.SEND_STATUS,
-		StatusPk: statusPk,
-	}
+	statusAnswer := proxy.NewMcAnswerStatus(statusPk, 0)
 	request.Ch <- statusAnswer
 
 	client.WritePacket(mc.ServerBoundRequest{}.Marshal())
@@ -458,10 +440,7 @@ func TestReadConnection_CloseConnAfterNonProxiedStatusResponse(t *testing.T) {
 		Protocol:    751,
 		Description: "Some broken proxy",
 	}.Marshal()
-	statusAnswer := proxy.McAnswer{
-		Action:   proxy.SEND_STATUS,
-		StatusPk: statusPk,
-	}
+	statusAnswer := proxy.NewMcAnswerStatus(statusPk, 0)
 	request.Ch <- statusAnswer
 
 	client.WritePacket(mc.ServerBoundRequest{}.Marshal())
@@ -554,4 +533,89 @@ func TestProxyConnection(t *testing.T) {
 		}
 	})
 
+}
+
+func TestReadConnection_CanParseServerAddress(t *testing.T) {
+	tt := []struct {
+		name         string
+		serverAddr   string
+		expectedAddr string
+	}{
+		{
+			name:         "normale address",
+			serverAddr:   "ultraviolet",
+			expectedAddr: "ultraviolet",
+		},
+		{
+			name:         "RealIP separator in addr",
+			serverAddr:   "ultra///violet",
+			expectedAddr: "ultra",
+		},
+		{
+			name:         "Forge separator in addr",
+			serverAddr:   "ultra\x00violet",
+			expectedAddr: "ultra",
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			reqCh := make(chan proxy.McRequest)
+			clientConn, proxyFrontend := net.Pipe()
+			go proxy.ReadConnection(proxyFrontend, reqCh)
+
+			hsPk := mc.ServerBoundHandshake{
+				ProtocolVersion: 751,
+				ServerAddress:   mc.String(tc.serverAddr),
+				ServerPort:      25565,
+				NextState:       2,
+			}.Marshal()
+			loginPk := basicLoginStartPacket()
+
+			client := proxy.NewMcConn(clientConn)
+			client.WritePacket(hsPk)
+			client.WritePacket(loginPk)
+
+			request := <-reqCh
+
+			if request.ServerAddr != tc.expectedAddr {
+				t.Errorf("expected:\t %v, \ngot:\t %v", tc.expectedAddr, request.ServerAddr)
+			}
+
+		})
+	}
+}
+
+func TestReadConnection_CanProxyLoginSendRealIp(t *testing.T) {
+	reqCh := make(chan proxy.McRequest)
+	clientConn, proxyFrontend := net.Pipe()
+	proxyBackend, serverConn := net.Pipe()
+	go proxy.ReadConnection(proxyFrontend, reqCh)
+
+	serverAddr := "ultraviolet"
+	hsPk := mc.ServerBoundHandshake{
+		ProtocolVersion: 751,
+		ServerAddress:   mc.String(serverAddr),
+		ServerPort:      25565,
+		NextState:       2,
+	}.Marshal()
+	loginPk := basicLoginStartPacket()
+
+	client := proxy.NewMcConn(clientConn)
+	client.WritePacket(hsPk)
+	client.WritePacket(loginPk)
+	request := <-reqCh
+
+	connFunc := func() (net.Conn, error) {
+		return proxyBackend, nil
+	}
+	answer := proxy.NewMcAnswerRealIPProxy(newProxyChan(), connFunc)
+	request.Ch <- answer
+
+	server := proxy.NewMcConn(serverConn)
+	receivedHsPk, _ := server.ReadPacket()
+	hs, _ := mc.UnmarshalServerBoundHandshake(receivedHsPk)
+	if !hs.IsRealIPAddress() {
+		t.Errorf("expected: an real ip addr, \ngot: %v", hs.ServerAddress)
+	}
 }

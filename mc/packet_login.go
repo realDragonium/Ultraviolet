@@ -2,7 +2,6 @@ package mc
 
 import (
 	"fmt"
-	"net"
 	"strings"
 	"time"
 )
@@ -65,11 +64,10 @@ func (pk ServerBoundHandshake) ParseServerAddress() string {
 	addr := string(pk.ServerAddress)
 	addr = strings.Split(addr, ForgeSeparator)[0]
 	addr = strings.Split(addr, RealIPSeparator)[0]
-	addr = strings.Trim(addr, ".")
 	return addr
 }
 
-func (pk *ServerBoundHandshake) UpgradeToRealIP(clientAddr net.Addr, timestamp time.Time) {
+func (pk *ServerBoundHandshake) UpgradeToRealIP(clientAddr string) {
 	if pk.IsRealIPAddress() {
 		return
 	}
@@ -77,7 +75,7 @@ func (pk *ServerBoundHandshake) UpgradeToRealIP(clientAddr net.Addr, timestamp t
 	addr := string(pk.ServerAddress)
 	addrWithForge := strings.SplitN(addr, ForgeSeparator, 3)
 
-	addr = fmt.Sprintf("%s///%s///%d", addrWithForge[0], clientAddr.String(), timestamp.Unix())
+	addr = fmt.Sprintf("%s///%s///%d", addrWithForge[0], clientAddr, time.Now().Unix())
 
 	if len(addrWithForge) > 1 {
 		addr = fmt.Sprintf("%s\x00%s\x00", addr, addrWithForge[1])

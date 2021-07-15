@@ -125,7 +125,7 @@ func sendRequest_TestTimeout(t *testing.T, reqCh chan<- proxy.McRequest, req pro
 	case <-time.After(defaultChTimeout):
 		t.Fatal("timed out")
 	}
-	return proxy.McAnswer{}
+	return proxy.McAnswerBasic{}
 }
 
 func sendRequest_IgnoreResult(reqCh chan<- proxy.McRequest, req proxy.McRequest) {
@@ -254,14 +254,14 @@ func testUnknownAddr(t *testing.T, newWorker createWorker) {
 			}
 			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action != tc.unknownAction {
-				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, answer.Action)
+			if answer.Action() != tc.unknownAction {
+				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, answer.Action())
 			}
 			if tc.reqType == proxy.STATUS {
 				defaultStatusPk := unknownServerStatusPk()
-				if !samePk(defaultStatusPk, answer.StatusPk) {
+				if !samePk(defaultStatusPk, answer.FirstPacket()) {
 					defaultStatus, _ := mc.UnmarshalClientBoundResponse(defaultStatusPk)
-					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
+					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.FirstPacket())
 					t.Errorf("expected: %v \ngot: %v", defaultStatus, receivedStatus)
 				}
 			}
@@ -290,19 +290,19 @@ func testKnownAddr_OfflineServer(t *testing.T, newWorker createWorker) {
 			offlineStatusPk := defaultOfflineStatusPacket()
 			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action != tc.offlineAction {
-				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action)
+			if answer.Action() != tc.offlineAction {
+				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action())
 			}
 			if tc.reqType == proxy.STATUS {
-				if !samePk(offlineStatusPk, answer.StatusPk) {
+				if !samePk(offlineStatusPk, answer.FirstPacket()) {
 					offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
-					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.StatusPk)
+					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.FirstPacket())
 					t.Errorf("expected: %v \ngot: %v", offlineStatus, receivedStatus)
 				}
 			} else if tc.reqType == proxy.LOGIN {
-				if !samePk(disconPacket, answer.DisconMessage) {
+				if !samePk(disconPacket, answer.FirstPacket()) {
 					expected, _ := mc.UnmarshalClientDisconnect(disconPacket)
-					received, _ := mc.UnmarshalClientDisconnect(answer.DisconMessage)
+					received, _ := mc.UnmarshalClientDisconnect(answer.FirstPacket())
 					t.Errorf("expected: %v \ngot: %v", expected, received)
 				}
 			}
@@ -326,12 +326,12 @@ func testKnownAddr_OnlineServer(t *testing.T, newWorker createWorker) {
 			createListener(t, targetAddr)
 			reqCh := newWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action != tc.onlineAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
+			if answer.Action() != tc.onlineAction {
+				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
 			}
-			serverConn, _ := answer.ServerConnFunc()
+			serverConn, _ := answer.ServerConn()
 			testCloseConnection(t, serverConn)
-			if answer.ProxyCh == nil {
+			if answer.ProxyCh() == nil {
 				t.Error("No proxy channel provided")
 			}
 		})
@@ -357,7 +357,7 @@ func testProxyBind(t *testing.T, newWorker createWorker) {
 			go func() {
 				reqCh := newWorker(t, serverCfg)
 				answer := sendRequest_TestTimeout(t, reqCh, req)
-				answer.ServerConnFunc() // Calling it instead of the player's goroutine
+				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
 
 			connCh, errorCh := createListener(t, targetAddr)
@@ -421,7 +421,7 @@ func testProxyProtocol(t *testing.T, newWorker createWorker) {
 			go func() {
 				reqCh := newWorker(t, serverCfg)
 				answer := sendRequest_TestTimeout(t, reqCh, req)
-				answer.ServerConnFunc() // Calling it instead of the player's goroutine
+				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
 
 			<-connCh // State check call (no proxy protocol in here)
@@ -463,8 +463,8 @@ func testProxy_ManyRequestsWillRateLimit(t *testing.T, newWorker createWorker) {
 				sendRequest_IgnoreResult(reqCh, req)
 			}
 			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action != tc.rateLimitAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.rateLimitAction, answer.Action)
+			if answer.Action() != tc.rateLimitAction {
+				t.Fatalf("expected: %v \ngot: %v", tc.rateLimitAction, answer.Action())
 			}
 		})
 	}
@@ -495,8 +495,8 @@ func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, newWorker creat
 			time.Sleep(longerChTimeout)
 
 			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action != tc.onlineAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action)
+			if answer.Action() != tc.onlineAction {
+				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
 			}
 		})
 	}
@@ -593,8 +593,8 @@ func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker crea
 	select {
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
-		if answer.Action != proxy.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
+		if answer.Action() != proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
@@ -655,8 +655,8 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 	select {
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
-		if answer.Action != proxy.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action)
+		if answer.Action() != proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")

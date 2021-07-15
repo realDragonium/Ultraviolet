@@ -63,13 +63,79 @@ type McRequest struct {
 	Ch         chan McAnswer
 }
 
-type McAnswer struct {
+func NewMcAnswerProxy(proxyCh chan ProxyAction, serverConnFunc func() (net.Conn, error)) McAnswerBasic {
+	return McAnswerBasic{
+		action:         PROXY,
+		proxyCh:        proxyCh,
+		ServerConnFunc: serverConnFunc,
+	}
+}
+
+func NewMcAnswerRealIPProxy(proxyCh chan ProxyAction, serverConnFunc func() (net.Conn, error)) McAnswerBasic {
+	return McAnswerBasic{
+		action:         PROXY,
+		proxyCh:        proxyCh,
+		ServerConnFunc: serverConnFunc,
+		upgradeRealIp:  true,
+	}
+}
+
+func NewMcAnswerClose() McAnswer {
+	return McAnswerBasic{
+		action: CLOSE,
+	}
+}
+
+func NewMcAnswerDisonncet(pk1 mc.Packet) McAnswer {
+	return McAnswerBasic{
+		action:      DISCONNECT,
+		firstPacket: pk1,
+	}
+}
+func NewMcAnswerStatus(pk1 mc.Packet, latency time.Duration) McAnswer {
+	return McAnswerBasic{
+		action:      SEND_STATUS,
+		firstPacket: pk1,
+		latency:     latency,
+	}
+}
+
+type McAnswer interface {
+	FirstPacket() mc.Packet
+	ServerConn() (net.Conn, error)
+	ProxyCh() chan ProxyAction
+	Latency() time.Duration
+	Action() McAction
+	UpdateToRealIp() bool
+}
+
+type McAnswerBasic struct {
 	ServerConnFunc func() (net.Conn, error)
-	DisconMessage  mc.Packet
-	Action         McAction
-	StatusPk       mc.Packet
-	ProxyCh        chan ProxyAction
-	Latency        time.Duration
+	action         McAction
+	proxyCh        chan ProxyAction
+	latency        time.Duration
+	upgradeRealIp  bool
+
+	firstPacket mc.Packet
+}
+
+func (ans McAnswerBasic) ServerConn() (net.Conn, error) {
+	return ans.ServerConnFunc()
+}
+func (ans McAnswerBasic) FirstPacket() mc.Packet {
+	return ans.firstPacket
+}
+func (ans McAnswerBasic) ProxyCh() chan ProxyAction {
+	return ans.proxyCh
+}
+func (ans McAnswerBasic) Latency() time.Duration {
+	return ans.latency
+}
+func (ans McAnswerBasic) Action() McAction {
+	return ans.action
+}
+func (ans McAnswerBasic) UpdateToRealIp() bool {
+	return ans.upgradeRealIp
 }
 
 func ServeListener(listener net.Listener, reqCh chan McRequest) {
@@ -106,7 +172,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		c.Close()
 		return
 	}
-
+	serverAddr := string(handshake.ServerAddress)
 	isLoginReq := false
 	requestType := STATUS
 	if handshake.NextState == mc.HandshakeLoginState {
@@ -114,16 +180,21 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		requestType = LOGIN
 	}
 
+	//Write tests for this
+	if handshake.IsForgeAddress() || handshake.IsRealIPAddress() {
+		serverAddr = handshake.ParseServerAddress()
+	}
+
 	ansCh := make(chan McAnswer)
 	req := McRequest{
 		Type:       requestType,
 		Ch:         ansCh,
 		Addr:       c.RemoteAddr(),
-		ServerAddr: string(handshake.ServerAddress),
+		ServerAddr: serverAddr,
 	}
+
 	var loginPacket mc.Packet
 	if isLoginReq {
-		// Add better error handling?
 		loginPacket, err = conn.ReadPacket()
 		if err != nil {
 			log.Printf("Error while reading login start packet: %v", err)
@@ -134,54 +205,47 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		}
 		req.Username = string(loginStart.Name)
 	}
+
 	reqCh <- req
 	ans := <-ansCh
 
-	switch ans.Action {
+	switch ans.Action() {
 	case PROXY:
-		sConn, err := ans.ServerConnFunc()
+		sConn, err := ans.ServerConn()
 		if err != nil {
 			log.Printf("Err when creating server connection: %v", err)
 			c.Close()
 			return
 		}
 		serverConn := NewMcConn(sConn)
+		if ans.UpdateToRealIp() {
+			handshake.UpgradeToRealIP(c.RemoteAddr().String())
+			handshakePacket = handshake.Marshal()
+		}
 		serverConn.WritePacket(handshakePacket)
 		switch requestType {
 		case LOGIN:
-			err = serverConn.WritePacket(loginPacket)
-			if err != nil {
-				log.Printf("Error in client goroutine: %v", err)
-				c.Close()
-				sConn.Close()
-				return
-			}
+			serverConn.WritePacket(loginPacket)
 			go func(client, server net.Conn, proxyCh chan ProxyAction) {
 				ProxyLogin(client, server, proxyCh)
-			}(c, sConn, ans.ProxyCh)
+			}(c, sConn, ans.ProxyCh())
 		case STATUS:
 			// For some unknown reason if we dont send this here
 			//  its goes wrong with proxying status requests
-			err = serverConn.WritePacket(mc.Packet{ID: 0x00})
-			if err != nil {
-				log.Printf("Error in client goroutine: %v", err)
-				c.Close()
-				sConn.Close()
-				return
-			}
+			serverConn.WritePacket(mc.Packet{ID: 0x00})
 			go func(client, server net.Conn, proxyCh chan ProxyAction) {
 				ProxyStatus(client, server, proxyCh)
-			}(c, sConn, ans.ProxyCh)
+			}(c, sConn, ans.ProxyCh())
 		}
 	case DISCONNECT:
-		conn.WritePacket(ans.DisconMessage)
+		conn.WritePacket(ans.FirstPacket())
 		c.Close()
 	case SEND_STATUS:
 		conn.ReadPacket()
-		conn.WritePacket(ans.StatusPk)
+		conn.WritePacket(ans.FirstPacket())
 		pingPk, _ := conn.ReadPacket()
-		if ans.Latency != 0 {
-			time.Sleep(ans.Latency)
+		if ans.Latency() != 0 {
+			time.Sleep(ans.Latency())
 		}
 		conn.WritePacket(pingPk)
 		c.Close()
