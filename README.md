@@ -12,7 +12,7 @@ go build -tags netgo
 
 ### Features
 [x] HAProxy protocol(v2) support (sending only)  
-[x] RealIP (v2.4&v2.5)
+[x] RealIP (v2.4&v2.5)  
 [x] Can restart without shutting down open connections (check [Tableflip](#tableflip))  
 [x] Rate limiting  
 [x] Status caching (online status only)  
