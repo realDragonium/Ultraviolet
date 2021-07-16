@@ -95,7 +95,12 @@ func FileToWorkerConfig(cfg ServerConfig) WorkerServerConfig {
 		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
 		if errors.Is(err, os.ErrNotExist) {
 			//Check or there is already one generate or save the generated path
-			privateKey = generateKeys(cfg)
+			// TODO: IMPROVE THIS
+			if key, ok := existingGeneratedKeys(cfg); ok {
+				privateKey = key
+			} else {
+				privateKey = generateKeys(cfg)
+			}
 		} else if err != nil {
 			log.Printf("error during reading of private key: %v", err)
 		}
@@ -131,12 +136,29 @@ func FileToWorkerConfig(cfg ServerConfig) WorkerServerConfig {
 		OfflineStatus:       offlineStatusPk,
 		DisconnectPacket:    disconPk,
 		RateLimit:           cfg.RateLimit,
+		RateLimitStatus:     cfg.RateLimitStatus,
 		RateLimitDuration:   duration,
 		StateUpdateCooldown: cooldown,
 		OldRealIp:           cfg.OldRealIP,
 		NewRealIP:           cfg.NewRealIP,
 		RealIPKey:           privateKey,
 	}
+}
+
+func existingGeneratedKeys(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
+	dir := filepath.Dir(cfg.FilePath)
+	privkeyFileName := filepath.Join(dir, fmt.Sprintf("%s-%s", cfg.Domains[0], "private.key"))
+	if _, err := os.Stat(privkeyFileName); err != nil {
+		if os.IsNotExist(err) {
+			return nil, false
+		}
+	}
+	privateKey, err := ReadPrivateKey(privkeyFileName)
+	if err != nil {
+		log.Printf("error during reading key: %v", err)
+		return nil, false
+	}
+	return privateKey, true
 }
 
 func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {

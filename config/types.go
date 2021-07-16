@@ -28,6 +28,7 @@ type ServerConfig struct {
 	OfflineStatus       mc.SimpleStatus `json:"offlineStatus"`
 
 	RateLimit           int    `json:"rateLimit"`
+	RateLimitStatus     bool   `json:"rateLimitStatus"`
 	RateDuration        string `json:"rateCooldown"`
 	StateUpdateCooldown string `json:"stateUpdateCooldown"`
 }
@@ -55,5 +56,6 @@ type WorkerServerConfig struct {
 	DialTimeout         time.Duration
 	SendProxyProtocol   bool
 	RateLimit           int
+	RateLimitStatus     bool
 	RateLimitDuration   time.Duration
 }

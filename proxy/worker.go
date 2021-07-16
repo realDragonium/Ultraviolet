@@ -122,6 +122,7 @@ func NewPrivateWorker(serverId int, cfg config.WorkerServerConfig) PrivateWorker
 	return PrivateWorker{
 		proxyCh:           make(chan ProxyAction),
 		rateLimit:         cfg.RateLimit,
+		rateLimitStatus:   cfg.RateLimitStatus,
 		rateCooldown:      cfg.RateLimitDuration,
 		stateCooldown:     cfg.StateUpdateCooldown,
 		statusCache:       cfg.CacheStatus,
@@ -143,10 +144,11 @@ type PrivateWorker struct {
 	gatewayCh   chan gatewayRequest
 	reqCh       chan McRequest
 
-	rateCounter   int
-	rateStartTime time.Time
-	rateLimit     int
-	rateCooldown  time.Duration
+	rateCounter     int
+	rateStartTime   time.Time
+	rateLimit       int
+	rateLimitStatus bool
+	rateCooldown    time.Duration
 
 	state         ServerState
 	stateCooldown time.Duration
@@ -210,7 +212,7 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 		return NewMcAnswerStatus(worker.cachedStatus, worker.statusLatency)
 	}
 	var connFunc func() (net.Conn, error)
-	if worker.rateLimit == 0 {
+	if worker.rateLimit == 0 || (!worker.rateLimitStatus && request.Type == STATUS) {
 		connFunc = worker.serverConnFactory(request.Addr)
 	} else {
 		if time.Since(worker.rateStartTime) >= worker.rateCooldown {

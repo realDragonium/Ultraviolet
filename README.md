@@ -12,12 +12,12 @@ go build -tags netgo
 
 ### Features
 [x] HAProxy protocol(v2) support (sending only)  
+[x] RealIP (v2.4&v2.5)
 [x] Can restart without shutting down open connections (check [Tableflip](#tableflip))  
 [x] Rate limiting  
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
-[ ] Anti bot   
-... More coming later
+... More coming later?
 
 
 ### Im not gonna fool proof this
@@ -65,12 +65,16 @@ time config values are based on go's duration formatting, valid time units are "
 |:---:|:---:|:---|
 |domains|-|Place in here all urls which should be used by clients to target the backend.|
 |proxyTo|-|It will call this ip/url when its creating a connection to the server.|
-|proxyBind|-|The ip it should be using while connection to the server. If it cant use the given value it will fail and the connection wont be created.|
+|proxyBind|-|The ip it should be using while connection to the backend. If it cant use the given value it will fail and the connection wont be created.|
 |dialTimeout|1s|Timeout is the maximum amount of time a dial will wait for a connect to complete.|
+|useRealIPv2.4|false|RealIP will only be used when players want to login. If both are turned on, it will use v2.4.|
+|useRealIPv2.5|false|RealIP will only be used when players want to login. If both are turned on, it will use v2.4. If there isnt a key in the path, it will generate a key for you, the file of the key will begin with the first domain of this backend config.|
+|realIPKeyPath|-|The path of the private key which will be used to encrypt the signature. Its not checking for file permissions or anything like that.|
 |sendProxyProtocol|false|Whether or not it should send a ProxyProtocolv2 header to the target.|
 |disconnectMessage|-|The message a user will get when its tries to connect to a offline server|
 |offlineStatus|[this](#status-config-value)|The status it will send the player when the server is offline.|
-|rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.  |
+|rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.|
+|rateLimitStatus|false|Turning this on will result into status requests also counting towards created connections to the backend.| 
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
 |cacheStatus|false|Turn on or off whether it should cache the online cache of the server. If the server is recognized as `OFFLINE` it will send the offline status to the player.|

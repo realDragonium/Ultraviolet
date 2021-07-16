@@ -222,6 +222,9 @@ func runAllWorkerTests(t *testing.T, newWorker createWorker) {
 	t.Run("rate limit - allow new connections after ratelimit cooldown", func(t *testing.T) {
 		testProxy_WillAllowNewConn_AfterDurationEnded(t, newWorker)
 	})
+	t.Run("rate limit - too many requests will trigger it", func(t *testing.T) {
+		testProxy_ManyRequestsWillNotRateLimitStatus(t, newWorker)
+	})
 	t.Run("server state - doesnt call backend again before cooldown is over", func(t *testing.T) {
 		testServerState_DoesntCallBeforeCooldownIsOver(t, newWorker)
 	})
@@ -480,10 +483,11 @@ func testProxy_ManyRequestsWillRateLimit(t *testing.T, newWorker createWorker) {
 			rateLimit := 3
 			rateLimitDuration := time.Minute
 			serverCfg := config.ServerConfig{
-				Domains:      []string{serverAddr},
-				ProxyTo:      targetAddr,
-				RateLimit:    rateLimit,
-				RateDuration: rateLimitDuration.String(),
+				Domains:         []string{serverAddr},
+				ProxyTo:         targetAddr,
+				RateLimit:       rateLimit,
+				RateLimitStatus: true,
+				RateDuration:    rateLimitDuration.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
@@ -510,10 +514,11 @@ func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, newWorker creat
 			rateLimit := 1
 			rateLimitDuration := defaultChTimeout
 			serverCfg := config.ServerConfig{
-				Domains:      []string{serverAddr},
-				ProxyTo:      targetAddr,
-				RateLimit:    rateLimit,
-				RateDuration: rateLimitDuration.String(),
+				Domains:         []string{serverAddr},
+				ProxyTo:         targetAddr,
+				RateLimit:       rateLimit,
+				RateLimitStatus: true,
+				RateDuration:    rateLimitDuration.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
 			req := proxy.McRequest{
@@ -531,6 +536,33 @@ func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, newWorker creat
 				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
 			}
 		})
+	}
+}
+
+func testProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T, newWorker createWorker) {
+	serverAddr := "ultraviolet"
+	targetAddr := testAddr()
+	rateLimit := 3
+	rateLimitDuration := time.Minute
+	serverCfg := config.ServerConfig{
+		Domains:         []string{serverAddr},
+		ProxyTo:         targetAddr,
+		RateLimit:       rateLimit,
+		RateLimitStatus: false,
+		RateDuration:    rateLimitDuration.String(),
+	}
+	reqCh := newWorker(t, serverCfg)
+	req := proxy.McRequest{
+		Type:       proxy.STATUS,
+		ServerAddr: serverAddr,
+	}
+	acceptAllConnsListener(t, targetAddr)
+	for i := 0; i < rateLimit; i++ {
+		sendRequest_IgnoreResult(reqCh, req)
+	}
+	answer := sendRequest_TestTimeout(t, reqCh, req)
+	if answer.Action() != proxy.PROXY {
+		t.Fatalf("expected: %v \ngot: %v", proxy.PROXY, answer.Action())
 	}
 }
 
