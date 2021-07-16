@@ -11,6 +11,8 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
+type RealIPUpgrade func(hs *mc.ServerBoundHandshake) bool
+
 type McAction byte
 type McRequestType byte
 
@@ -68,15 +70,18 @@ func NewMcAnswerProxy(proxyCh chan ProxyAction, serverConnFunc func() (net.Conn,
 		action:         PROXY,
 		proxyCh:        proxyCh,
 		ServerConnFunc: serverConnFunc,
+		upgradeRealIp: func(hs *mc.ServerBoundHandshake) bool {
+			return false
+		},
 	}
 }
 
-func NewMcAnswerRealIPProxy(proxyCh chan ProxyAction, serverConnFunc func() (net.Conn, error)) McAnswerBasic {
+func NewMcAnswerRealIPProxy(proxyCh chan ProxyAction, serverConnFunc func() (net.Conn, error), upgrade func(hs *mc.ServerBoundHandshake) bool) McAnswerBasic {
 	return McAnswerBasic{
 		action:         PROXY,
 		proxyCh:        proxyCh,
 		ServerConnFunc: serverConnFunc,
-		upgradeRealIp:  true,
+		upgradeRealIp:  upgrade,
 	}
 }
 
@@ -106,7 +111,7 @@ type McAnswer interface {
 	ProxyCh() chan ProxyAction
 	Latency() time.Duration
 	Action() McAction
-	UpdateToRealIp() bool
+	UpgradeToRealIp(hs *mc.ServerBoundHandshake) bool
 }
 
 type McAnswerBasic struct {
@@ -114,7 +119,7 @@ type McAnswerBasic struct {
 	action         McAction
 	proxyCh        chan ProxyAction
 	latency        time.Duration
-	upgradeRealIp  bool
+	upgradeRealIp  RealIPUpgrade
 
 	firstPacket mc.Packet
 }
@@ -134,8 +139,8 @@ func (ans McAnswerBasic) Latency() time.Duration {
 func (ans McAnswerBasic) Action() McAction {
 	return ans.action
 }
-func (ans McAnswerBasic) UpdateToRealIp() bool {
-	return ans.upgradeRealIp
+func (ans McAnswerBasic) UpgradeToRealIp(hs *mc.ServerBoundHandshake) bool {
+	return ans.upgradeRealIp(hs)
 }
 
 func ServeListener(listener net.Listener, reqCh chan McRequest) {
@@ -168,14 +173,14 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 		return
 	}
 
-	if handshake.NextState != mc.HandshakeLoginState && handshake.NextState != mc.HandshakeStatusState {
+	if handshake.IsLoginRequest() && handshake.IsStatusRequest() {
 		c.Close()
 		return
 	}
 	serverAddr := string(handshake.ServerAddress)
 	isLoginReq := false
 	requestType := STATUS
-	if handshake.NextState == mc.HandshakeLoginState {
+	if handshake.IsLoginRequest() {
 		isLoginReq = true
 		requestType = LOGIN
 	}
@@ -218,8 +223,7 @@ func ReadConnection(c net.Conn, reqCh chan McRequest) {
 			return
 		}
 		serverConn := NewMcConn(sConn)
-		if ans.UpdateToRealIp() {
-			handshake.UpgradeToRealIP(c.RemoteAddr().String())
+		if ans.UpgradeToRealIp(&handshake) {
 			handshakePacket = handshake.Marshal()
 		}
 		serverConn.WritePacket(handshakePacket)

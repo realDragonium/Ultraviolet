@@ -11,8 +11,9 @@ import (
 
 func TestPacket_Marshal(t *testing.T) {
 	tt := []struct {
-		packet   mc.Packet
-		expected []byte
+		packet      mc.Packet
+		expected    []byte
+		expectError error
 	}{
 		{
 			packet: mc.Packet{
@@ -28,6 +29,13 @@ func TestPacket_Marshal(t *testing.T) {
 			},
 			expected: []byte{0x05, 0x0f, 0x00, 0xf2, 0x03, 0x50},
 		},
+		// {
+		// 	packet: mc.Packet{
+		// 		ID:   0x0f,
+		// 		Data: make([]byte, 0xffffff),
+		// 	},
+		// 	expectError: mc.ErrVarIntSize,
+		// },
 	}
 
 	for _, tc := range tt {

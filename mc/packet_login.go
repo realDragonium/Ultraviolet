@@ -1,33 +1,45 @@
 package mc
 
 import (
+	"crypto/ecdsa"
+	"crypto/rand"
+	"crypto/sha512"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 )
 
-type ServerBoundHandshake struct {
+type McTypesHandshake struct {
 	ProtocolVersion VarInt
 	ServerAddress   String
 	ServerPort      UnsignedShort
 	NextState       VarInt
 }
 
+type ServerBoundHandshake struct {
+	ProtocolVersion int
+	ServerAddress   string
+	ServerPort      int16
+	NextState       int
+}
+
 func (pk ServerBoundHandshake) Marshal() Packet {
 	return MarshalPacket(
 		ServerBoundHandshakePacketID,
-		pk.ProtocolVersion,
-		pk.ServerAddress,
-		pk.ServerPort,
-		pk.NextState,
+		VarInt(pk.ProtocolVersion),
+		String(pk.ServerAddress),
+		UnsignedShort(pk.ServerPort),
+		VarInt(pk.NextState),
 	)
 }
 
 func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) {
-	var pk ServerBoundHandshake
+	var pk McTypesHandshake
+	var hs ServerBoundHandshake
 
 	if packet.ID != ServerBoundHandshakePacketID {
-		return pk, ErrInvalidPacketID
+		return hs, ErrInvalidPacketID
 	}
 
 	if err := packet.Scan(
@@ -36,18 +48,23 @@ func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) 
 		&pk.ServerPort,
 		&pk.NextState,
 	); err != nil {
-		return pk, err
+		return hs, err
 	}
-
-	return pk, nil
+	hs = ServerBoundHandshake{
+		ProtocolVersion: int(pk.ProtocolVersion),
+		ServerAddress:   string(pk.ServerAddress),
+		ServerPort:      int16(pk.ServerPort),
+		NextState:       int(pk.NextState),
+	}
+	return hs, nil
 }
 
 func (pk ServerBoundHandshake) IsStatusRequest() bool {
-	return pk.NextState == HandshakeStatusState
+	return VarInt(pk.NextState) == HandshakeStatusState
 }
 
 func (pk ServerBoundHandshake) IsLoginRequest() bool {
-	return pk.NextState == HandshakeLoginState
+	return VarInt(pk.NextState) == HandshakeLoginState
 }
 
 func (pk ServerBoundHandshake) IsForgeAddress() bool {
@@ -67,21 +84,39 @@ func (pk ServerBoundHandshake) ParseServerAddress() string {
 	return addr
 }
 
-func (pk *ServerBoundHandshake) UpgradeToRealIP(clientAddr string) {
-	if pk.IsRealIPAddress() {
+func (hs *ServerBoundHandshake) UpgradeToOldRealIP(clientAddr string) {
+	hs.UpgradeToOldRealIP_WithTime(clientAddr, time.Now())
+}
+
+func (hs *ServerBoundHandshake) UpgradeToOldRealIP_WithTime(clientAddr string, stamp time.Time) {
+	if hs.IsRealIPAddress() {
 		return
 	}
 
-	addr := string(pk.ServerAddress)
+	addr := string(hs.ServerAddress)
 	addrWithForge := strings.SplitN(addr, ForgeSeparator, 3)
 
-	addr = fmt.Sprintf("%s///%s///%d", addrWithForge[0], clientAddr, time.Now().Unix())
+	addr = fmt.Sprintf("%s///%s///%d", addrWithForge[0], clientAddr, stamp.Unix())
 
 	if len(addrWithForge) > 1 {
 		addr = fmt.Sprintf("%s\x00%s\x00", addr, addrWithForge[1])
 	}
 
-	pk.ServerAddress = String(addr)
+	hs.ServerAddress = addr
+}
+
+func (hs *ServerBoundHandshake) UpgradeToNewRealIP(clientAddr string, key *ecdsa.PrivateKey) error {
+	hs.UpgradeToOldRealIP(clientAddr)
+	text := hs.ServerAddress
+	hash := sha512.Sum512([]byte(text))
+	bytes, err := ecdsa.SignASN1(rand.Reader, key, hash[:])
+	if err != nil {
+		return err
+	}
+	encoded := base64.StdEncoding.EncodeToString(bytes)
+	addr := fmt.Sprintf("%s///%s", hs.ServerAddress, encoded)
+	hs.ServerAddress = addr
+	return nil
 }
 
 const ServerBoundLoginStartPacketID byte = 0x00

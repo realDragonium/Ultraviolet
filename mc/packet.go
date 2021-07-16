@@ -9,14 +9,18 @@ import (
 
 var (
 	ErrInvalidPacketID = errors.New("invalid packet id")
+	ErrPacketTooBig    = errors.New("packet contains too much data")
 	MaxPacketSize      = 2097151
 )
 
 const (
 	ServerBoundHandshakePacketID byte = 0x00
 
-	HandshakeStatusState = VarInt(1)
-	HandshakeLoginState  = VarInt(2)
+	StatusState = 1
+	LoginState  = 2
+
+	HandshakeStatusState = VarInt(StatusState)
+	HandshakeLoginState  = VarInt(LoginState)
 
 	ForgeSeparator  = "\x00"
 	RealIPSeparator = "///"
@@ -38,8 +42,8 @@ func (pk *Packet) Marshal() ([]byte, error) {
 	var packedData []byte
 	data := []byte{pk.ID}
 	data = append(data, pk.Data...)
-
-	packedData = append(packedData, VarInt(int32(len(data))).Encode()...)
+	packetLength := VarInt(int32(len(data))).Encode()
+	packedData = append(packedData, packetLength...)
 
 	return append(packedData, data...), nil
 }
@@ -117,56 +121,5 @@ func ReadPacket(r DecodeReader) (Packet, error) {
 	return Packet{
 		ID:   data[0],
 		Data: data[1:],
-	}, nil
-}
-
-func ReadHandshake(r DecodeReader) (ServerBoundHandshake, error) {
-	_, err := ReadVarInt(r) // packet Length
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	_, err = ReadVarInt(r) // packet id
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	protocolVersion, err := ReadVarInt(r)
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	serverAddr, err := ReadString(r)
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	port, err := ReadUnsignedShort(r)
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	state, err := ReadVarInt(r)
-	if err != nil {
-		return ServerBoundHandshake{}, err
-	}
-	return ServerBoundHandshake{
-		ProtocolVersion: protocolVersion,
-		ServerAddress:   serverAddr,
-		ServerPort:      port,
-		NextState:       state,
-	}, nil
-}
-
-func ReadLoginStart(r DecodeReader) (ServerLoginStart, error) {
-	_, err := ReadVarInt(r) // packet Length
-	if err != nil {
-		return ServerLoginStart{}, err
-	}
-	_, err = ReadVarInt(r) // packet id
-	if err != nil {
-		return ServerLoginStart{}, err
-	}
-	mcName, err := ReadString(r)
-	if err != nil {
-		return ServerLoginStart{}, err
-	}
-	return ServerLoginStart{
-		Name: mcName,
 	}, nil
 }

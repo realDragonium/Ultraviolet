@@ -1,18 +1,23 @@
 package config
 
 import (
+	"crypto/ecdsa"
 	"io"
+	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 type ServerConfig struct {
-	Domains []string `json:"domains"`
+	FilePath string
+	Domains  []string `json:"domains"`
 
 	ProxyTo           string `json:"proxyTo"`
 	ProxyBind         string `json:"proxyBind"`
 	DialTimeout       string `json:"dialTimeout"`
-	UseOldRealIp      bool   `json:"useRealIpv2.4"`
+	OldRealIP         bool   `json:"useRealIPv2.4"`
+	NewRealIP         bool   `json:"useRealIPv2.5"`
+	RealIPKey         string `json:"realIPKeyPath"`
 	SendProxyProtocol bool   `json:"sendProxyProtocol"`
 
 	DisconnectMessage string `json:"disconnectMessage"`
@@ -33,4 +38,22 @@ type UltravioletConfig struct {
 	NumberOfWorkers int             `json:"numberOfWorkers"`
 
 	LogOutput io.Writer
+}
+
+type WorkerServerConfig struct {
+	StateUpdateCooldown time.Duration
+	OldRealIp           bool
+	NewRealIP           bool
+	RealIPKey           *ecdsa.PrivateKey
+	CacheStatus         bool
+	CacheUpdateCooldown time.Duration
+	ValidProtocol       int
+	OfflineStatus       mc.Packet
+	DisconnectPacket    mc.Packet
+	ProxyTo             string
+	ProxyBind           string
+	DialTimeout         time.Duration
+	SendProxyProtocol   bool
+	RateLimit           int
+	RateLimitDuration   time.Duration
 }

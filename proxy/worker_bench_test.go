@@ -50,7 +50,7 @@ func basicBenchUVConfig(b *testing.B, w int) config.UltravioletConfig {
 	}
 }
 
-var serverWorkerCfg = proxy.WorkerServerConfig{
+var serverWorkerCfg = config.WorkerServerConfig{
 	StateUpdateCooldown: time.Second * 10,
 	OfflineStatus: mc.SimpleStatus{
 		Name:        "Ultraviolet",

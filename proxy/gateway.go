@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 type ProxyAction int8
@@ -74,7 +73,7 @@ func (gw *Gateway) StartWorkers(cfg config.UltravioletConfig, serverCfgs []confi
 	servers := make(map[int]ServerWorkerData)
 	serverDict := make(map[string]int)
 	for id, serverCfg := range serverCfgs {
-		workerServerCfg := FileToWorkerConfig(serverCfg)
+		workerServerCfg := config.FileToWorkerConfig(serverCfg)
 		privateWorker := NewPrivateWorker(id, workerServerCfg)
 		gw.registerPrivateWorker(id, &privateWorker)
 
@@ -107,42 +106,4 @@ func (gw *Gateway) registerPrivateWorker(id int, worker *PrivateWorker) {
 	gatewayCh := make(chan gatewayRequest)
 	gw.serverWorkers[id] = gatewayCh
 	worker.gatewayCh = gatewayCh
-}
-
-func FileToWorkerConfig(cfg config.ServerConfig) WorkerServerConfig {
-	disconPk := mc.ClientBoundDisconnect{
-		Reason: mc.Chat(cfg.DisconnectMessage),
-	}.Marshal()
-	offlineStatusPk := cfg.OfflineStatus.Marshal()
-	duration, _ := time.ParseDuration(cfg.RateDuration)
-	if duration == 0 {
-		duration = time.Second
-	}
-	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
-	if cooldown == 0 {
-		cooldown = time.Second
-	}
-	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
-	if dialTimeout == 0 {
-		dialTimeout = time.Second
-	}
-	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
-	if cacheCooldown == 0 {
-		cacheCooldown = time.Second
-	}
-	return WorkerServerConfig{
-		ProxyTo:             cfg.ProxyTo,
-		ProxyBind:           cfg.ProxyBind,
-		DialTimeout:         dialTimeout,
-		SendProxyProtocol:   cfg.SendProxyProtocol,
-		CacheStatus:         cfg.CacheStatus,
-		ValidProtocol:       cfg.ValidProtocol,
-		CacheUpdateCooldown: cacheCooldown,
-		OfflineStatus:       offlineStatusPk,
-		DisconnectPacket:    disconPk,
-		RateLimit:           cfg.RateLimit,
-		RateLimitDuration:   duration,
-		StateUpdateCooldown: cooldown,
-		UseOldRealIp:        cfg.UseOldRealIp,
-	}
 }

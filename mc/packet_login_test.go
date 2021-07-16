@@ -2,6 +2,10 @@ package mc_test
 
 import (
 	"bytes"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"encoding/base64"
 	"net"
 	"strconv"
 	"strings"
@@ -21,7 +25,7 @@ func TestServerBoundHandshake_Marshal(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "spook.space",
 				ServerPort:      25565,
-				NextState:       mc.HandshakeStatusState,
+				NextState:       mc.StatusState,
 			},
 			marshaledPacket: mc.Packet{
 				ID:   0x00,
@@ -33,7 +37,7 @@ func TestServerBoundHandshake_Marshal(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "example.com",
 				ServerPort:      1337,
-				NextState:       mc.HandshakeStatusState,
+				NextState:       mc.StatusState,
 			},
 			marshaledPacket: mc.Packet{
 				ID:   0x00,
@@ -70,7 +74,7 @@ func TestUnmarshalServerBoundHandshake(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "spook.space",
 				ServerPort:      25565,
-				NextState:       mc.HandshakeStatusState,
+				NextState:       mc.StatusState,
 			},
 		},
 		{
@@ -83,7 +87,7 @@ func TestUnmarshalServerBoundHandshake(t *testing.T) {
 				ProtocolVersion: 578,
 				ServerAddress:   "example.com",
 				ServerPort:      1337,
-				NextState:       mc.HandshakeStatusState,
+				NextState:       mc.StatusState,
 			},
 		},
 	}
@@ -112,13 +116,13 @@ func TestServerBoundHandshake_IsStatusRequest(t *testing.T) {
 	}{
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.HandshakeStatusState,
+				NextState: mc.StatusState,
 			},
 			result: true,
 		},
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.HandshakeLoginState,
+				NextState: mc.LoginState,
 			},
 			result: false,
 		},
@@ -138,13 +142,13 @@ func TestServerBoundHandshake_IsLoginRequest(t *testing.T) {
 	}{
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.HandshakeStatusState,
+				NextState: mc.StatusState,
 			},
 			result: false,
 		},
 		{
 			handshake: mc.ServerBoundHandshake{
-				NextState: mc.HandshakeLoginState,
+				NextState: mc.LoginState,
 			},
 			result: true,
 		},
@@ -189,7 +193,7 @@ func TestServerBoundHandshake_IsForgeAddress(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		hs := mc.ServerBoundHandshake{ServerAddress: mc.String(tc.addr)}
+		hs := mc.ServerBoundHandshake{ServerAddress: tc.addr}
 		if hs.IsForgeAddress() != tc.result {
 			t.Errorf("%s: got: %v; want: %v", tc.addr, !tc.result, tc.result)
 		}
@@ -228,7 +232,7 @@ func TestServerBoundHandshake_IsRealIPAddress(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		hs := mc.ServerBoundHandshake{ServerAddress: mc.String(tc.addr)}
+		hs := mc.ServerBoundHandshake{ServerAddress: tc.addr}
 		if hs.IsRealIPAddress() != tc.result {
 			t.Errorf("%s: got: %v; want: %v", tc.addr, !tc.result, tc.result)
 		}
@@ -275,14 +279,14 @@ func TestServerBoundHandshake_ParseServerAddress(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		hs := mc.ServerBoundHandshake{ServerAddress: mc.String(tc.addr)}
+		hs := mc.ServerBoundHandshake{ServerAddress: tc.addr}
 		if hs.ParseServerAddress() != tc.expectedAddr {
 			t.Errorf("got: %v; want: %v", hs.ParseServerAddress(), tc.expectedAddr)
 		}
 	}
 }
 
-func TestServerBoundHandshake_UpgradeToRealIP(t *testing.T) {
+func TestServerBoundHandshake_UpgradeToOldRealIP(t *testing.T) {
 	tt := []struct {
 		addr       string
 		clientAddr net.TCPAddr
@@ -323,8 +327,8 @@ func TestServerBoundHandshake_UpgradeToRealIP(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		hs := mc.ServerBoundHandshake{ServerAddress: mc.String(tc.addr)}
-		hs.UpgradeToRealIP(tc.clientAddr.String())
+		hs := mc.ServerBoundHandshake{ServerAddress: tc.addr}
+		hs.UpgradeToOldRealIP(tc.clientAddr.String())
 
 		if hs.ParseServerAddress() != tc.addr {
 			t.Errorf("got: %v; want: %v", hs.ParseServerAddress(), tc.addr)
@@ -344,6 +348,96 @@ func TestServerBoundHandshake_UpgradeToRealIP(t *testing.T) {
 		if unixTimestamp != tc.timestamp.Unix() {
 			t.Errorf("timestamp is invalid: got: %d; want: %d", unixTimestamp, tc.timestamp.Unix())
 		}
+	}
+}
+
+// Add something to make sure it uses SHA512 
+func TestServerBoundHandshake_UpgradeToNewRealIP(t *testing.T) {
+	tt := []struct {
+		addr       string
+		clientAddr net.TCPAddr
+		timestamp  time.Time
+	}{
+		{
+			addr: "example.com",
+			clientAddr: net.TCPAddr{
+				IP:   net.IPv4(127, 0, 0, 1),
+				Port: 12345,
+			},
+			timestamp: time.Now(),
+		},
+		{
+			addr: "sub.example.com:25565",
+			clientAddr: net.TCPAddr{
+				IP:   net.IPv4(127, 0, 1, 1),
+				Port: 25565,
+			},
+			timestamp: time.Now(),
+		},
+		{
+			addr: "example.com:25565",
+			clientAddr: net.TCPAddr{
+				IP:   net.IPv4(127, 0, 2, 1),
+				Port: 6543,
+			},
+			timestamp: time.Now(),
+		},
+		{
+			addr: "example.com",
+			clientAddr: net.TCPAddr{
+				IP:   net.IPv4(127, 0, 3, 1),
+				Port: 7467,
+			},
+			timestamp: time.Now(),
+		},
+	}
+
+	for _, tc := range tt {
+		privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
+		pubkey := privKey.PublicKey
+
+		hs := mc.ServerBoundHandshake{ServerAddress: tc.addr}
+		hs.UpgradeToOldRealIP(tc.clientAddr.String())
+		realIPWithoutSigning := hs.ServerAddress
+
+		hs.UpgradeToNewRealIP(tc.clientAddr.String(), privKey)
+		parts := strings.Split(string(hs.ServerAddress), mc.RealIPSeparator)
+		addr := parts[0]
+		playerIP := parts[1]
+		timeStamp := parts[2]
+		lastPart := parts[3]
+
+		if addr != tc.addr {
+			t.Errorf("got: %v; want: %v", hs.ParseServerAddress(), tc.addr)
+		}
+
+		if playerIP != tc.clientAddr.String() {
+			t.Errorf("got: %v; want: %v", playerIP, tc.addr)
+		}
+
+		unixTimestamp, err := strconv.ParseInt(timeStamp, 10, 64)
+		if err != nil {
+			t.Error(err)
+		}
+
+		if unixTimestamp != tc.timestamp.Unix() {
+			t.Errorf("timestamp is invalid: got: %d; want: %d", unixTimestamp, tc.timestamp.Unix())
+		}
+
+		bytes, err := base64.StdEncoding.DecodeString(lastPart)
+		if err != nil {
+			t.Logf("lastpart: %v", lastPart)
+			t.Logf("bytes: %v", bytes)
+			t.Fatalf("the signature wasnt encoded with base64")
+		}
+
+		if ecdsa.VerifyASN1(&pubkey, []byte(lastPart), []byte(realIPWithoutSigning)) {
+			t.Error("Signature wasnt signed by private key")
+		}
+
 	}
 }
 

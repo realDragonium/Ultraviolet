@@ -1,11 +1,13 @@
 package proxy
 
 import (
+	"crypto/ecdsa"
 	"errors"
 	"net"
 	"time"
 
 	"github.com/pires/go-proxyproto"
+	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -35,23 +37,6 @@ func (state ServerState) String() string {
 		text = "Update"
 	}
 	return text
-}
-
-type WorkerServerConfig struct {
-	State               ServerState
-	StateUpdateCooldown time.Duration
-	UseOldRealIp        bool
-	CacheStatus         bool
-	CacheUpdateCooldown time.Duration
-	ValidProtocol       int
-	OfflineStatus       mc.Packet
-	DisconnectPacket    mc.Packet
-	ProxyTo             string
-	ProxyBind           string
-	DialTimeout         time.Duration
-	SendProxyProtocol   bool
-	RateLimit           int
-	RateLimitDuration   time.Duration
 }
 
 type ServerWorkerData struct {
@@ -100,7 +85,7 @@ func (worker *PublicWorker) ProcessMCRequest(request McRequest) (chan McRequest,
 	return worker.servers[serverId].connReqCh, McAnswerBasic{}, true
 }
 
-func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
+func NewPrivateWorker(serverId int, cfg config.WorkerServerConfig) PrivateWorker {
 	dialer := net.Dialer{
 		Timeout: cfg.DialTimeout,
 		LocalAddr: &net.TCPAddr{
@@ -128,7 +113,7 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 		}
 	}
 	handshakePacket := mc.ServerBoundHandshake{
-		ProtocolVersion: mc.VarInt(cfg.ValidProtocol),
+		ProtocolVersion: cfg.ValidProtocol,
 		ServerAddress:   "Ultraviolet",
 		ServerPort:      25565,
 		NextState:       1,
@@ -146,7 +131,9 @@ func NewPrivateWorker(serverId int, cfg WorkerServerConfig) PrivateWorker {
 		disconnectPacket:  cfg.DisconnectPacket,
 		serverConnFactory: createConnFeature,
 		statusHandshake:   handshakePacket,
-		useOldRealIP:      cfg.UseOldRealIp,
+		useOldRealIP:      cfg.OldRealIp,
+		useNewRealIP:      cfg.NewRealIP,
+		realIPKey:         cfg.RealIPKey,
 	}
 }
 
@@ -174,6 +161,8 @@ type PrivateWorker struct {
 	statusHandshake mc.Packet
 
 	useOldRealIP      bool
+	useNewRealIP      bool
+	realIPKey         *ecdsa.PrivateKey
 	serverConnFactory func(net.Addr) func() (net.Conn, error)
 	disconnectPacket  mc.Packet
 }
@@ -235,8 +224,21 @@ func (worker *PrivateWorker) HandleRequest(request McRequest) McAnswer {
 			return NewMcAnswerClose()
 		}
 	}
-	if worker.useOldRealIP {
-		return NewMcAnswerRealIPProxy(worker.proxyCh, connFunc)
+	if request.Type == LOGIN {
+		var upgrader func(hs *mc.ServerBoundHandshake) bool
+		if worker.useOldRealIP {
+			upgrader = func(hs *mc.ServerBoundHandshake) bool {
+				hs.UpgradeToOldRealIP(request.Addr.String())
+				return true
+			}
+		}
+		if worker.useNewRealIP {
+			upgrader = func(hs *mc.ServerBoundHandshake) bool {
+				hs.UpgradeToNewRealIP(request.Addr.String(), worker.realIPKey)
+				return true
+			}
+		}
+		return NewMcAnswerRealIPProxy(worker.proxyCh, connFunc, upgrader)
 	}
 	return NewMcAnswerProxy(worker.proxyCh, connFunc)
 }

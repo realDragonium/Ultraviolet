@@ -208,7 +208,7 @@ func runAllWorkerTests(t *testing.T, newWorker createWorker) {
 		testKnownAddr_OnlineServer(t, newWorker)
 	})
 	t.Run("known address - RealIP proxy", func(t *testing.T) {
-		testKnownAddr_RealIPProxy(t, newWorker)
+		testKnownAddr_OldRealIPProxy(t, newWorker)
 	})
 	t.Run("proxy bind", func(t *testing.T) {
 		testProxyBind(t, newWorker)
@@ -340,30 +340,33 @@ func testKnownAddr_OnlineServer(t *testing.T, newWorker createWorker) {
 	}
 }
 
-func testKnownAddr_RealIPProxy(t *testing.T, newWorker createWorker) {
-	for _, tc := range LoginStatusTestCases {
-		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
-			serverAddr := "ultraviolet"
-			targetAddr := testAddr()
-			serverCfg := config.ServerConfig{
-				Domains:      []string{serverAddr},
-				ProxyTo:      targetAddr,
-				UseOldRealIp: true,
-			}
-			req := proxy.McRequest{
-				Type:       tc.reqType,
-				ServerAddr: serverAddr,
-			}
-			createListener(t, targetAddr)
-			reqCh := newWorker(t, serverCfg)
-			answer := sendRequest_TestTimeout(t, reqCh, req)
-			if answer.Action() != tc.onlineAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
-			}
-			if !answer.UpdateToRealIp() {
-				t.Error("Should have updated to RealIP format")
-			}
-		})
+// Add new RealIP proxy
+func testKnownAddr_OldRealIPProxy(t *testing.T, newWorker createWorker) {
+	serverAddr := "ultraviolet"
+	targetAddr := testAddr()
+	serverCfg := config.ServerConfig{
+		Domains:   []string{serverAddr},
+		ProxyTo:   targetAddr,
+		OldRealIP: true,
+	}
+	req := proxy.McRequest{
+		Type:       proxy.LOGIN,
+		ServerAddr: serverAddr,
+		Addr: &net.IPAddr{
+			IP: net.ParseIP("1.1.1.1"),
+		},
+	}
+	createListener(t, targetAddr)
+	reqCh := newWorker(t, serverCfg)
+	answer := sendRequest_TestTimeout(t, reqCh, req)
+	if answer.Action() != proxy.PROXY {
+		t.Fatalf("expected: %v \ngot: %v", proxy.PROXY, answer.Action())
+	}
+	hs := mc.ServerBoundHandshake{
+		ServerAddress: "ultraviolet",
+	}
+	if !answer.UpgradeToRealIp(&hs) {
+		t.Error("Should have updated to RealIP format")
 	}
 }
 
@@ -678,7 +681,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 		pingPk, _ := mcConn.ReadPacket()
 		mcConn.WritePacket(pingPk)
 	case <-time.After(defaultChTimeout):
-		t.Error("timed out")
+		t.Fatal("timed out")
 	}
 
 	select {

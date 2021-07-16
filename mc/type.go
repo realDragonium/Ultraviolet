@@ -170,7 +170,7 @@ func (v *VarInt) Decode(r DecodeReader) error {
 		n |= uint32(sec&0x7F) << uint32(7*i)
 
 		if i >= 5 {
-			return errors.New("VarInt is too big")
+			return ErrVarIntSize
 		} else if sec&0x80 == 0 {
 			break
 		}
@@ -190,7 +190,7 @@ func ReadVarInt(r DecodeReader) (VarInt, error) {
 		}
 		n |= uint32(sec&0x7F) << uint32(7*i)
 		if i >= 5 {
-			return 0, errors.New("VarInt is too big")
+			return 0, ErrVarIntSize
 		} else if sec&0x80 == 0 {
 			break
 		}
