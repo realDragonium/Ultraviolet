@@ -96,9 +96,10 @@ func FileToWorkerConfig(cfg ServerConfig) WorkerServerConfig {
 		if errors.Is(err, os.ErrNotExist) {
 			//Check or there is already one generate or save the generated path
 			// TODO: IMPROVE THIS
-			if key, ok := existingGeneratedKeys(cfg); ok {
+			if key, ok := existingGeneratedKey(cfg); ok {
 				privateKey = key
 			} else {
+				log.Printf("No existing key for %s has been found, generating one...", cfg.Domains[0])
 				privateKey = generateKeys(cfg)
 			}
 		} else if err != nil {
@@ -145,7 +146,7 @@ func FileToWorkerConfig(cfg ServerConfig) WorkerServerConfig {
 	}
 }
 
-func existingGeneratedKeys(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
+func existingGeneratedKey(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
 	dir := filepath.Dir(cfg.FilePath)
 	privkeyFileName := filepath.Join(dir, fmt.Sprintf("%s-%s", cfg.Domains[0], "private.key"))
 	if _, err := os.Stat(privkeyFileName); err != nil {

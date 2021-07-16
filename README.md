@@ -39,31 +39,33 @@ IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultravio
 
 ## How does some stuff work
 ### rate limiting
-With rate limiting Ultraviolet will allow a specific number of connections to be made to the backend within a given time frame. It will reset when the time frame `rateCooldown` has passed. When the number has been exceeded but the cooldown isnt over yet, Ultraviolet will behave like the server is offline. Unless cache status has been turned on. Then it would send the cached status of the server if the state of the server is `ONLINE`. Disabling rate limiting can be done by setting it to 0 and allows as many connections as it can to be created. (There is no difference in rate limit disonnect and offline disconnect packets yet. This will come when anti bot stuff is being added.)
+With rate limiting Ultraviolet will allow a specific number of connections to be made to the backend within a given time frame. It will reset when the time frame `rateCooldown` has passed. When the number has been exceeded but the cooldown isnt over yet, Ultraviolet will behave like the server is offline.  
+By default status request arent rate limited but you can turn this on. When its turned on and the connection rate exceeds the rate limit it can still send the status of the to the player when cache status is turned on. 
+Disabling rate limiting can be done by setting it to 0 and allows as many connections as it can to be created. (There is no difference in rate limiting disconnect and offline disconnect packets yet.)
 
 ### state update Cooldown
-To prevent a lot of calls being made to the backend without a reason Ultraviolet will keep track of the state from the backend. The state is currently being based on whether or not the backend will accept an tcp connection or not. When this happened and ultraviolet knows that the backend is `ONLINE` or `OFFLINE` it will wait the time the `stateUpdateCooldown` before it will set the state of the server back to `UNKNOWN`. 
-
+To prevent a lot of calls being made to the backend without a reason Ultraviolet will keep track of the state from the backend. The state is currently being based on whether or not the backend will accept an tcp connection or not. When this happened and ultraviolet knows that the backend is `ONLINE` or `OFFLINE` it will wait the time the `stateUpdateCooldown` before it will set the state of the server back to `UNKNOWN`.  
+Why is is doing this? This way Ultraviolet doesnt have to wait everytime someone is trying to connect to an offline server but only once every cooldown. This will speed up the process in general. 
 
 ## Config
-time config values are based on go's duration formatting, valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". They can be used in combination with each other "1m30s".
+- Time config values are based on go's duration formatting, valid time units are "ns", "us" (or "µs"), "ms", "s", "m", "h". They can be used in combination with each other "1m30s".
+- All config values left blank will result into their default value. For example if you dont have `"rateLimit": 5` inside your json, it will automatically put it on 0 which will also disable rate limit.  
+- Inside the `examples` folder there is example of a server config file and the ultraviolet config file. 
+- If its a place where you can use an ipv4, ipv6 should also work as well. Not specifying an ip and only using `:25565` will/might end up using either or both. 
 
 ### Ultraviolet Config
 |Field name|Default | Description| 
 |:---:|:---:|:---|
 |listenTo|-|The address Ultraviolet will listen to for receiving connections.|
 |defaultStatus|[this](#status-config-value)|The status Ultraviolet will send to callers when it receives a status handshake where the server address header isnt recognized.|
-|numberOfWorkers|0|The number of name resolve workers Ultraviolet will have running, 0 will disabled it and makes is so that the proxy will receive and accept connections but it wont proxy or respond to them. 1 Should be able to handle quite a few connections in a short amount of time but in case more is necessary its possible to increase it. |
+|numberOfWorkers|0|The number of name resolve workers Ultraviolet will have running, 0 will disabled it and makes is so that the proxy will receive and accept connections but it wont proxy or respond to them. 1 Should be able to handle quite a few connections. |
 
 
 ### Server Config
-- All config values left blank will result into their default value. For example if you dont have `"rateLimit": 5` inside your json, it will automatically put it on 0 which will also disable rate limit.  
-- Inside the examples folder there is example of a server config file and the ultraviolet config file. 
-- If its a place where you can use an ipv4, ipv6 should also work as well. Not specifying an ip and only using `:25565` will/might end up using both 
 
 |Field name|Default | Description| 
 |:---:|:---:|:---|
-|domains|-|Place in here all urls which should be used by clients to target the backend.|
+|domains|[""]|Place in here all urls which should be used by clients to target the backend.|
 |proxyTo|-|It will call this ip/url when its creating a connection to the server.|
 |proxyBind|-|The ip it should be using while connection to the backend. If it cant use the given value it will fail and the connection wont be created.|
 |dialTimeout|1s|Timeout is the maximum amount of time a dial will wait for a connect to complete.|
@@ -95,7 +97,9 @@ A status config is build with the following fields
 
 ## Idea notes
 ### More workers with atomic values
-Like how [prometheus does it](https://github.com/prometheus/client_golang/blob/master/prometheus/gauge.go#L82) but than for things like state or rate limit so we can have more workers working on it and increase the load even more. 
+Like how [prometheus does it](https://github.com/prometheus/client_golang/blob/master/prometheus/gauge.go#L82) but than for things like state or rate limit so we can have more workers working on it and increase the load capacity even more. 
 
 ### Single liners
 - respond in status with the same version the client has sent. 
+- implement prometheus
+- maybe anti bot stuff
