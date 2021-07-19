@@ -1,4 +1,7 @@
-# Ultraviolet
+# Ultraviolet - Alpha
+## Notes
+- Tableflip has been removed and all related features  
+
 ## What is it
 Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra lightweight Minecraft reverse proxy written in Go. Not even sure or this will be a production ready software some day, its mostly a different structure I want to try and see what kind of effect it has on performance and such. It should work most of the time, although there isnt much code/features dedicated to prevent some mistakes from happening or which can recover when certain errors occur.
 
@@ -7,13 +10,12 @@ Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra 
 ### How to build
 Ultraviolet can be ran by using docker or you can also build a binary yourself by running:
 ```
-go build -tags netgo
+go build
 ```  
 
 ### Features
 [x] HAProxy protocol(v2) support (sending only)  
 [x] RealIP (v2.4&v2.5)  
-[x] Can restart without shutting down open connections (check [Tableflip](#tableflip))  
 [x] Rate limiting  
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
@@ -23,19 +25,9 @@ go build -tags netgo
 ### Im not gonna fool proof this
 Im not planning on writing code to prevent Ultraviolet from crashing if you did something stupid. If the config wants a timeout time and you put in a negative number that may or may not cause some issues and that is your own fault. 
 
-### Tableflip
-This has implemented [tableflip](https://github.com/cloudflare/tableflip) which should make it able to reload/restart Ultraviolet without closing existing connections on Linux and macOS. Ultraviolet should still be usable on windows (testing purposes only pls). 
-Check their [documentation](https://pkg.go.dev/github.com/cloudflare/tableflip) to know what or how. 
-
-IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultraviolet once you need to wait until the parent process is closed (all previous connections have been closed) before you can reload it again. 
-
 ## Command-Line Flags
-`-pid-file` specifies the path of the pid file ultraviolet will use [default: `"/run/ultraviolet.pid"`]
-
-`-config` specifies the path to the main config [default: `"/etc/ultraviolet/ultraviolet.json"`]
-
+`-config` specifies the path to the main config [default: `"/etc/ultraviolet/ultraviolet.json"`]  
 `-server-configs` specifies the path to all your server configs [default: `"/etc/ultraviolet/config/"`]
-
 
 ## How does some stuff work
 ### rate limiting

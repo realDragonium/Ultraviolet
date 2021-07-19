@@ -1,4 +1,4 @@
-package proxy_test
+package old_proxy_test
 
 import (
 	"bytes"
@@ -15,32 +15,32 @@ import (
 	"github.com/pires/go-proxyproto"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/proxy"
+	"github.com/realDragonium/Ultraviolet/old_proxy"
 )
 
 var LoginStatusTestCases = []struct {
-	reqType         proxy.McRequestType
-	denyAction      proxy.McAction
-	unknownAction   proxy.McAction
-	onlineAction    proxy.McAction
-	offlineAction   proxy.McAction
-	rateLimitAction proxy.McAction
+	reqType         old_proxy.McRequestType
+	denyAction      old_proxy.McAction
+	unknownAction   old_proxy.McAction
+	onlineAction    old_proxy.McAction
+	offlineAction   old_proxy.McAction
+	rateLimitAction old_proxy.McAction
 }{
 	{
-		reqType:         proxy.STATUS,
-		denyAction:      proxy.CLOSE,
-		unknownAction:   proxy.SEND_STATUS,
-		onlineAction:    proxy.PROXY,
-		offlineAction:   proxy.SEND_STATUS,
-		rateLimitAction: proxy.CLOSE,
+		reqType:         old_proxy.STATUS,
+		denyAction:      old_proxy.CLOSE,
+		unknownAction:   old_proxy.SEND_STATUS,
+		onlineAction:    old_proxy.PROXY,
+		offlineAction:   old_proxy.SEND_STATUS,
+		rateLimitAction: old_proxy.CLOSE,
 	},
 	{
-		reqType:         proxy.LOGIN,
-		denyAction:      proxy.DISCONNECT,
-		unknownAction:   proxy.CLOSE,
-		onlineAction:    proxy.PROXY,
-		offlineAction:   proxy.DISCONNECT,
-		rateLimitAction: proxy.CLOSE,
+		reqType:         old_proxy.LOGIN,
+		denyAction:      old_proxy.DISCONNECT,
+		unknownAction:   old_proxy.CLOSE,
+		onlineAction:    old_proxy.PROXY,
+		offlineAction:   old_proxy.DISCONNECT,
+		rateLimitAction: old_proxy.CLOSE,
 	},
 }
 
@@ -96,9 +96,9 @@ func defaultOfflineStatus() mc.SimpleStatus {
 }
 
 //Test Help methods
-func setupWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
-	reqCh := make(chan proxy.McRequest)
-	gateway := proxy.NewGateway()
+func setupWorkers(cfg config.UltravioletConfig, serverCfgs ...config.ServerConfig) chan<- old_proxy.McRequest {
+	reqCh := make(chan old_proxy.McRequest)
+	gateway := old_proxy.NewGateway()
 	gateway.StartWorkers(cfg, serverCfgs, reqCh)
 	return reqCh
 }
@@ -113,9 +113,9 @@ func simpleUltravioletConfig(logOutput io.Writer) config.UltravioletConfig {
 	}
 }
 
-func sendRequest_TestTimeout(t *testing.T, reqCh chan<- proxy.McRequest, req proxy.McRequest) proxy.McAnswer {
+func sendRequest_TestTimeout(t *testing.T, reqCh chan<- old_proxy.McRequest, req old_proxy.McRequest) old_proxy.McAnswer {
 	t.Helper()
-	answerCh := make(chan proxy.McAnswer)
+	answerCh := make(chan old_proxy.McAnswer)
 	req.Ch = answerCh
 	reqCh <- req
 	select {
@@ -125,11 +125,11 @@ func sendRequest_TestTimeout(t *testing.T, reqCh chan<- proxy.McRequest, req pro
 	case <-time.After(defaultChTimeout):
 		t.Fatal("timed out")
 	}
-	return proxy.McAnswerBasic{}
+	return old_proxy.McAnswerBasic{}
 }
 
-func sendRequest_IgnoreResult(reqCh chan<- proxy.McRequest, req proxy.McRequest) {
-	answerCh := make(chan proxy.McAnswer)
+func sendRequest_IgnoreResult(reqCh chan<- old_proxy.McRequest, req old_proxy.McRequest) {
+	answerCh := make(chan old_proxy.McAnswer)
 	req.Ch = answerCh
 	reqCh <- req
 	go func() {
@@ -182,11 +182,11 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 	return connCh, errorCh
 }
 
-type createWorker func(t *testing.T, serverCfg ...config.ServerConfig) chan<- proxy.McRequest
+type createWorker func(t *testing.T, serverCfg ...config.ServerConfig) chan<- old_proxy.McRequest
 
 // Actual Tests
 func TestPublicAndPrivateWorkers(t *testing.T) {
-	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- proxy.McRequest {
+	setupWorker := func(tLocal *testing.T, serverCfgs ...config.ServerConfig) chan<- old_proxy.McRequest {
 		logOutput := &testLogger{t: tLocal}
 		reqCh := setupWorkers(simpleUltravioletConfig(logOutput), serverCfgs...)
 		return reqCh
@@ -243,7 +243,7 @@ func testWorker_CanReceiveRequest(t *testing.T, newWorker createWorker) {
 	serverCfg := config.ServerConfig{}
 	reqCh := newWorker(t, serverCfg)
 	select {
-	case reqCh <- proxy.McRequest{}:
+	case reqCh <- old_proxy.McRequest{}:
 		t.Log("worker has successfully received request")
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
@@ -254,7 +254,7 @@ func testUnknownAddr(t *testing.T, newWorker createWorker) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverCfg := config.ServerConfig{}
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: "some weird server address",
 			}
@@ -263,7 +263,7 @@ func testUnknownAddr(t *testing.T, newWorker createWorker) {
 			if answer.Action() != tc.unknownAction {
 				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, answer.Action())
 			}
-			if tc.reqType == proxy.STATUS {
+			if tc.reqType == old_proxy.STATUS {
 				defaultStatusPk := unknownServerStatusPk()
 				if !samePk(defaultStatusPk, answer.FirstPacket()) {
 					defaultStatus, _ := mc.UnmarshalClientBoundResponse(defaultStatusPk)
@@ -288,7 +288,7 @@ func testKnownAddr_OfflineServer(t *testing.T, newWorker createWorker) {
 				OfflineStatus:     defaultOfflineStatus(),
 				DisconnectMessage: disconnectMessage,
 			}
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -298,13 +298,13 @@ func testKnownAddr_OfflineServer(t *testing.T, newWorker createWorker) {
 			if answer.Action() != tc.offlineAction {
 				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action())
 			}
-			if tc.reqType == proxy.STATUS {
+			if tc.reqType == old_proxy.STATUS {
 				if !samePk(offlineStatusPk, answer.FirstPacket()) {
 					offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
 					receivedStatus, _ := mc.UnmarshalClientBoundResponse(answer.FirstPacket())
 					t.Errorf("expected: %v \ngot: %v", offlineStatus, receivedStatus)
 				}
-			} else if tc.reqType == proxy.LOGIN {
+			} else if tc.reqType == old_proxy.LOGIN {
 				if !samePk(disconPacket, answer.FirstPacket()) {
 					expected, _ := mc.UnmarshalClientDisconnect(disconPacket)
 					received, _ := mc.UnmarshalClientDisconnect(answer.FirstPacket())
@@ -324,7 +324,7 @@ func testKnownAddr_OnlineServer(t *testing.T, newWorker createWorker) {
 				Domains: []string{serverAddr},
 				ProxyTo: targetAddr,
 			}
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -352,8 +352,8 @@ func testKnownAddr_OldRealIPProxy(t *testing.T, newWorker createWorker) {
 		ProxyTo:   targetAddr,
 		OldRealIP: true,
 	}
-	req := proxy.McRequest{
-		Type:       proxy.LOGIN,
+	req := old_proxy.McRequest{
+		Type:       old_proxy.LOGIN,
 		ServerAddr: serverAddr,
 		Addr: &net.IPAddr{
 			IP: net.ParseIP("1.1.1.1"),
@@ -362,13 +362,10 @@ func testKnownAddr_OldRealIPProxy(t *testing.T, newWorker createWorker) {
 	createListener(t, targetAddr)
 	reqCh := newWorker(t, serverCfg)
 	answer := sendRequest_TestTimeout(t, reqCh, req)
-	if answer.Action() != proxy.PROXY {
-		t.Fatalf("expected: %v \ngot: %v", proxy.PROXY, answer.Action())
+	if answer.Action() != old_proxy.PROXY {
+		t.Fatalf("expected: %v \ngot: %v", old_proxy.PROXY, answer.Action())
 	}
-	hs := mc.ServerBoundHandshake{
-		ServerAddress: "ultraviolet",
-	}
-	if !answer.UpgradeToRealIp(&hs) {
+	if !answer.UseRealIP() {
 		t.Error("Should have updated to RealIP format")
 	}
 }
@@ -384,7 +381,7 @@ func testProxyBind(t *testing.T, newWorker createWorker) {
 				ProxyTo:   targetAddr,
 				ProxyBind: proxyBind,
 			}
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -431,7 +428,7 @@ func testProxyProtocol(t *testing.T, newWorker createWorker) {
 				ProxyTo:           targetAddr,
 				SendProxyProtocol: true,
 			}
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 				Addr:       playerAddr,
@@ -490,7 +487,7 @@ func testProxy_ManyRequestsWillRateLimit(t *testing.T, newWorker createWorker) {
 				RateDuration:    rateLimitDuration.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -521,7 +518,7 @@ func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, newWorker creat
 				RateDuration:    rateLimitDuration.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -552,8 +549,8 @@ func testProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T, newWorker create
 		RateDuration:    rateLimitDuration.String(),
 	}
 	reqCh := newWorker(t, serverCfg)
-	req := proxy.McRequest{
-		Type:       proxy.STATUS,
+	req := old_proxy.McRequest{
+		Type:       old_proxy.STATUS,
 		ServerAddr: serverAddr,
 	}
 	acceptAllConnsListener(t, targetAddr)
@@ -561,8 +558,8 @@ func testProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T, newWorker create
 		sendRequest_IgnoreResult(reqCh, req)
 	}
 	answer := sendRequest_TestTimeout(t, reqCh, req)
-	if answer.Action() != proxy.PROXY {
-		t.Fatalf("expected: %v \ngot: %v", proxy.PROXY, answer.Action())
+	if answer.Action() != old_proxy.PROXY {
+		t.Fatalf("expected: %v \ngot: %v", old_proxy.PROXY, answer.Action())
 	}
 }
 
@@ -578,7 +575,7 @@ func testServerState_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker crea
 				StateUpdateCooldown: updateCooldown.String(),
 			}
 			reqCh := newWorker(t, serverCfg)
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -608,7 +605,7 @@ func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 				DialTimeout:         "1s",
 			}
 			reqCh := newWorker(t, serverCfg)
-			req := proxy.McRequest{
+			req := old_proxy.McRequest{
 				Type:       tc.reqType,
 				ServerAddr: serverAddr,
 			}
@@ -638,9 +635,9 @@ func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker crea
 		StateUpdateCooldown: cacheCooldown.String(),
 	}
 	reqCh := newWorker(t, serverCfg)
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type:       proxy.STATUS,
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type:       old_proxy.STATUS,
 		ServerAddr: serverAddr,
 		Ch:         answerCh,
 	}
@@ -657,8 +654,8 @@ func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, newWorker crea
 	select {
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
-		if answer.Action() != proxy.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action())
+		if answer.Action() != old_proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", old_proxy.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
@@ -682,9 +679,9 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 		CacheUpdateCooldown: updateCooldown.String(),
 	}
 	reqCh := newWorker(t, serverCfg)
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type:       proxy.STATUS,
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type:       old_proxy.STATUS,
 		ServerAddr: serverAddr,
 		Ch:         answerCh,
 	}
@@ -692,7 +689,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 	go func() {
 		<-connCh
 		conn := <-connCh
-		mcConn := proxy.NewMcConn(conn)
+		mcConn := old_proxy.NewMcConn(conn)
 		mcConn.ReadPacket()
 		mcConn.ReadPacket()
 		mcConn.WritePacket(statusPacket)
@@ -706,7 +703,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 	select {
 	case conn := <-connCh: //state is still in cooldown
 		t.Log("worker has successfully responded")
-		mcConn := proxy.NewMcConn(conn)
+		mcConn := old_proxy.NewMcConn(conn)
 		mcConn.ReadPacket()
 		mcConn.ReadPacket()
 		mcConn.WritePacket(statusPacket)
@@ -719,8 +716,8 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, newWorker create
 	select {
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
-		if answer.Action() != proxy.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", proxy.SEND_STATUS, answer.Action())
+		if answer.Action() != old_proxy.SEND_STATUS {
+			t.Errorf("expected: %v \ngot: %v", old_proxy.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")

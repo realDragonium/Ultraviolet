@@ -1,13 +1,23 @@
 package mc
 
 import (
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/sha512"
 	"encoding/base64"
 	"fmt"
+	"io"
 	"strings"
 	"time"
+)
+
+type HandshakeState byte
+
+const (
+	UNKNOWN HandshakeState = iota
+	STATUS
+	LOGIN
 )
 
 type McTypesHandshake struct {
@@ -50,6 +60,7 @@ func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) 
 	); err != nil {
 		return hs, err
 	}
+
 	hs = ServerBoundHandshake{
 		ProtocolVersion: int(pk.ProtocolVersion),
 		ServerAddress:   string(pk.ServerAddress),
@@ -59,26 +70,96 @@ func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) 
 	return hs, nil
 }
 
-func (pk ServerBoundHandshake) IsStatusRequest() bool {
-	return VarInt(pk.NextState) == HandshakeStatusState
+func UnmarshalServerBoundHandshake2(packet Packet) (ServerBoundHandshake, error) {
+	var hs ServerBoundHandshake
+
+	if packet.ID != ServerBoundHandshakePacketID {
+		return hs, ErrInvalidPacketID
+	}
+
+	buf := bytes.NewBuffer(packet.Data)
+	var err error
+	hs.ProtocolVersion, err = ReadVarInt_ByteReader(buf)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerAddress, err = ReadString_ByteReader(buf)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerPort, err = ReadShot_ByteReader(buf)
+	if err != nil {
+		return hs, err
+	}
+	hs.NextState, err = ReadVarInt_ByteReader(buf)
+	if err != nil {
+		return hs, err
+	}
+	return hs, nil
 }
 
-func (pk ServerBoundHandshake) IsLoginRequest() bool {
-	return VarInt(pk.NextState) == HandshakeLoginState
+func UnmarshalServerBoundHandshake_ByteReader(r io.ByteReader) (ServerBoundHandshake, error) {
+	var hs ServerBoundHandshake
+	packetID, err := r.ReadByte()
+	if err != nil {
+		return hs, err
+	}
+	if packetID != ServerBoundHandshakePacketID {
+		return hs, ErrInvalidPacketID
+	}
+
+	hs.ProtocolVersion, err = ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerAddress, err = ReadString_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerPort, err = ReadShot_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.NextState, err = ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	return hs, nil
 }
 
-func (pk ServerBoundHandshake) IsForgeAddress() bool {
-	addr := string(pk.ServerAddress)
+func (hs ServerBoundHandshake) State() HandshakeState {
+	var state HandshakeState
+	switch hs.NextState {
+	case 1:
+		state = STATUS
+	case 2:
+		state = LOGIN
+	default:
+		state = UNKNOWN
+	}
+	return state
+}
+
+func (hs ServerBoundHandshake) IsStatusRequest() bool {
+	return VarInt(hs.NextState) == HandshakeStatusState
+}
+
+func (hs ServerBoundHandshake) IsLoginRequest() bool {
+	return VarInt(hs.NextState) == HandshakeLoginState
+}
+
+func (hs ServerBoundHandshake) IsForgeAddress() bool {
+	addr := string(hs.ServerAddress)
 	return len(strings.Split(addr, ForgeSeparator)) > 1
 }
 
-func (pk ServerBoundHandshake) IsRealIPAddress() bool {
-	addr := string(pk.ServerAddress)
+func (hs ServerBoundHandshake) IsRealIPAddress() bool {
+	addr := string(hs.ServerAddress)
 	return len(strings.Split(addr, RealIPSeparator)) > 1
 }
 
-func (pk ServerBoundHandshake) ParseServerAddress() string {
-	addr := string(pk.ServerAddress)
+func (hs ServerBoundHandshake) ParseServerAddress() string {
+	addr := hs.ServerAddress
 	addr = strings.Split(addr, ForgeSeparator)[0]
 	addr = strings.Split(addr, RealIPSeparator)[0]
 	return addr

@@ -1,4 +1,4 @@
-package proxy_test
+package old_proxy_test
 
 import (
 	"bytes"
@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/proxy"
+	"github.com/realDragonium/Ultraviolet/old_proxy"
 )
 
 type testNetConn struct {
@@ -92,8 +92,8 @@ func samePK(expected, received mc.Packet) bool {
 	return sameID && sameData
 }
 
-func newProxyChan() chan proxy.ProxyAction {
-	proxyCh := make(chan proxy.ProxyAction)
+func newProxyChan() chan old_proxy.ProxyAction {
+	proxyCh := make(chan old_proxy.ProxyAction)
 	go func() {
 		for {
 			<-proxyCh
@@ -104,12 +104,12 @@ func newProxyChan() chan proxy.ProxyAction {
 
 func TestListener(t *testing.T) {
 	runSimpleListener := func(newConnCh <-chan net.Conn) {
-		reqCh := make(chan proxy.McRequest)
+		reqCh := make(chan old_proxy.McRequest)
 		mockListener := &testListener{
 			newConnCh: newConnCh,
 		}
 		go func() {
-			proxy.ServeListener(mockListener, reqCh)
+			old_proxy.ServeListener(mockListener, reqCh)
 		}()
 	}
 
@@ -151,11 +151,11 @@ func TestReadConnection_ReceivesLoginRequest_ThroughChannel(t *testing.T) {
 		conn:       proxyFrontend,
 		remoteAddr: &clientAddr,
 	}
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(&mockClientconn, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(&mockClientconn, reqCh)
 
 	go func() {
-		client := proxy.NewMcConn(clientConn)
+		client := old_proxy.NewMcConn(clientConn)
 		hsPk := loginHandshakePacket()
 		client.WritePacket(hsPk)
 		loginPk := basicLoginStartPacket()
@@ -182,8 +182,8 @@ func TestReadConnection_ReceivesLoginRequest_ThroughChannel(t *testing.T) {
 
 func TestReadConnection_CanReadHSPk(t *testing.T) {
 	client, server := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(server, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(server, reqCh)
 
 	finishedWritingCh := make(chan struct{})
 	go func() {
@@ -204,8 +204,8 @@ func TestReadConnection_CanReadHSPk(t *testing.T) {
 //This test is now broken.
 // func TestReadConnection_WillCloseConn_WhenInvalidPacketSize(t *testing.T) {
 // 	client, server := net.Pipe()
-// 	reqCh := make(chan proxy.McRequest)
-// 	go proxy.ReadConnection(server, reqCh)
+// 	reqCh := make(chan old_proxy.McRequest)
+// 	go old_proxy.ReadConnection(server, reqCh)
 
 // 	finishedWritingCh := make(chan struct{})
 // 	go func() {
@@ -228,12 +228,12 @@ func TestReadConnection_CanReadHSPk(t *testing.T) {
 
 func TestReadConnection_CanReadStartLoginPk(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 	finishedWritingCh := make(chan struct{})
 	go func() {
-		client := proxy.NewMcConn(clientConn)
+		client := old_proxy.NewMcConn(clientConn)
 		hsPk := loginHandshakePacket()
 		client.WritePacket(hsPk)
 		loginPk := basicLoginStartPacket()
@@ -250,32 +250,32 @@ func TestReadConnection_CanReadStartLoginPk(t *testing.T) {
 }
 
 func TestReadConnection_CloseResponse_ClosesChannel(t *testing.T) {
-	reqCh := make(chan proxy.McRequest)
+	reqCh := make(chan old_proxy.McRequest)
 	clientConn, proxyFrontend := net.Pipe()
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 	go func() {
-		client := proxy.NewMcConn(clientConn)
+		client := old_proxy.NewMcConn(clientConn)
 		hsPk := statusHandshakePacket()
 		client.WritePacket(hsPk)
 	}()
 
 	request := <-reqCh
 
-	request.Ch <- proxy.NewMcAnswerClose()
+	request.Ch <- old_proxy.NewMcAnswerClose()
 	testConnectionClosed(t, clientConn)
 }
 
 func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
-	reqCh := make(chan proxy.McRequest)
+	reqCh := make(chan old_proxy.McRequest)
 	clientConn, proxyFrontend := net.Pipe()
 	proxyBackend, serverConn := net.Pipe()
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 	hsPk := loginHandshakePacket()
 	loginPk := basicLoginStartPacket()
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	client.WritePacket(hsPk)
 	client.WritePacket(loginPk)
 	request := <-reqCh
@@ -283,10 +283,10 @@ func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
 	connFunc := func() (net.Conn, error) {
 		return proxyBackend, nil
 	}
-	answer := proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
+	answer := old_proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
 	request.Ch <- answer
 
-	server := proxy.NewMcConn(serverConn)
+	server := old_proxy.NewMcConn(serverConn)
 	receivedHsPk, _ := server.ReadPacket()
 	if !samePK(hsPk, receivedHsPk) {
 		t.Errorf("expected: %v, \ngot: %v", hsPk, receivedHsPk)
@@ -300,11 +300,11 @@ func TestReadConnection_CanProxyLoginConnection(t *testing.T) {
 }
 
 func TestReadConnection_CanSendDisconnectPk(t *testing.T) {
-	reqCh := make(chan proxy.McRequest)
+	reqCh := make(chan old_proxy.McRequest)
 	clientConn, proxyFrontend := net.Pipe()
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	hsPk := loginHandshakePacket()
 	client.WritePacket(hsPk)
 	loginPk := basicLoginStartPacket()
@@ -316,7 +316,7 @@ func TestReadConnection_CanSendDisconnectPk(t *testing.T) {
 		Reason: mc.Chat(disconMessage),
 	}.Marshal()
 
-	answer := proxy.NewMcAnswerDisonncet(disconPk)
+	answer := old_proxy.NewMcAnswerDisonncet(disconPk)
 	request.Ch <- answer
 
 	disconnectPacket, _ := client.ReadPacket()
@@ -330,17 +330,17 @@ func TestReadConnection_CanSendDisconnectPk(t *testing.T) {
 
 func TestReadConnection_ExpectConnToBeClosed_AfterDisconnect(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	hsPk := loginHandshakePacket()
 	client.WritePacket(hsPk)
 	loginPk := basicLoginStartPacket()
 	client.WritePacket(loginPk)
 
 	request := <-reqCh
-	answer := proxy.NewMcAnswerDisonncet(mc.ClientBoundDisconnect{}.Marshal())
+	answer := old_proxy.NewMcAnswerDisonncet(mc.ClientBoundDisconnect{}.Marshal())
 	request.Ch <- answer
 	client.ReadPacket()
 
@@ -348,11 +348,11 @@ func TestReadConnection_ExpectConnToBeClosed_AfterDisconnect(t *testing.T) {
 }
 
 func TestReadConnection_SendStatusRequest_ThroughChannel(t *testing.T) {
-	reqCh := make(chan proxy.McRequest)
+	reqCh := make(chan old_proxy.McRequest)
 	clientConn, proxyFrontend := net.Pipe()
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	hsPk := statusHandshakePacket()
 	client.WritePacket(hsPk)
 
@@ -366,24 +366,24 @@ func TestReadConnection_SendStatusRequest_ThroughChannel(t *testing.T) {
 func TestReadConnection_CanProxyStatusConnToServer(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
 	proxyBackend, serverConn := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 	hsPk := statusHandshakePacket()
 
 	go func() {
-		client := proxy.NewMcConn(clientConn)
+		client := old_proxy.NewMcConn(clientConn)
 		client.WritePacket(hsPk)
 		request := <-reqCh
 
 		connFunc := func() (net.Conn, error) {
 			return proxyBackend, nil
 		}
-		answer := proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
+		answer := old_proxy.NewMcAnswerProxy(newProxyChan(), connFunc)
 		request.Ch <- answer
 	}()
 
-	server := proxy.NewMcConn(serverConn)
+	server := old_proxy.NewMcConn(serverConn)
 	receivedHsPk, _ := server.ReadPacket()
 	if !samePK(hsPk, receivedHsPk) {
 		t.Errorf("expected:\t %v, \ngot:\t %v", hsPk, receivedHsPk)
@@ -394,10 +394,10 @@ func TestReadConnection_CanProxyStatusConnToServer(t *testing.T) {
 
 func TestReadConnection_CanReplyToStatus(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	hsPk := statusHandshakePacket()
 	client.WritePacket(hsPk)
 
@@ -407,7 +407,7 @@ func TestReadConnection_CanReplyToStatus(t *testing.T) {
 		Protocol:    751,
 		Description: "Some broken proxy",
 	}.Marshal()
-	statusAnswer := proxy.NewMcAnswerStatus(statusPk, 0)
+	statusAnswer := old_proxy.NewMcAnswerStatus(statusPk, 0)
 	request.Ch <- statusAnswer
 
 	client.WritePacket(mc.ServerBoundRequest{}.Marshal())
@@ -425,10 +425,10 @@ func TestReadConnection_CanReplyToStatus(t *testing.T) {
 
 func TestReadConnection_CloseConnAfterNonProxiedStatusResponse(t *testing.T) {
 	clientConn, proxyFrontend := net.Pipe()
-	reqCh := make(chan proxy.McRequest)
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	reqCh := make(chan old_proxy.McRequest)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	hsPk := statusHandshakePacket()
 	client.WritePacket(hsPk)
 
@@ -438,7 +438,7 @@ func TestReadConnection_CloseConnAfterNonProxiedStatusResponse(t *testing.T) {
 		Protocol:    751,
 		Description: "Some broken proxy",
 	}.Marshal()
-	statusAnswer := proxy.NewMcAnswerStatus(statusPk, 0)
+	statusAnswer := old_proxy.NewMcAnswerStatus(statusPk, 0)
 	request.Ch <- statusAnswer
 
 	client.WritePacket(mc.ServerBoundRequest{}.Marshal())
@@ -493,7 +493,7 @@ func TestProxyConnection(t *testing.T) {
 		client, server := net.Pipe()
 		proxyCh := newProxyChan()
 
-		go proxy.ProxyLogin(client, server, proxyCh)
+		go old_proxy.ProxyLogin(client, server, proxyCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -514,7 +514,7 @@ func TestProxyConnection(t *testing.T) {
 		client, server := net.Pipe()
 		proxyCh := newProxyChan()
 
-		go proxy.ProxyLogin(client, server, proxyCh)
+		go old_proxy.ProxyLogin(client, server, proxyCh)
 		readBuffer := make([]byte, 10)
 		couldReachCh := make(chan struct{})
 		go func() {
@@ -558,9 +558,9 @@ func TestReadConnection_CanParseServerAddress(t *testing.T) {
 
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			reqCh := make(chan proxy.McRequest)
+			reqCh := make(chan old_proxy.McRequest)
 			clientConn, proxyFrontend := net.Pipe()
-			go proxy.ReadConnection(proxyFrontend, reqCh)
+			go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 			hsPk := mc.ServerBoundHandshake{
 				ProtocolVersion: 751,
@@ -570,7 +570,7 @@ func TestReadConnection_CanParseServerAddress(t *testing.T) {
 			}.Marshal()
 			loginPk := basicLoginStartPacket()
 
-			client := proxy.NewMcConn(clientConn)
+			client := old_proxy.NewMcConn(clientConn)
 			client.WritePacket(hsPk)
 			client.WritePacket(loginPk)
 
@@ -585,10 +585,10 @@ func TestReadConnection_CanParseServerAddress(t *testing.T) {
 }
 
 func TestReadConnection_CanProxyLoginSendRealIp(t *testing.T) {
-	reqCh := make(chan proxy.McRequest)
+	reqCh := make(chan old_proxy.McRequest)
 	clientConn, proxyFrontend := net.Pipe()
 	proxyBackend, serverConn := net.Pipe()
-	go proxy.ReadConnection(proxyFrontend, reqCh)
+	go old_proxy.ReadConnection(proxyFrontend, reqCh)
 
 	serverAddr := "ultraviolet"
 	hsPk := mc.ServerBoundHandshake{
@@ -599,7 +599,7 @@ func TestReadConnection_CanProxyLoginSendRealIp(t *testing.T) {
 	}.Marshal()
 	loginPk := basicLoginStartPacket()
 
-	client := proxy.NewMcConn(clientConn)
+	client := old_proxy.NewMcConn(clientConn)
 	client.WritePacket(hsPk)
 	client.WritePacket(loginPk)
 	request := <-reqCh
@@ -611,10 +611,10 @@ func TestReadConnection_CanProxyLoginSendRealIp(t *testing.T) {
 		hs.UpgradeToOldRealIP("1.1.1.1")
 		return true
 	}
-	answer := proxy.NewMcAnswerRealIPProxy(newProxyChan(), connFunc, upgrader)
+	answer := old_proxy.NewMcAnswerRealIPProxy(newProxyChan(), connFunc, upgrader)
 	request.Ch <- answer
 
-	server := proxy.NewMcConn(serverConn)
+	server := old_proxy.NewMcConn(serverConn)
 	receivedHsPk, _ := server.ReadPacket()
 	hs, _ := mc.UnmarshalServerBoundHandshake(receivedHsPk)
 	if !hs.IsRealIPAddress() {

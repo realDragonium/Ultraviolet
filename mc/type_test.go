@@ -307,3 +307,68 @@ func TestReadVarInt_ReturnError_WhenLargerThan5(t *testing.T) {
 	}
 
 }
+
+func TestReadPacketLengthLength(t *testing.T) {
+	tt := []struct {
+		length  int
+		encoded []byte
+	}{
+		{
+			length:  1,
+			encoded: []byte{0x00},
+		},
+		{
+			length:  1,
+			encoded: []byte{0x01},
+		},
+		{
+			length:  1,
+			encoded: []byte{0x02},
+		},
+		{
+			length:  1,
+			encoded: []byte{0x7f},
+		},
+		{
+			length:  2,
+			encoded: []byte{0x80, 0x01},
+		},
+		{
+			length:  2,
+			encoded: []byte{0x81, 0x01},
+		},
+		{
+			length:  2,
+			encoded: []byte{0xff, 0x01},
+		},
+		{
+			length:  2,
+			encoded: []byte{0x80, 0x02},
+		},
+		{
+			length:  3,
+			encoded: []byte{0xff, 0xff, 0x7f},
+		},
+		{
+			length:  5,
+			encoded: []byte{0xff, 0xff, 0xff, 0xff, 0x07},
+		},
+		{
+			length:  5,
+			encoded: []byte{0xff, 0xff, 0xff, 0xff, 0x0f},
+		},
+		{
+			length:  5,
+			encoded: []byte{0x80, 0x80, 0x80, 0x80, 0x08},
+		},
+	}
+
+	for _, tc := range tt {
+		t.Run(fmt.Sprint(tc.encoded), func(t *testing.T) {
+			length, _ := mc.ReadPacketLengthLength(tc.encoded)
+			if length != tc.length {
+				t.Errorf("length: got %v; want: %v", length, tc.length)
+			}
+		})
+	}
+}

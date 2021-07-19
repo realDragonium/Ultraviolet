@@ -1,4 +1,4 @@
-package proxy_test
+package old_proxy_test
 
 import (
 	"net"
@@ -7,7 +7,7 @@ import (
 
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/proxy"
+	"github.com/realDragonium/Ultraviolet/old_proxy"
 )
 
 var basicServerCfgs = []config.ServerConfig{
@@ -65,13 +65,13 @@ var serverWorkerCfg = config.WorkerServerConfig{
 
 func BenchmarkPublicWorker_ProcessMcRequest_UnknownAddress_ReturnsValues(b *testing.B) {
 	serverAddr := "ultraviolet"
-	servers := make(map[int]proxy.ServerWorkerData)
+	servers := make(map[int]old_proxy.ServerWorkerData)
 	serverDict := make(map[string]int)
-	reqCh := make(chan proxy.McRequest)
-	publicWorker := proxy.NewPublicWorker(servers, serverDict, mc.Packet{}, reqCh)
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type:       proxy.STATUS,
+	reqCh := make(chan old_proxy.McRequest)
+	publicWorker := old_proxy.NewPublicWorker(servers, serverDict, mc.Packet{}, reqCh)
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type:       old_proxy.STATUS,
 		ServerAddr: serverAddr,
 		Ch:         answerCh,
 	}
@@ -85,11 +85,11 @@ func BenchmarkPublicWorker_ProcessMcRequest_UnknownAddress_ReturnsValues(b *test
 }
 
 func BenchmarkPrivateWorker_HandleRequest_Status_Offline(b *testing.B) {
-	privateWorker := proxy.NewPrivateWorker(0, serverWorkerCfg)
+	privateWorker := old_proxy.NewPrivateWorker(0, serverWorkerCfg)
 
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type: proxy.STATUS,
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type: old_proxy.STATUS,
 		Ch:   answerCh,
 	}
 
@@ -108,10 +108,10 @@ func BenchmarkPrivateWorker_HandleRequest_Status_Offline(b *testing.B) {
 func BenchmarkPrivateWorker_HandleRequest_Status_Online(b *testing.B) {
 	serverCfg := serverWorkerCfg
 	serverCfg.ProxyTo = testAddr()
-	privateWorker := proxy.NewPrivateWorker(0, serverCfg)
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type: proxy.STATUS,
+	privateWorker := old_proxy.NewPrivateWorker(0, serverCfg)
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type: old_proxy.STATUS,
 		Ch:   answerCh,
 	}
 
@@ -133,11 +133,11 @@ func BenchmarkPrivateWorker_HandleRequest_Status_Online(b *testing.B) {
 }
 
 func BenchmarkPrivateWorker_HandleRequest_Login_Offline(b *testing.B) {
-	privateWorker := proxy.NewPrivateWorker(0, serverWorkerCfg)
+	privateWorker := old_proxy.NewPrivateWorker(0, serverWorkerCfg)
 
-	answerCh := make(chan proxy.McAnswer)
-	req := proxy.McRequest{
-		Type: proxy.STATUS,
+	answerCh := make(chan old_proxy.McAnswer)
+	req := old_proxy.McRequest{
+		Type: old_proxy.STATUS,
 		Ch:   answerCh,
 	}
 
@@ -168,16 +168,16 @@ func benchmarkPrivateWorker_HandleRequest_Login_Online_StateUpdate(b *testing.B,
 	serverCfg := serverWorkerCfg
 	serverCfg.ProxyTo = testAddr
 	serverCfg.StateUpdateCooldown = stateCooldown
-	privateWorker := proxy.NewPrivateWorker(0, serverCfg)
+	privateWorker := old_proxy.NewPrivateWorker(0, serverCfg)
 
-	req := proxy.McRequest{
-		Type: proxy.LOGIN,
+	req := old_proxy.McRequest{
+		Type: old_proxy.LOGIN,
 	}
 
 	benchmarkPrivateWorker_HandleRequest_Online(b, privateWorker, req, testAddr)
 }
 
-func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.PrivateWorker, req proxy.McRequest, addr string) {
+func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker old_proxy.PrivateWorker, req old_proxy.McRequest, addr string) {
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		b.Fatal(err)
@@ -195,10 +195,10 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 	}
 }
 
-// func basicWorkerServerConfigMap(cfgs []config.ServerConfig) map[string]proxy.WorkerServerConfig {
-// 	servers := make(map[string]proxy.WorkerServerConfig)
+// func basicWorkerServerConfigMap(cfgs []config.ServerConfig) map[string]old_proxy.WorkerServerConfig {
+// 	servers := make(map[string]old_proxy.WorkerServerConfig)
 // 	for _, cfg := range cfgs {
-// 		workerCfg := proxy.FileToWorkerConfig(cfg)
+// 		workerCfg := old_proxy.FileToWorkerConfig(cfg)
 // 		servers[cfg.MainDomain] = workerCfg
 // 		for _, extraDomains := range cfg.ExtraDomains {
 // 			servers[extraDomains] = workerCfg
@@ -241,8 +241,8 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // }
 
 // func benchmarkStatusWorker_StatusRequest_OfflineServer_WithConnWorker(b *testing.B, dialTime, cooldown string) {
-// 	connCh := make(chan proxy.ConnRequest)
-// 	statusCh := make(chan proxy.StatusRequest)
+// 	connCh := make(chan old_proxy.ConnRequest)
+// 	statusCh := make(chan old_proxy.StatusRequest)
 // 	serverCfgs := basicServerCfgs
 // 	for _, cfg := range serverCfgs {
 // 		cfg.DialTimeout = dialTime
@@ -250,11 +250,11 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // 	}
 // 	servers := basicWorkerServerConfigMap(serverCfgs)
 
-// 	proxy.RunConnWorkers(10, connCh, statusCh, servers)
-// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-// 	req := proxy.StatusRequest{
+// 	old_proxy.RunConnWorkers(10, connCh, statusCh, servers)
+// 	statusWorker := old_proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := old_proxy.StatusRequest{
 // 		ServerId: "uv1",
-// 		Type:     proxy.STATUS_REQUEST,
+// 		Type:     old_proxy.STATUS_REQUEST,
 // 	}
 // 	b.ResetTimer()
 // 	b.ReportAllocs()
@@ -264,14 +264,14 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // }
 
 // func BenchmarkStatusWorker_StatusUpdate_To_Online(b *testing.B) {
-// 	connCh := make(chan proxy.ConnRequest)
-// 	statusCh := make(chan proxy.StatusRequest)
+// 	connCh := make(chan old_proxy.ConnRequest)
+// 	statusCh := make(chan old_proxy.StatusRequest)
 // 	servers := basicWorkerServerConfigMap(basicServerCfgs)
-// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-// 	req := proxy.StatusRequest{
+// 	statusWorker := old_proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := old_proxy.StatusRequest{
 // 		ServerId: "uv1",
-// 		Type:     proxy.STATE_UPDATE,
-// 		State:    proxy.ONLINE,
+// 		Type:     old_proxy.STATE_UPDATE,
+// 		State:    old_proxy.ONLINE,
 // 	}
 
 // 	b.ResetTimer()
@@ -281,16 +281,16 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // }
 
 // func BenchmarkStatusWorker_StatusUpdate_To_Online_CHANNEL(b *testing.B) {
-// 	connCh := make(chan proxy.ConnRequest)
-// 	statusCh := make(chan proxy.StatusRequest)
+// 	connCh := make(chan old_proxy.ConnRequest)
+// 	statusCh := make(chan old_proxy.StatusRequest)
 // 	servers := basicWorkerServerConfigMap(basicServerCfgs)
-// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	statusWorker := old_proxy.NewStatusWorker(statusCh, connCh, servers)
 // 	go statusWorker.Work()
 
-// 	req := proxy.StatusRequest{
+// 	req := old_proxy.StatusRequest{
 // 		ServerId: "uv1",
-// 		Type:     proxy.STATE_UPDATE,
-// 		State:    proxy.ONLINE,
+// 		Type:     old_proxy.STATE_UPDATE,
+// 		State:    old_proxy.ONLINE,
 // 	}
 
 // 	b.ResetTimer()
@@ -300,14 +300,14 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // }
 
 // func BenchmarkStatusWorker_StatusUpdate_To_Offline(b *testing.B) {
-// 	connCh := make(chan proxy.ConnRequest)
-// 	statusCh := make(chan proxy.StatusRequest)
+// 	connCh := make(chan old_proxy.ConnRequest)
+// 	statusCh := make(chan old_proxy.StatusRequest)
 // 	servers := basicWorkerServerConfigMap(basicServerCfgs)
-// 	statusWorker := proxy.NewStatusWorker(statusCh, connCh, servers)
-// 	req := proxy.StatusRequest{
+// 	statusWorker := old_proxy.NewStatusWorker(statusCh, connCh, servers)
+// 	req := old_proxy.StatusRequest{
 // 		ServerId: "uv4",
-// 		Type:     proxy.STATE_UPDATE,
-// 		State:    proxy.OFFLINE,
+// 		Type:     old_proxy.STATE_UPDATE,
+// 		State:    old_proxy.OFFLINE,
 // 	}
 
 // 	b.ResetTimer()
@@ -317,28 +317,28 @@ func benchmarkPrivateWorker_HandleRequest_Online(b *testing.B, pWorker proxy.Pri
 // }
 
 func BenchmarkWorkerStatusRequest_KnownServer_Offline_CHANNEL(b *testing.B) {
-	req := proxy.McRequest{
+	req := old_proxy.McRequest{
 		ServerAddr: "something",
-		Type:       proxy.STATUS,
+		Type:       old_proxy.STATUS,
 	}
 	benchmarkWorker(b, req)
 }
 func BenchmarkWorkerStatusRequest_UnknownServer_CHANNEL(b *testing.B) {
-	req := proxy.McRequest{
+	req := old_proxy.McRequest{
 		ServerAddr: "something",
-		Type:       proxy.STATUS,
+		Type:       old_proxy.STATUS,
 	}
 	benchmarkWorker(b, req)
 }
 
-func benchmarkWorker(b *testing.B, req proxy.McRequest) {
+func benchmarkWorker(b *testing.B, req old_proxy.McRequest) {
 	cfg := basicBenchUVConfig(b, 1)
 	servers := basicServerCfgs
-	reqCh := make(chan proxy.McRequest)
-	gateway := proxy.NewGateway()
+	reqCh := make(chan old_proxy.McRequest)
+	gateway := old_proxy.NewGateway()
 	gateway.StartWorkers(cfg, servers, reqCh)
 
-	answerCh := make(chan proxy.McAnswer)
+	answerCh := make(chan old_proxy.McAnswer)
 	req.Ch = answerCh
 
 	b.ResetTimer()
@@ -361,14 +361,14 @@ func benchmarkWorker(b *testing.B, req proxy.McRequest) {
 // 		},
 // 	}
 // 	servers := []config.ServerConfig{}
-// 	reqCh := make(chan proxy.McRequest)
+// 	reqCh := make(chan old_proxy.McRequest)
 // 	ln, err := net.Listen("tcp", targetAddr)
 // 	if err != nil {
 // 		b.Fatalf("Can't listen: %v", err)
 // 	}
-// 	go proxy.ServeListener(ln, reqCh)
+// 	go old_proxy.ServeListener(ln, reqCh)
 
-// 	proxy.SetupWorkers(cfg, servers, reqCh, nil)
+// 	old_proxy.SetupWorkers(cfg, servers, reqCh, nil)
 
 // 	handshakePk := mc.ServerBoundHandshake{
 // 		ProtocolVersion: 755,

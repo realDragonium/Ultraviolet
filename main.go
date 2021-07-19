@@ -2,16 +2,12 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"log"
-	"os"
-	"os/signal"
+	"net"
 	"path/filepath"
-	"syscall"
 
-	"github.com/cloudflare/tableflip"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/proxy"
+	"github.com/realDragonium/Ultraviolet/old_proxy"
 )
 
 var (
@@ -22,9 +18,8 @@ var (
 )
 
 func main() {
-	log.Printf("Starting up Alpha-v0.%d", 7)
+	log.Printf("Starting up Alpha-v0.%d", 9)
 	var (
-		pidFile        = flag.String("pid-file", "/run/ultraviolet.pid", "`Path` to pid file")
 		mainCfgPath    = flag.String("config", defaultUltravioletCfgPath, "`Path` to main config file")
 		serverCfgsPath = flag.String("server-configs", defaultServerCfgPath, "`Path` to server config files")
 	)
@@ -38,42 +33,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("Something went wrong while reading config files: %v", err)
 	}
-	reqCh := make(chan proxy.McRequest)
-	gateway := proxy.NewGateway()
+	reqCh := make(chan old_proxy.McRequest)
+	gateway := old_proxy.NewGateway()
 	gateway.StartWorkers(mainCfg, serverCfgs, reqCh)
-
-	log.SetPrefix(fmt.Sprintf("%d ", os.Getpid()))
-	upg, err := tableflip.New(tableflip.Options{
-		PIDFile: *pidFile,
-	})
-	if err != nil {
-		panic(err)
-	}
-	defer upg.Stop()
-	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGHUP)
-		for range sig {
-			err := upg.Upgrade()
-			if err != nil {
-				log.Println("upgrade failed:", err)
-			}
-		}
-	}()
-
-	ln, err := upg.Listen("tcp", mainCfg.ListenTo)
+	ln, err := net.Listen("tcp", mainCfg.ListenTo)
 	if err != nil {
 		log.Fatalf("Can't listen: %v", err)
 	}
 	defer ln.Close()
-	go proxy.ServeListener(ln, reqCh)
+	go old_proxy.ServeListener(ln, reqCh)
 
 	log.Printf("Finished starting up")
-	if err := upg.Ready(); err != nil {
-		panic(err)
-	}
-	<-upg.Exit()
-	log.Println("Waiting for all open connections to close before shutting down")
-	gateway.Shutdown()
-	log.Println("Shutting down")
+	select {}
 }

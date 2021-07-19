@@ -204,3 +204,69 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	}
 	return privkey
 }
+
+func FileToWorkerConfig2(cfg ServerConfig) (WorkerServerConfig2, error) {
+	var privateKey *ecdsa.PrivateKey
+	if cfg.NewRealIP {
+		var err error
+		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
+		if errors.Is(err, os.ErrNotExist) {
+			//Check or there is already one generate or save the generated path
+			// TODO: IMPROVE THIS
+			if key, ok := existingGeneratedKey(cfg); ok {
+				privateKey = key
+			} else {
+				log.Printf("No existing key for %s has been found, generating one...", cfg.Domains[0])
+				privateKey = generateKeys(cfg)
+			}
+		} else if err != nil {
+			log.Printf("error during reading of private key: %v", err)
+		}
+	}
+	disconPk := mc.ClientBoundDisconnect{
+		Reason: mc.Chat(cfg.DisconnectMessage),
+	}.Marshal()
+	offlineStatusPk := cfg.OfflineStatus.Marshal()
+	duration, _ := time.ParseDuration(cfg.RateDuration)
+	if duration == 0 {
+		duration = time.Second
+	}
+	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
+	if cooldown == 0 {
+		cooldown = time.Second
+	}
+	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
+	if dialTimeout == 0 {
+		dialTimeout = time.Second
+	}
+	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
+	if cacheCooldown == 0 {
+		cacheCooldown = time.Second
+	}
+	offlineBytes, err := offlineStatusPk.Marshal()
+	if err != nil {
+		return WorkerServerConfig2{}, err
+	}
+	disconBytes, err := disconPk.Marshal()
+	if err != nil {
+		return WorkerServerConfig2{}, err
+	}
+	return WorkerServerConfig2{
+		ProxyTo:             cfg.ProxyTo,
+		ProxyBind:           cfg.ProxyBind,
+		DialTimeout:         dialTimeout,
+		SendProxyProtocol:   cfg.SendProxyProtocol,
+		CacheStatus:         cfg.CacheStatus,
+		ValidProtocol:       cfg.ValidProtocol,
+		CacheUpdateCooldown: cacheCooldown,
+		OfflineStatus:       offlineBytes,
+		DisconnectPacket:    disconBytes,
+		RateLimit:           cfg.RateLimit,
+		RateLimitStatus:     cfg.RateLimitStatus,
+		RateLimitDuration:   duration,
+		StateUpdateCooldown: cooldown,
+		OldRealIp:           cfg.OldRealIP,
+		NewRealIP:           cfg.NewRealIP,
+		RealIPKey:           privateKey,
+	}, nil
+}

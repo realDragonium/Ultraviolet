@@ -59,3 +59,23 @@ type WorkerServerConfig struct {
 	RateLimitStatus     bool
 	RateLimitDuration   time.Duration
 }
+
+type WorkerServerConfig2 struct {
+	StateUpdateCooldown time.Duration
+	OldRealIp           bool
+	NewRealIP           bool
+	RealIPKey           *ecdsa.PrivateKey
+	CacheStatus         bool
+	CacheUpdateCooldown time.Duration
+	ValidProtocol       int
+	OfflineStatus       []byte
+	DisconnectPacket    []byte
+	ProxyTo             string
+	ProxyBind           string
+	DialTimeout         time.Duration
+	SendProxyProtocol   bool
+	RateLimit           int
+	RateLimitStatus     bool
+	RateLimitDuration   time.Duration
+}
+
