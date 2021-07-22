@@ -3,8 +3,6 @@ package server
 import (
 	"crypto/ecdsa"
 	"errors"
-	"io"
-	"log"
 	"net"
 	"time"
 
@@ -89,11 +87,12 @@ func (state ServerState) String() string {
 }
 
 type BackendRequest struct {
-	Type      mc.HandshakeState
-	Handshake mc.ServerBoundHandshake
-	Addr      net.Addr
-	Client    net.Conn
-	Ch        chan ProcessAnswer
+	Type       mc.HandshakeState
+	Handshake  mc.ServerBoundHandshake
+	ServerAddr string
+	Addr       net.Addr
+	Username   string
+	Ch         chan ProcessAnswer
 }
 
 type ProcessAnswer struct {
@@ -104,6 +103,44 @@ type ProcessAnswer struct {
 
 	firstPacket  []byte
 	secondPacket []byte
+}
+
+func NewDisconnectAnswer(p []byte) ProcessAnswer {
+	return ProcessAnswer{
+		action:      DISCONNECT,
+		firstPacket: p,
+	}
+}
+
+func NewStatusAnswer(p []byte) ProcessAnswer {
+	return ProcessAnswer{
+		action:      SEND_STATUS,
+		firstPacket: p,
+	}
+}
+
+func NewStatusLatencyAnswer(p []byte, latency time.Duration) ProcessAnswer {
+	return ProcessAnswer{
+		action:      SEND_STATUS,
+		firstPacket: p,
+		latency:     latency,
+	}
+}
+
+func NewProxyAnswer(p1, p2 []byte, proxyCh chan ProxyAction, connFunc func() (net.Conn, error)) ProcessAnswer {
+	return ProcessAnswer{
+		action:         PROXY,
+		serverConnFunc: connFunc,
+		firstPacket:    p1,
+		secondPacket:   p2,
+		proxyCh:        proxyCh,
+	}
+}
+
+func NewCloseAnswer() ProcessAnswer {
+	return ProcessAnswer{
+		action: CLOSE,
+	}
 }
 
 func (ans ProcessAnswer) ServerConn() (net.Conn, error) {
@@ -181,7 +218,7 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig2) BackendWorke
 		statusCache:       cfg.CacheStatus,
 		statusCooldown:    cfg.CacheUpdateCooldown,
 		offlineStatus:     cfg.OfflineStatus,
-		stateUpdateCh:     make(chan ServerState,1),
+		stateUpdateCh:     make(chan ServerState, 1),
 		disconnectMsg:     cfg.DisconnectPacket,
 		serverConnFactory: createConnFeature,
 		statusHandshake:   hsByte,
@@ -229,7 +266,6 @@ func (worker *BackendWorker) Work() {
 		case req := <-worker.ReqCh:
 			ans := worker.HandleRequest(req)
 			req.Ch <- ans
-			// worker.ProcessResponse(req, ans)
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
 		}
@@ -307,39 +343,6 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 	}
 }
 
-func (worker *BackendWorker) ProcessResponse(req BackendRequest, ans ProcessAnswer) {
-	switch ans.action {
-	case PROXY:
-		proxy := ProxySomething{
-			client:         req.Client,
-			proxyCh:        worker.proxyCh,
-			serverConnFunc: ans.serverConnFunc,
-			hs:             ans.firstPacket,
-			otherPacket:    ans.secondPacket,
-		}
-		go proxy.ProxyBlindy()
-	case DISCONNECT:
-		req.Client.Write(ans.Response())
-		req.Client.Close()
-	case SEND_STATUS:
-		req.Client.Write(ans.Response())
-		readBuf := make([]byte, 128)
-		_, err := req.Client.Read(readBuf)
-		if err != nil {
-			req.Client.Close()
-			return
-		}
-		if ans.Latency() != 0 {
-			time.Sleep(ans.Latency())
-		}
-		req.Client.Write(readBuf[:])
-		req.Client.Close()
-	case CLOSE:
-		req.Client.Close()
-	}
-
-}
-
 func (worker *BackendWorker) updateServerState() {
 	connFunc := worker.serverConnFactory(&net.IPAddr{})
 	_, err := connFunc()
@@ -379,75 +382,4 @@ func (worker *BackendWorker) updateCacheStatus() {
 	worker.statusLatency = time.Since(beginTime) / 2
 	conn.Close()
 	worker.statusCacheTime = time.Now()
-}
-
-type ProxySomething struct {
-	client         net.Conn
-	serverConnFunc func() (net.Conn, error)
-	proxyCh        chan ProxyAction
-	hs             []byte
-	otherPacket    []byte
-	requestType    mc.HandshakeState
-}
-
-func (proxy ProxySomething) ProxyBlindy() {
-	sConn, err := proxy.serverConnFunc()
-	if err != nil {
-		log.Printf("Err when creating server connection: %v", err)
-		proxy.client.Close()
-		return
-	}
-	sConn.Write(proxy.hs)
-	switch proxy.requestType {
-	case mc.LOGIN:
-		sConn.Write(proxy.otherPacket)
-		go func(client, server net.Conn, proxyCh chan ProxyAction) {
-			ProxyLogin(client, server, proxyCh)
-		}(proxy.client, sConn, proxy.proxyCh)
-	case mc.STATUS:
-		// For some unknown reason if we dont send this here
-		//  its goes wrong with proxying status requests
-		sConn.Write(proxy.otherPacket)
-		go func(client, server net.Conn, proxyCh chan ProxyAction) {
-			ProxyStatus(client, server, proxyCh)
-		}(proxy.client, sConn, proxy.proxyCh)
-	}
-
-}
-
-func ProxyLogin(client, server net.Conn, proxyCh chan ProxyAction) {
-	proxyCh <- PROXY_OPEN
-	// Close behavior doesnt seem to work that well
-	go func() {
-		io.Copy(server, client)
-		client.Close()
-	}()
-	io.Copy(client, server)
-	server.Close()
-	proxyCh <- PROXY_CLOSE
-}
-
-func ProxyStatus(client, server net.Conn, proxyCh chan ProxyAction) {
-	proxyCh <- PROXY_OPEN
-	go func() {
-		pipe(server, client)
-		client.Close()
-	}()
-	pipe(client, server)
-	server.Close()
-	proxyCh <- PROXY_CLOSE
-}
-
-func pipe(c1, c2 net.Conn) {
-	buffer := make([]byte, 0xffff)
-	for {
-		n, err := c1.Read(buffer)
-		if err != nil {
-			return
-		}
-		_, err = c2.Write(buffer[:n])
-		if err != nil {
-			return
-		}
-	}
 }

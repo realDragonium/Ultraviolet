@@ -79,3 +79,8 @@ type WorkerServerConfig2 struct {
 	RateLimitDuration   time.Duration
 }
 
+type WorkerConfig struct {
+	ListenTo        string          `json:"listenTo"`
+	DefaultStatus   mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers int             `json:"numberOfWorkers"`
+}

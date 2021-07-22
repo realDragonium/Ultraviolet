@@ -15,10 +15,36 @@ import (
 type HandshakeState byte
 
 const (
-	UNKNOWN HandshakeState = iota
+	UNKNOWN_STATE HandshakeState = iota
 	STATUS
 	LOGIN
 )
+
+func RequestState(n int) HandshakeState {
+	var t HandshakeState
+	switch n {
+	case 1:
+		t = STATUS
+	case 2:
+		t = LOGIN
+	default:
+		t = UNKNOWN_STATE
+	}
+	return t
+}
+
+func (t HandshakeState) String() string {
+	var text string
+	switch t {
+	case UNKNOWN_STATE:
+		text = "Unknown"
+	case STATUS:
+		text = "Status"
+	case LOGIN:
+		text = "Login"
+	}
+	return text
+}
 
 type McTypesHandshake struct {
 	ProtocolVersion VarInt
@@ -135,7 +161,7 @@ func (hs ServerBoundHandshake) State() HandshakeState {
 	case 2:
 		state = LOGIN
 	default:
-		state = UNKNOWN
+		state = UNKNOWN_STATE
 	}
 	return state
 }

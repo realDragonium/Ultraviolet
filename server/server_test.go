@@ -25,7 +25,7 @@ import (
 
 var (
 	defaultChTimeout = 10 * time.Millisecond
-	longerChTimeout  = 100 * time.Millisecond
+	longerChTimeout  =  defaultChTimeout * 2
 )
 
 var LoginStatusTestCases = []struct {
@@ -568,7 +568,7 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 			}
 			sendRequest_TestTimeout(t, reqCh, req)
 			connCh, _ := createListener(t, targetAddr)
-			time.Sleep(defaultChTimeout * 2)
+			time.Sleep(longerChTimeout)
 			sendRequest_IgnoreResult(reqCh, req)
 			select {
 			case <-connCh: // receiving the state call
