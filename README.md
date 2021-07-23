@@ -3,7 +3,7 @@
 - Tableflip has been removed and all related features  
 
 ## What is it
-Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra lightweight Minecraft reverse proxy written in Go. Not even sure or this will be a production ready software some day, its mostly a different structure I want to try and see what kind of effect it has on performance and such. It should work most of the time, although there isnt much code/features dedicated to prevent some mistakes from happening or which can recover when certain errors occur.
+Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra lightweight Minecraft reverse proxy written in Go. Not even sure or this will be a production ready software some day, its mostly a different structure I want to try and see what kind of effect it has on performance and such. It should work most of the time, although there isnt much code/features dedicated to prevent some mistakes from happening or which can recover when certain errors occurs.
 
 
 ## Some notes
@@ -26,8 +26,10 @@ go build
 Im not planning on writing code to prevent Ultraviolet from crashing if you did something stupid. If the config wants a timeout time and you put in a negative number that may or may not cause some issues and that is your own fault. 
 
 ## Command-Line Flags
-`-config` specifies the path to the main config [default: `"/etc/ultraviolet/ultraviolet.json"`]  
-`-server-configs` specifies the path to all your server configs [default: `"/etc/ultraviolet/config/"`]
+`-configs` specifies the path to the config directory [default: `"/etc/ultraviolet/"`]  
+
+The main config file needs have the name `ultraviolet.json`.  
+Every server config needs to be in a directory called `config` and end it needs to end with `.json` 
 
 ## How does some stuff work
 ### rate limiting
@@ -68,7 +70,6 @@ Why is is doing this? This way Ultraviolet doesnt have to wait everytime someone
 |disconnectMessage|-|The message a user will get when its tries to connect to a offline server|
 |offlineStatus|[this](#status-config-value)|The status it will send the player when the server is offline.|
 |rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.|
-|rateLimitStatus|false|Turning this on will result into status requests also counting towards created connections to the backend.| 
 |rateCooldown|1s|rateCooldown is the time which it will take before the rateLimit will be reset.|
 |stateUpdateCooldown|1s|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
 |cacheStatus|false|Turn on or off whether it should cache the online cache of the server. If the server is recognized as `OFFLINE` it will send the offline status to the player.|

@@ -25,7 +25,7 @@ import (
 
 var (
 	defaultChTimeout = 10 * time.Millisecond
-	longerChTimeout  =  defaultChTimeout * 2
+	longerChTimeout  = defaultChTimeout * 2
 )
 
 var LoginStatusTestCases = []struct {
@@ -91,6 +91,17 @@ func setupServer(t *testing.T, serverCfgs config.ServerConfig) chan<- server.Bac
 		t.Fatalf("error during starting up: %v", err)
 	}
 	return ch
+}
+
+func setupBasicBackendWorker(t *testing.T, serverCfg config.ServerConfig) chan<- server.BackendRequest {
+	workerServerCfg, err := config.FileToWorkerConfig2(serverCfg)
+	if err != nil {
+		t.Fatalf("error encounterd: %v", err)
+		return nil
+	}
+	serverWorker := server.NewBasicBackendWorker(0, workerServerCfg)
+	go serverWorker.Work()
+	return serverWorker.ReqCh
 }
 
 func sendRequest_TestTimeout(t *testing.T, reqCh chan<- server.BackendRequest, req server.BackendRequest) server.ProcessAnswer {
@@ -162,7 +173,25 @@ func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
 	return connCh, errorCh
 }
 
-func TestKnownAddr_OfflineServer(t *testing.T) {
+type workerFunc func(t *testing.T, serverCfg config.ServerConfig) chan<- server.BackendRequest
+
+var backendWorker workerFunc = func(t *testing.T, serverCfg config.ServerConfig) chan<- server.BackendRequest {
+	return setupServer(t, serverCfg)
+}
+
+var basicBackendWorker workerFunc = func(t *testing.T, serverCfg config.ServerConfig) chan<- server.BackendRequest {
+	return setupBasicBackendWorker(t, serverCfg)
+}
+
+func TestBackendWorker_OfflineServer(t *testing.T) {
+	testOfflineServer(t, backendWorker)
+}
+
+func TestBasicBackendWorker_OfflineServer(t *testing.T) {
+	testOfflineServer(t, basicBackendWorker)
+}
+
+func testOfflineServer(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -179,7 +208,7 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 				Type: tc.reqType,
 			}
 			offlineStatusPk := defaultOfflineStatusPacket()
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.offlineAction {
 				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action())
@@ -203,7 +232,15 @@ func TestKnownAddr_OfflineServer(t *testing.T) {
 	}
 }
 
-func TestKnownAddr_OnlineServer(t *testing.T) {
+func TestBackendWorker_OnlineServer(t *testing.T) {
+	testOnlineServer(t, backendWorker)
+}
+
+func TestBasicBackendWorker_OnlineServer(t *testing.T) {
+	testOnlineServer(t, basicBackendWorker)
+}
+
+func testOnlineServer(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -216,7 +253,7 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 				Type: tc.reqType,
 			}
 			createListener(t, targetAddr)
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.onlineAction {
 				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
@@ -230,8 +267,15 @@ func TestKnownAddr_OnlineServer(t *testing.T) {
 	}
 }
 
-// Add new RealIP proxy
-func TestKnownAddr_OldRealIPProxy(t *testing.T) {
+func TestBackendWorker_OldRealIPProxy(t *testing.T) {
+	testOldRealIPProxy(t, backendWorker)
+}
+
+func TestBasicBackendWorker_OldRealIPProxy(t *testing.T) {
+	testOldRealIPProxy(t, basicBackendWorker)
+}
+
+func testOldRealIPProxy(t *testing.T, createWorker workerFunc) {
 	serverAddr := "ultraviolet"
 	targetAddr := testAddr()
 	serverCfg := config.ServerConfig{
@@ -250,7 +294,7 @@ func TestKnownAddr_OldRealIPProxy(t *testing.T) {
 		},
 	}
 	createListener(t, targetAddr)
-	reqCh := setupServer(t, serverCfg)
+	reqCh := createWorker(t, serverCfg)
 	answer := sendRequest_TestTimeout(t, reqCh, req)
 	if answer.Action() != server.PROXY {
 		t.Fatalf("expected: %v \ngot: %v", server.PROXY, answer.Action())
@@ -270,9 +314,15 @@ func TestKnownAddr_OldRealIPProxy(t *testing.T) {
 	}
 }
 
-// Add new RealIP proxy
-func TestKnownAddr_NewRealIPProxy(t *testing.T) {
-	// Create Key file
+func TestBackendWorker_NewRealIP(t *testing.T) {
+	testNewRealIPProxy(t, backendWorker)
+}
+
+func TestBasicBackendWorker_NewRealIP(t *testing.T) {
+	testNewRealIPProxy(t, basicBackendWorker)
+}
+
+func testNewRealIPProxy(t *testing.T, createWorker workerFunc) {
 	privKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatalf("got error: %v", err)
@@ -314,7 +364,7 @@ func TestKnownAddr_NewRealIPProxy(t *testing.T) {
 		},
 	}
 	createListener(t, targetAddr)
-	reqCh := setupServer(t, serverCfg)
+	reqCh := createWorker(t, serverCfg)
 	answer := sendRequest_TestTimeout(t, reqCh, req)
 	if answer.Action() != server.PROXY {
 		t.Fatalf("expected: %v \ngot: %v", server.PROXY, answer.Action())
@@ -334,7 +384,15 @@ func TestKnownAddr_NewRealIPProxy(t *testing.T) {
 	}
 }
 
-func TestProxyBind(t *testing.T) {
+func TestBackendWorker_ProxyBind(t *testing.T) {
+	testProxyBind(t, backendWorker)
+}
+
+func TestBasicBackendWorker_ProxyBind(t *testing.T) {
+	testProxyBind(t, basicBackendWorker)
+}
+
+func testProxyBind(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -350,7 +408,7 @@ func TestProxyBind(t *testing.T) {
 			}
 
 			go func() {
-				reqCh := setupServer(t, serverCfg)
+				reqCh := createWorker(t, serverCfg)
 				answer := sendRequest_TestTimeout(t, reqCh, req)
 				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
@@ -376,7 +434,15 @@ func TestProxyBind(t *testing.T) {
 	}
 }
 
-func TestProxyProtocol(t *testing.T) {
+func TestBackendWorker_ProxyProtocol(t *testing.T) {
+	testProxyProtocol(t, backendWorker)
+}
+
+func TestBasicBackendWorker_ProxyProtocol(t *testing.T) {
+	testProxyProtocol(t, basicBackendWorker)
+}
+
+func testProxyProtocol(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -413,7 +479,7 @@ func TestProxyProtocol(t *testing.T) {
 			}()
 
 			go func() {
-				reqCh := setupServer(t, serverCfg)
+				reqCh := createWorker(t, serverCfg)
 				answer := sendRequest_TestTimeout(t, reqCh, req)
 				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
@@ -434,7 +500,15 @@ func TestProxyProtocol(t *testing.T) {
 	}
 }
 
-func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
+func TestBackendWorker_RateLimit(t *testing.T) {
+	testProxy_ManyRequestsWillRateLimit(t, backendWorker)
+}
+
+func TestBasicBackendWorker_RateLimit(t *testing.T) {
+	testProxy_ManyRequestsWillRateLimit(t, basicBackendWorker)
+}
+
+func testProxy_ManyRequestsWillRateLimit(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -448,7 +522,7 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 				RateLimitStatus: true,
 				RateDuration:    rateLimitDuration.String(),
 			}
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
 				Type: tc.reqType,
 			}
@@ -458,13 +532,21 @@ func TestProxy_ManyRequestsWillRateLimit(t *testing.T) {
 			}
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.rateLimitAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.rateLimitAction, answer.Action())
+				t.Fatalf("expected: %v - got: %v", tc.rateLimitAction, answer.Action())
 			}
 		})
 	}
 }
 
-func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
+func TestBackendWorker_RateLimit2(t *testing.T) {
+	testProxy_WillAllowNewConn_AfterDurationEnded(t, backendWorker)
+}
+
+func TestBasicBackendWorker_RateLimit2(t *testing.T) {
+	testProxy_WillAllowNewConn_AfterDurationEnded(t, basicBackendWorker)
+}
+
+func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -478,7 +560,7 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 				RateLimitStatus: true,
 				RateDuration:    rateLimitDuration.String(),
 			}
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
 				Type: tc.reqType,
 			}
@@ -496,7 +578,15 @@ func TestProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T) {
 	}
 }
 
-func TestProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T) {
+func TestBackendWorker_NotRateLimitStatus(t *testing.T) {
+	testProxy_ManyRequestsWillNotRateLimitStatus(t, backendWorker)
+}
+
+func TestBasicBackendWorker_NotRateLimitStatus(t *testing.T) {
+	testProxy_ManyRequestsWillNotRateLimitStatus(t, basicBackendWorker)
+}
+
+func testProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T, createWorker workerFunc) {
 	serverAddr := "ultraviolet"
 	targetAddr := testAddr()
 	rateLimit := 3
@@ -508,7 +598,7 @@ func TestProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T) {
 		RateLimitStatus: false,
 		RateDuration:    rateLimitDuration.String(),
 	}
-	reqCh := setupServer(t, serverCfg)
+	reqCh := createWorker(t, serverCfg)
 	req := server.BackendRequest{
 		Type: mc.STATUS,
 	}
@@ -522,7 +612,15 @@ func TestProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T) {
 	}
 }
 
-func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
+func TestBackendWorker_State(t *testing.T) {
+	testOfflineServer(t, backendWorker)
+}
+
+func TestBasicBackendWorker_State(t *testing.T) {
+	testServerState_DoesntCallBeforeCooldownIsOver(t, basicBackendWorker)
+}
+
+func testServerState_DoesntCallBeforeCooldownIsOver(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -533,7 +631,7 @@ func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 				ProxyTo:             targetAddr,
 				StateUpdateCooldown: updateCooldown.String(),
 			}
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
 				Type: tc.reqType,
 			}
@@ -550,7 +648,15 @@ func TestServerState_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 	}
 }
 
-func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
+func TestBackendWorker_StateOutOfCooldown(t *testing.T) {
+	testServerState_ShouldCallAgainOutOfCooldown(t, backendWorker)
+}
+
+func TestBasicBackendWorker_StateOutOfCooldown(t *testing.T) {
+	testServerState_ShouldCallAgainOutOfCooldown(t, basicBackendWorker)
+}
+
+func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker workerFunc) {
 	for _, tc := range LoginStatusTestCases {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
@@ -562,7 +668,7 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 				StateUpdateCooldown: updateCooldown.String(),
 				DialTimeout:         "1s",
 			}
-			reqCh := setupServer(t, serverCfg)
+			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
 				Type: tc.reqType,
 			}
@@ -580,7 +686,15 @@ func TestServerState_ShouldCallAgainOutOfCooldown(t *testing.T) {
 	}
 }
 
-func TestStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T) {
+func TestBackendWorker_StatusCache(t *testing.T) {
+	testStatusCache_DoesntCallBeforeCooldownIsOver(t, backendWorker)
+}
+
+func TestBasicBackendWorker_StatusCache(t *testing.T) {
+	testStatusCache_DoesntCallBeforeCooldownIsOver(t, basicBackendWorker)
+}
+
+func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, createWorker workerFunc) {
 	serverAddr := "ultraviolet"
 	targetAddr := testAddr()
 	cacheCooldown := time.Minute
@@ -591,7 +705,7 @@ func TestStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 		CacheUpdateCooldown: cacheCooldown.String(),
 		StateUpdateCooldown: cacheCooldown.String(),
 	}
-	reqCh := setupServer(t, serverCfg)
+	reqCh := createWorker(t, serverCfg)
 	answerCh := make(chan server.ProcessAnswer)
 	req := server.BackendRequest{
 		Type: mc.STATUS,
@@ -618,7 +732,15 @@ func TestStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T) {
 	}
 }
 
-func TestStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T) {
+func TestBackendWorker_StatusCacheOutOfCooldown(t *testing.T) {
+	testStatusCache_ShouldCallAgainOutOfCooldown(t, backendWorker)
+}
+
+func TestBasicBackendWorker_StatusCacheOutOfCooldown(t *testing.T) {
+	testStatusCache_ShouldCallAgainOutOfCooldown(t, basicBackendWorker)
+}
+
+func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker workerFunc) {
 	statusPacket := mc.SimpleStatus{
 		Name:        "UV",
 		Protocol:    700,
@@ -634,7 +756,7 @@ func TestStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T) {
 		StateUpdateCooldown: time.Minute.String(),
 		CacheUpdateCooldown: updateCooldown.String(),
 	}
-	reqCh := setupServer(t, serverCfg)
+	reqCh := createWorker(t, serverCfg)
 	answerCh := make(chan server.ProcessAnswer)
 	req := server.BackendRequest{
 		Type: mc.STATUS,

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"log"
 	"net"
@@ -12,13 +13,40 @@ import (
 )
 
 const (
-	maxHandshakeLength int = 264 // 264 -> 'max handshake packet length' + 1 
+	maxHandshakeLength int = 264 // 264 -> 'max handshake packet length' + 1
 	// packetLength:2 + packet ID: 1 + protocol version:2 + max string length:255 + port:2 + state: 1 -> 2+1+2+255+2+1 = 263
 )
 
-func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig, reqCh chan net.Conn) {
+func ServeListener(listener net.Listener, reqCh chan net.Conn) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Printf("net.Listener was closed, stopping with accepting calls")
+				break
+			}
+			log.Println(err)
+			continue
+		}
+		reqCh <- conn
+	}
+}
+
+func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
+	reqCh := make(chan net.Conn, 1000)
 	if cfg.LogOutput != nil {
 		log.SetOutput(cfg.LogOutput)
+	}
+
+	ln, err := net.Listen("tcp", cfg.ListenTo)
+	if err != nil {
+		log.Fatalf("Can't listen: %v", err)
+	}
+
+	for i := 0; i < cfg.NumberOfListeners; i++ {
+		go func(listener net.Listener, reqCh chan net.Conn) {
+			ServeListener(listener, reqCh)
+		}(ln, reqCh)
 	}
 
 	statusPk := cfg.DefaultStatus.Marshal()
@@ -29,7 +57,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	serverDict := make(map[string]chan BackendRequest)
 	for id, serverCfg := range serverCfgs {
 		workerServerCfg, _ := config.FileToWorkerConfig2(serverCfg)
-		serverWorker := NewBackendWorker(id, workerServerCfg)
+		serverWorker := NewBasicBackendWorker(id, workerServerCfg)
 
 		for _, domain := range serverCfg.Domains {
 			serverDict[domain] = serverWorker.ReqCh
@@ -37,7 +65,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 		go serverWorker.Work()
 	}
 
-	router := BasicWorker{
+	worker := BasicWorker{
 		ReqCh:         reqCh,
 		defaultStatus: defaultStatus,
 		serverDict:    serverDict,
@@ -46,7 +74,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
 		go func(worker BasicWorker) {
 			worker.Work()
-		}(router)
+		}(worker)
 	}
 }
 
@@ -94,6 +122,7 @@ func (r *BasicWorker) Work() {
 			return
 		}
 		ans = r.ProcessRequest(req)
+		log.Printf("%v - with type %v will take action: %v", conn.RemoteAddr(), req.Type, ans.action)
 		r.ProcessAnswer(conn, ans)
 	}
 }

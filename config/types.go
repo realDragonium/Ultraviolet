@@ -34,11 +34,25 @@ type ServerConfig struct {
 }
 
 type UltravioletConfig struct {
-	ListenTo        string          `json:"listenTo"`
-	DefaultStatus   mc.SimpleStatus `json:"defaultStatus"`
-	NumberOfWorkers int             `json:"numberOfWorkers"`
+	ListenTo          string          `json:"listenTo"`
+	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers   int             `json:"numberOfWorkers"`
+	NumberOfListeners int             `json:"numberOfListeners"`
 
 	LogOutput io.Writer
+}
+
+func defaultUltravioletConfig() UltravioletConfig {
+	return UltravioletConfig{
+		ListenTo: ":25565",
+		DefaultStatus: mc.SimpleStatus{
+			Name:        "Ultraviolet",
+			Protocol:    755,
+			Description: "Some broken proxy",
+		},
+		NumberOfWorkers:   5,
+		NumberOfListeners: 5,
+	}
 }
 
 type WorkerServerConfig struct {
@@ -80,7 +94,8 @@ type WorkerServerConfig2 struct {
 }
 
 type WorkerConfig struct {
-	ListenTo        string          `json:"listenTo"`
-	DefaultStatus   mc.SimpleStatus `json:"defaultStatus"`
-	NumberOfWorkers int             `json:"numberOfWorkers"`
+	ListenTo          string          `json:"listenTo"`
+	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers   int             `json:"numberOfWorkers"`
+	NumberOfListeners int             `json:"numberOfListeners"`
 }

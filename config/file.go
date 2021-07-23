@@ -66,7 +66,7 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 }
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
-	var cfg UltravioletConfig
+	cfg := defaultUltravioletConfig() 
 
 	// TODO: Check or file exists and if not write default config file to it
 	bb, err := ioutil.ReadFile(path)
