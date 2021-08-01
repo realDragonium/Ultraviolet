@@ -489,12 +489,16 @@ func (worker *BasicBackendWorker) proxyRequest(proxyAction ProxyAction) {
 }
 
 func (worker *BasicBackendWorker) updateServerState() {
+	if worker.state != UNKNOWN {
+		return
+	}
 	connFunc := worker.connCreator.Conn()
-	_, err := connFunc()
+	conn, err := connFunc()
 	if err != nil {
 		worker.state = OFFLINE
 	} else {
 		worker.state = ONLINE
+		conn.Close()
 	}
 	go func(sleepTime time.Duration, updateCh chan ServerState) {
 		time.Sleep(sleepTime)
@@ -503,18 +507,15 @@ func (worker *BasicBackendWorker) updateServerState() {
 }
 
 func (worker *BasicBackendWorker) updateCacheStatus() {
+	worker.updateServerState()
+	if worker.state == OFFLINE {
+		return
+	}
 	connFunc := worker.connCreator.Conn()
 	conn, err := connFunc()
-	go func(sleepTime time.Duration, updateCh chan ServerState) {
-		time.Sleep(sleepTime)
-		updateCh <- UNKNOWN
-	}(worker.stateCooldown, worker.stateUpdateCh)
 	if err != nil {
-		worker.state = OFFLINE
 		return
-	} else {
-		worker.state = ONLINE
-	}
+	} 
 	mcConn := old_proxy.NewMcConn(conn)
 	conn.Write(worker.statusHandshake)
 	mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal())

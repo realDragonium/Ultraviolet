@@ -15,7 +15,7 @@ var (
 )
 
 func main() {
-	log.Printf("Starting up Alpha-v0.%d", 10)
+	log.Println("Starting up Alpha-v0.11")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)

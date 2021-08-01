@@ -28,12 +28,13 @@ func ServeListener(listener net.Listener, reqCh chan net.Conn) {
 			log.Println(err)
 			continue
 		}
+		log.Printf("received connection from: %v", conn.RemoteAddr())
 		reqCh <- conn
 	}
 }
 
 func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
-	reqCh := make(chan net.Conn, 1000)
+	reqCh := make(chan net.Conn, 50)
 	if cfg.LogOutput != nil {
 		log.SetOutput(cfg.LogOutput)
 	}
@@ -48,7 +49,8 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 			ServeListener(listener, reqCh)
 		}(ln, reqCh)
 	}
-
+	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
+	
 	statusPk := cfg.DefaultStatus.Marshal()
 	defaultStatus, err := statusPk.Marshal()
 	if err != nil {
@@ -64,7 +66,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 		}
 		go serverWorker.Work()
 	}
-
+	log.Printf("Registered %v backend(s)", len(serverCfgs))
 	worker := BasicWorker{
 		ReqCh:         reqCh,
 		defaultStatus: defaultStatus,
@@ -76,6 +78,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 			worker.Work()
 		}(worker)
 	}
+	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
 }
 
 func NewBasicWorker() BasicWorker {
@@ -121,6 +124,7 @@ func (r *BasicWorker) Work() {
 		if err != nil {
 			return
 		}
+		log.Printf("request from %v goes to %v with type %v", conn.RemoteAddr(), req.ServerAddr, req.Type)
 		ans = r.ProcessRequest(req)
 		log.Printf("%v - with type %v will take action: %v", conn.RemoteAddr(), req.Type, ans.action)
 		r.ProcessAnswer(conn, ans)
@@ -130,7 +134,10 @@ func (r *BasicWorker) Work() {
 func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
-	handshake, _ := mc.ReadPacket3_Handshake(b)
+	handshake, err := mc.ReadPacket3_Handshake(b)
+	if err != nil {
+		log.Printf("error parsing handshake from %v - error: %v", conn.RemoteAddr(), err)
+	}
 	t := mc.RequestState(handshake.NextState)
 	if t == mc.UNKNOWN_STATE {
 		return BackendRequest{}, ErrNotValidHandshake
