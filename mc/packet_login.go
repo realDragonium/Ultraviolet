@@ -70,6 +70,10 @@ func (pk ServerBoundHandshake) Marshal() Packet {
 	)
 }
 
+func (pk *ServerBoundHandshake) MarshalPacket() Packet {
+	return pk.Marshal()
+}
+
 func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) {
 	var pk McTypesHandshake
 	var hs ServerBoundHandshake
@@ -236,6 +240,10 @@ func (pk ServerLoginStart) Marshal() Packet {
 	return MarshalPacket(ServerBoundLoginStartPacketID, pk.Name)
 }
 
+func (pk *ServerLoginStart) MarshalPacket() Packet {
+	return pk.Marshal()
+}
+
 func UnmarshalServerBoundLoginStart(packet Packet) (ServerLoginStart, error) {
 	var pk ServerLoginStart
 
@@ -261,6 +269,10 @@ func (pk ClientBoundDisconnect) Marshal() Packet {
 		ClientBoundDisconnectPacketID,
 		pk.Reason,
 	)
+}
+
+func (pk *ClientBoundDisconnect) MarshalPacket() Packet {
+	return pk.Marshal()
 }
 
 func UnmarshalClientDisconnect(packet Packet) (ClientBoundDisconnect, error) {

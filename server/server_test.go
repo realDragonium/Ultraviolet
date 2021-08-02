@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	defaultChTimeout = 10 * time.Millisecond
+	defaultChTimeout = 25 * time.Millisecond
 	longerChTimeout  = defaultChTimeout * 2
 )
 
@@ -211,7 +211,7 @@ func testOfflineServer(t *testing.T, createWorker workerFunc) {
 			reqCh := createWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.offlineAction {
-				t.Errorf("expected: %v \ngot: %v", tc.offlineAction, answer.Action())
+				t.Errorf("expected: %v - got: %v", tc.offlineAction, answer.Action())
 			}
 			receivedBytes := answer.Response()
 			received, _ := mc.ReadPacket_WithBytes(receivedBytes)
@@ -219,13 +219,13 @@ func testOfflineServer(t *testing.T, createWorker workerFunc) {
 				if !samePk(offlineStatusPk, received) {
 					offlineStatus, _ := mc.UnmarshalClientBoundResponse(offlineStatusPk)
 					receivedStatus, _ := mc.UnmarshalClientBoundResponse(received)
-					t.Errorf("expected: %v \ngot: %v", offlineStatus, receivedStatus)
+					t.Errorf("expected: %v - got: %v", offlineStatus, receivedStatus)
 				}
 			} else if tc.reqType == mc.LOGIN {
 				if !samePk(disconPacket, received) {
 					expected, _ := mc.UnmarshalClientDisconnect(disconPacket)
 					received, _ := mc.UnmarshalClientDisconnect(received)
-					t.Errorf("expected: %v \ngot: %v", expected, received)
+					t.Errorf("expected: %v - got: %v", expected, received)
 				}
 			}
 		})
@@ -256,7 +256,7 @@ func testOnlineServer(t *testing.T, createWorker workerFunc) {
 			reqCh := createWorker(t, serverCfg)
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.onlineAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
+				t.Fatalf("expected: %v - got: %v", tc.onlineAction, answer.Action())
 			}
 			serverConn, _ := answer.ServerConn()
 			testCloseConnection(t, serverConn)
@@ -297,7 +297,7 @@ func testOldRealIPProxy(t *testing.T, createWorker workerFunc) {
 	reqCh := createWorker(t, serverCfg)
 	answer := sendRequest_TestTimeout(t, reqCh, req)
 	if answer.Action() != server.PROXY {
-		t.Fatalf("expected: %v \ngot: %v", server.PROXY, answer.Action())
+		t.Fatalf("expected: %v - got: %v", server.PROXY, answer.Action())
 	}
 	receivedHandshakeBytes := answer.Response()
 	handshakePacket, _ := mc.ReadPacket_WithBytes(receivedHandshakeBytes)
@@ -367,7 +367,7 @@ func testNewRealIPProxy(t *testing.T, createWorker workerFunc) {
 	reqCh := createWorker(t, serverCfg)
 	answer := sendRequest_TestTimeout(t, reqCh, req)
 	if answer.Action() != server.PROXY {
-		t.Fatalf("expected: %v \ngot: %v", server.PROXY, answer.Action())
+		t.Fatalf("expected: %v - got: %v", server.PROXY, answer.Action())
 	}
 	receivedHandshakeBytes := answer.Response()
 	handshakePacket, _ := mc.ReadPacket_WithBytes(receivedHandshakeBytes)
@@ -416,7 +416,7 @@ func testProxyBind(t *testing.T, createWorker workerFunc) {
 			connCh, errorCh := createListener(t, targetAddr)
 			conn := <-connCh // State check call (proxy bind should be used here too)
 			if netAddrToIp(conn.RemoteAddr()) != proxyBind {
-				t.Errorf("expected: %v \ngot: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
+				t.Errorf("expected: %v - got: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
 			}
 
 			select {
@@ -425,7 +425,7 @@ func testProxyBind(t *testing.T, createWorker workerFunc) {
 			case conn := <-connCh:
 				t.Log("connection has been created")
 				if netAddrToIp(conn.RemoteAddr()) != proxyBind {
-					t.Errorf("expected: %v \ngot: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
+					t.Errorf("expected: %v - got: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
 				}
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")
@@ -491,7 +491,7 @@ func testProxyProtocol(t *testing.T, createWorker workerFunc) {
 			case conn := <-connCh:
 				t.Log("connection has been created")
 				if conn.RemoteAddr().String() != playerAddr.String() {
-					t.Errorf("expected: %v \ngot: %v", playerAddr, conn.RemoteAddr())
+					t.Errorf("expected: %v - got: %v", playerAddr, conn.RemoteAddr())
 				}
 			case <-time.After(defaultChTimeout):
 				t.Error("timed out")
@@ -572,7 +572,7 @@ func testProxy_WillAllowNewConn_AfterDurationEnded(t *testing.T, createWorker wo
 
 			answer := sendRequest_TestTimeout(t, reqCh, req)
 			if answer.Action() != tc.onlineAction {
-				t.Fatalf("expected: %v \ngot: %v", tc.onlineAction, answer.Action())
+				t.Fatalf("expected: %v - got: %v", tc.onlineAction, answer.Action())
 			}
 		})
 	}
@@ -608,7 +608,7 @@ func testProxy_ManyRequestsWillNotRateLimitStatus(t *testing.T, createWorker wor
 	}
 	answer := sendRequest_TestTimeout(t, reqCh, req)
 	if answer.Action() != server.PROXY {
-		t.Fatalf("expected: %v \ngot: %v", server.PROXY, answer.Action())
+		t.Fatalf("expected: %v - got: %v", server.PROXY, answer.Action())
 	}
 }
 
@@ -630,6 +630,7 @@ func testServerState_DoesntCallBeforeCooldownIsOver(t *testing.T, createWorker w
 				Domains:             []string{serverAddr},
 				ProxyTo:             targetAddr,
 				StateUpdateCooldown: updateCooldown.String(),
+				DialTimeout:         "1ns",
 			}
 			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
@@ -666,7 +667,7 @@ func testServerState_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker wor
 				Domains:             []string{serverAddr},
 				ProxyTo:             targetAddr,
 				StateUpdateCooldown: updateCooldown.String(),
-				DialTimeout:         "1s",
+				DialTimeout:         "1ns",
 			}
 			reqCh := createWorker(t, serverCfg)
 			req := server.BackendRequest{
@@ -704,6 +705,7 @@ func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, createWorker w
 		CacheStatus:         true,
 		CacheUpdateCooldown: cacheCooldown.String(),
 		StateUpdateCooldown: cacheCooldown.String(),
+		DialTimeout:         "1ns",
 	}
 	reqCh := createWorker(t, serverCfg)
 	answerCh := make(chan server.ProcessAnswer)
@@ -725,7 +727,7 @@ func testStatusCache_DoesntCallBeforeCooldownIsOver(t *testing.T, createWorker w
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
 		if answer.Action() != server.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", server.SEND_STATUS, answer.Action())
+			t.Errorf("expected: %v - got: %v", server.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")
@@ -769,7 +771,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker wor
 		b := bufio.NewReaderSize(conn, 4096)
 		mc.ReadPacket3(b)
 		mc.ReadPacket3(b)
-		packetbytes, _ := statusPacket.Marshal()
+		packetbytes := statusPacket.Marshal()
 		conn.Write(packetbytes)
 		buf := make([]byte, 1024)
 		n, _ := conn.Read(buf)
@@ -785,7 +787,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker wor
 		b := bufio.NewReaderSize(conn, 4096)
 		mc.ReadPacket3(b)
 		mc.ReadPacket3(b)
-		packetbytes, _ := statusPacket.Marshal()
+		packetbytes := statusPacket.Marshal()
 		conn.Write(packetbytes)
 		buf := make([]byte, 1024)
 		n, _ := conn.Read(buf)
@@ -798,7 +800,7 @@ func testStatusCache_ShouldCallAgainOutOfCooldown(t *testing.T, createWorker wor
 	case answer := <-answerCh:
 		t.Log("worker has successfully responded")
 		if answer.Action() != server.SEND_STATUS {
-			t.Errorf("expected: %v \ngot: %v", server.SEND_STATUS, answer.Action())
+			t.Errorf("expected: %v - got: %v", server.SEND_STATUS, answer.Action())
 		}
 	case <-time.After(defaultChTimeout):
 		t.Error("timed out")

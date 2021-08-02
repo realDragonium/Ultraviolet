@@ -256,18 +256,6 @@ func ReadNBytes_ByteReader(r io.ByteReader, n int) ([]byte, error) {
 	return bb, nil
 }
 
-// Read a VarInt
-func ReadPacketLengthLength(b []byte) (int, error) {
-	for i := 0; ; i++ {
-		sec := b[i]
-		if i >= 5 {
-			return 0, ErrVarIntSize
-		} else if sec&0x80 == 0 {
-			return i, nil
-		}
-	}
-}
-
 func ReadVarInt_ByteReader(b io.ByteReader) (int, error) {
 	var n uint32
 

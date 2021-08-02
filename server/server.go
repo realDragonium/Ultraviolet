@@ -3,13 +3,13 @@ package server
 import (
 	"crypto/ecdsa"
 	"errors"
+	"log"
 	"net"
 	"time"
 
 	"github.com/pires/go-proxyproto"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/old_proxy"
 )
 
 var (
@@ -68,7 +68,6 @@ const (
 	UNKNOWN ServerState = iota
 	ONLINE
 	OFFLINE
-	UPDATE
 )
 
 func (state ServerState) String() string {
@@ -80,8 +79,6 @@ func (state ServerState) String() string {
 		text = "Online"
 	case OFFLINE:
 		text = "Offline"
-	case UPDATE:
-		text = "Update"
 	}
 	return text
 }
@@ -200,13 +197,14 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig2) BackendWorke
 			return serverConn, nil
 		}
 	}
-	handshakePacket := mc.ServerBoundHandshake{
+	handshake := mc.ServerBoundHandshake{
 		ProtocolVersion: cfg.ValidProtocol,
 		ServerAddress:   "Ultraviolet",
 		ServerPort:      25565,
 		NextState:       1,
-	}.Marshal()
-	hsByte, _ := handshakePacket.Marshal()
+	}
+	handshakePacket := handshake.Marshal()
+	hsByte := handshakePacket.Marshal()
 
 	return BackendWorker{
 		ReqCh:             make(chan BackendRequest, 25),
@@ -334,7 +332,7 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 		}
 	}
 	hsPk := req.Handshake.Marshal()
-	hsBytes, _ := hsPk.Marshal()
+	hsBytes := hsPk.Marshal()
 	return ProcessAnswer{
 		serverConnFunc: connFunc,
 		firstPacket:    hsBytes,
@@ -370,9 +368,9 @@ func (worker *BackendWorker) updateCacheStatus() {
 	} else {
 		worker.state = ONLINE
 	}
-	mcConn := old_proxy.NewMcConn(conn)
+	mcConn := mc.NewMcConn(conn)
 	conn.Write(worker.statusHandshake)
-	mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal())
+	mcConn.WritePacket(mc.ServerBoundRequestPacket())
 	cachedStatus := make([]byte, 0xffffff)
 	conn.Read(cachedStatus)
 	worker.cachedStatus = cachedStatus
@@ -393,6 +391,8 @@ func (worker *BackendWorker) updateCacheStatus() {
 func NewBasicBackendWorker(serverId int, cfg config.WorkerServerConfig2) BasicBackendWorker {
 	var connCreator ConnectionCreator
 	var hsModifier HandshakeModifier
+	var rateLimiter ConnectionLimiter
+	var statusCache statusCache
 	dialer := net.Dialer{
 		Timeout: cfg.DialTimeout,
 		LocalAddr: &net.TCPAddr{
@@ -400,18 +400,16 @@ func NewBasicBackendWorker(serverId int, cfg config.WorkerServerConfig2) BasicBa
 		},
 	}
 
-	handshakePacket := mc.ServerBoundHandshake{
-		ProtocolVersion: cfg.ValidProtocol,
-		ServerAddress:   "Ultraviolet",
-		ServerPort:      25565,
-		NextState:       1,
-	}.Marshal()
-	hsByte, _ := handshakePacket.Marshal()
-
 	connCreator = BasicConnCreator(cfg.ProxyTo, dialer)
 	if cfg.RateLimit > 0 {
-		tempConnCreator := BasicConnCreator(cfg.ProxyTo, dialer)
-		connCreator = NewRateLimiter(cfg.RateLimit, cfg.RateLimitDuration, tempConnCreator)
+		rateLimiter = NewRateLimiter(cfg.RateLimit, cfg.RateLimitDuration)
+	}
+	if cfg.CacheStatus {
+		statusCache = NewStatusCache(cfg.ValidProtocol, cfg.CacheUpdateCooldown, connCreator)
+	}
+	serverState := McServerState{
+		cooldown:    cfg.StateUpdateCooldown,
+		connCreator: connCreator,
 	}
 
 	if cfg.OldRealIp {
@@ -420,51 +418,45 @@ func NewBasicBackendWorker(serverId int, cfg config.WorkerServerConfig2) BasicBa
 		hsModifier = RealIPv2_5{realIPKey: cfg.RealIPKey}
 	}
 
-	responseOfflineLogin := NewDisconnectAnswer(cfg.DisconnectPacket)
-	responseOfflineStatus := NewStatusAnswer(cfg.OfflineStatus)
-
 	return BasicBackendWorker{
-		ReqCh:         make(chan BackendRequest, 25),
-		proxyCh:       make(chan ProxyAction, 10),
-		stateUpdateCh: make(chan ServerState, 1),
+		ReqCh:   make(chan BackendRequest, 25),
+		proxyCh: make(chan ProxyAction, 10),
 
 		sendProxyProtocol: cfg.SendProxyProtocol,
-		stateCooldown:     cfg.StateUpdateCooldown,
+		rateLimit:         cfg.RateLimit > 0,
+		rateLimitStatus:   cfg.RateLimitStatus,
 
-		offlineLoginAns:  responseOfflineLogin,
-		offlineStatusAns: responseOfflineStatus,
+		offlineDisconnectMessage: cfg.DisconnectPacket,
+		offlineStatus:            cfg.OfflineStatus,
 
-		statusHandshake: hsByte,
-		statusCache:     cfg.CacheStatus,
-		statusCooldown:  cfg.CacheUpdateCooldown,
+		cacheStatus: cfg.CacheStatus,
 
 		connCreator: connCreator,
 		hsModifier:  hsModifier,
+		rateLimiter: rateLimiter,
+		state:       serverState,
+		statusCache: statusCache,
 	}
 }
 
 type BasicBackendWorker struct {
-	activeConns       int
-	proxyCh           chan ProxyAction
-	ReqCh             chan BackendRequest
+	activeConns int
+	proxyCh     chan ProxyAction
+	ReqCh       chan BackendRequest
+
 	sendProxyProtocol bool
+	cacheStatus       bool
+	rateLimit         bool
+	rateLimitStatus   bool
 
-	offlineLoginAns  ProcessAnswer
-	offlineStatusAns ProcessAnswer
-
-	state         ServerState
-	stateCooldown time.Duration
-	stateUpdateCh chan ServerState
-
-	cachedStatus    []byte
-	statusCache     bool
-	statusCooldown  time.Duration
-	statusCacheTime time.Time
-	statusLatency   time.Duration
-	statusHandshake []byte
+	offlineDisconnectMessage []byte
+	offlineStatus            []byte
 
 	hsModifier  HandshakeModifier
 	connCreator ConnectionCreator
+	rateLimiter ConnectionLimiter
+	state       McServerState
+	statusCache statusCache
 }
 
 func (worker *BasicBackendWorker) Work() {
@@ -488,71 +480,32 @@ func (worker *BasicBackendWorker) proxyRequest(proxyAction ProxyAction) {
 	}
 }
 
-func (worker *BasicBackendWorker) updateServerState() {
-	if worker.state != UNKNOWN {
-		return
-	}
-	connFunc := worker.connCreator.Conn()
-	conn, err := connFunc()
-	if err != nil {
-		worker.state = OFFLINE
-	} else {
-		worker.state = ONLINE
-		conn.Close()
-	}
-	go func(sleepTime time.Duration, updateCh chan ServerState) {
-		time.Sleep(sleepTime)
-		updateCh <- UNKNOWN
-	}(worker.stateCooldown, worker.stateUpdateCh)
-}
-
-func (worker *BasicBackendWorker) updateCacheStatus() {
-	worker.updateServerState()
-	if worker.state == OFFLINE {
-		return
-	}
-	connFunc := worker.connCreator.Conn()
-	conn, err := connFunc()
-	if err != nil {
-		return
-	} 
-	mcConn := old_proxy.NewMcConn(conn)
-	conn.Write(worker.statusHandshake)
-	mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal())
-	cachedStatus := make([]byte, 0xffffff)
-	n, _ := conn.Read(cachedStatus)
-	worker.cachedStatus = cachedStatus[:n]
-	beginTime := time.Now()
-	mcConn.WritePacket(mc.NewServerBoundPing().Marshal())
-	mcConn.ReadPacket()
-	worker.statusLatency = time.Since(beginTime) / 2
-	conn.Close()
-	worker.statusCacheTime = time.Now()
-}
-
 func (worker *BasicBackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
-	if worker.state == UNKNOWN {
-		worker.updateServerState()
-	}
-	if worker.state == OFFLINE {
-		if req.Type == mc.STATUS {
-			return worker.offlineStatusAns
-		} else if req.Type == mc.LOGIN {
-			return worker.offlineLoginAns
-		}
-	}
-	if req.Type == mc.STATUS && worker.statusCache {
-		if time.Since(worker.statusCacheTime) >= worker.statusCooldown {
-			worker.updateCacheStatus()
-		}
-		return ProcessAnswer{
-			firstPacket: worker.cachedStatus,
-			action:      SEND_STATUS,
-			latency:     worker.statusLatency,
+	if worker.state.serverState() == OFFLINE {
+		switch req.Type {
+		case mc.STATUS:
+			return NewStatusAnswer(worker.offlineStatus)
+		case mc.LOGIN:
+			return NewDisconnectAnswer(worker.offlineDisconnectMessage)
 		}
 	}
 
+	if worker.cacheStatus && req.Type == mc.STATUS {
+		ans, err := worker.statusCache.Status()
+		if err != nil && !errors.Is(err, ErrStatusPing) {
+			log.Println(err)
+			return NewStatusAnswer(worker.offlineStatus)
+		}
+		return ans
+	}
+
 	connFunc := worker.connCreator.Conn()
+	if worker.rateLimit && !worker.rateLimiter.Allow() {
+		if req.Type == mc.LOGIN || (worker.rateLimitStatus && req.Type == mc.STATUS) {
+			return NewCloseAnswer()
+		}
+	}
+
 	if worker.sendProxyProtocol {
 		connFunc = func() (net.Conn, error) {
 			addr := req.Addr
@@ -580,21 +533,16 @@ func (worker *BasicBackendWorker) HandleRequest(req BackendRequest) ProcessAnswe
 	}
 
 	hsPk := req.Handshake.Marshal()
-	hsBytes, _ := hsPk.Marshal()
+	hsBytes := hsPk.Marshal()
 	var secondPacket mc.Packet
-	if req.Type == mc.LOGIN {
-		secondPacket = mc.ServerLoginStart{Name: mc.String(req.Username)}.Marshal()
-	} else if req.Type == mc.STATUS {
+	switch req.Type {
+	case mc.STATUS:
 		secondPacket = mc.ServerBoundRequest{}.Marshal()
+	case mc.LOGIN:
+		secondPacket = mc.ServerLoginStart{Name: mc.String(req.Username)}.Marshal()
 	}
-	secondPkBytes, _ := secondPacket.Marshal()
-	return ProcessAnswer{
-		serverConnFunc: connFunc,
-		firstPacket:    hsBytes,
-		secondPacket:   secondPkBytes,
-		action:         PROXY,
-		proxyCh:        worker.proxyCh,
-	}
+	secondPkBytes := secondPacket.Marshal()
+	return NewProxyAnswer(hsBytes, secondPkBytes, worker.proxyCh, connFunc)
 }
 
 type HandshakeModifier interface {
@@ -625,41 +573,129 @@ func (creator ConnectionCreatorFunc) Conn() func() (net.Conn, error) {
 	return creator
 }
 
-func NewRateLimiter(ratelimit int, cooldown time.Duration, connCreator ConnectionCreator) ConnectionCreator {
+type ConnectionLimiter interface {
+	Allow() bool
+}
+
+func NewRateLimiter(ratelimit int, cooldown time.Duration) ConnectionLimiter {
 	return &ratelimiter{
-		connCreator: connCreator,
-		denyFunc: func() (net.Conn, error) {
-			return nil, ErrOverConnRateLimit
-		},
 		rateLimit:    ratelimit,
 		rateCooldown: cooldown,
 	}
 }
 
 type ratelimiter struct {
-	connCreator ConnectionCreator
-	denyFunc    func() (net.Conn, error)
-
 	rateCounter   int
 	rateStartTime time.Time
 	rateLimit     int
 	rateCooldown  time.Duration
 }
 
-func (r *ratelimiter) Conn() func() (net.Conn, error) {
+func (r *ratelimiter) Allow() bool {
+	var answer bool
 	if time.Since(r.rateStartTime) >= r.rateCooldown {
 		r.rateCounter = 0
 		r.rateStartTime = time.Now()
 	}
 	if r.rateCounter < r.rateLimit {
 		r.rateCounter++
-		return r.connCreator.Conn()
+		answer = true
 	}
-	return r.denyFunc
+	return answer
 }
 
 func BasicConnCreator(proxyTo string, dialer net.Dialer) ConnectionCreatorFunc {
 	return func() (net.Conn, error) {
 		return dialer.Dial("tcp", proxyTo)
 	}
+}
+
+type McServerState struct {
+	state       ServerState
+	cooldown    time.Duration
+	startTime   time.Time
+	connCreator ConnectionCreator
+}
+
+func (server *McServerState) serverState() ServerState {
+	if server.state != UNKNOWN && time.Since(server.startTime) <= server.cooldown {
+		return server.state
+	}
+	server.startTime = time.Now()
+	connFunc := server.connCreator.Conn()
+	conn, err := connFunc()
+	if err != nil {
+		server.state = OFFLINE
+	} else {
+		server.state = ONLINE
+		conn.Close()
+	}
+	return server.state
+}
+
+func NewStatusCache(protocol int, cooldown time.Duration, connCreator ConnectionCreator) statusCache {
+	handshakePacket := mc.ServerBoundHandshake{
+		ProtocolVersion: protocol,
+		ServerAddress:   "Ultraviolet",
+		ServerPort:      25565,
+		NextState:       1,
+	}.Marshal()
+	hsByte := handshakePacket.Marshal()
+
+	return statusCache{
+		connCreator: connCreator,
+		cooldown:    cooldown,
+		handshake:   hsByte,
+	}
+}
+
+type statusCache struct {
+	connCreator ConnectionCreator
+
+	status    ProcessAnswer
+	cooldown  time.Duration
+	cacheTime time.Time
+	handshake []byte
+}
+
+var ErrStatusPing = errors.New("something went wrong while pinging")
+
+func (cache *statusCache) Status() (ProcessAnswer, error) {
+	if time.Since(cache.cacheTime) < cache.cooldown {
+		return cache.status, nil
+	}
+	var answer ProcessAnswer
+	connFunc := cache.connCreator.Conn()
+	conn, err := connFunc()
+	if err != nil {
+		return answer, err
+	}
+	cacheBuffer := make([]byte, 0xffffff)
+	mcConn := mc.NewMcConn(conn)
+	if _, err := conn.Write(cache.handshake); err != nil {
+		return answer, err
+	}
+	if err := mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal()); err != nil {
+		return answer, err
+	}
+	n, err := conn.Read(cacheBuffer)
+	if err != nil {
+		return answer, err
+	}
+	beginTime := time.Now()
+	statusBytes := cacheBuffer[:n]
+	var latency time.Duration = 0
+	if err := mcConn.WritePacket(mc.NewServerBoundPing().Marshal()); err != nil {
+		cache.status = NewStatusLatencyAnswer(statusBytes, latency)
+		return cache.status, ErrStatusPing
+	}
+	if _, err := mcConn.ReadPacket(); err != nil {
+		cache.status = NewStatusLatencyAnswer(statusBytes, latency)
+		return cache.status, ErrStatusPing
+	}
+	conn.Close()
+	latency = time.Since(beginTime) / 2
+	answer = NewStatusLatencyAnswer(statusBytes, latency)
+	cache.status = answer
+	return answer, nil
 }

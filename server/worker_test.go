@@ -33,11 +33,8 @@ func (conn testMcConn) ReadPacket() (mc.Packet, error) {
 }
 
 func (conn testMcConn) WritePacket(p mc.Packet) error {
-	pk, err := p.Marshal()
-	if err != nil {
-		return errors.New("some idiot (probably me) is sending an invalid packet through here")
-	}
-	_, err = conn.netConn.Write(pk)
+	pk := p.Marshal()
+	_, err := conn.netConn.Write(pk)
 	return err
 }
 
@@ -411,7 +408,7 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
 		}.Marshal()
-		disconBytes, _ := disconPk.Marshal()
+		disconBytes := disconPk.Marshal()
 		ans := server.NewDisconnectAnswer(disconBytes)
 		go r.ProcessAnswer(c2, ans)
 
@@ -432,7 +429,7 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
 		}.Marshal()
-		disconBytes, _ := disconPk.Marshal()
+		disconBytes := disconPk.Marshal()
 		ans := server.NewDisconnectAnswer(disconBytes)
 		go r.ProcessAnswer(c2, ans)
 
@@ -467,7 +464,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
 		r := server.NewWorker(cfg)
-		statusBytes, _ := statusPk.Marshal()
+		statusBytes := statusPk.Marshal()
 
 		ans := server.NewStatusAnswer(statusBytes)
 		go r.ProcessAnswer(c2, ans)
@@ -494,7 +491,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
 		r := server.NewWorker(cfg)
-		statusBytes, _ := statusPk.Marshal()
+		statusBytes := statusPk.Marshal()
 
 		ans := server.NewStatusAnswer(statusBytes)
 		go r.ProcessAnswer(c2, ans)
@@ -512,7 +509,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
 		r := server.NewWorker(cfg)
-		statusBytes, _ := statusPk.Marshal()
+		statusBytes := statusPk.Marshal()
 		latency := defaultChTimeout
 		ans := server.NewStatusLatencyAnswer(statusBytes, latency)
 		go r.ProcessAnswer(c2, ans)
@@ -559,8 +556,8 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 			} else if tc.reqType == mc.STATUS {
 				otherPacket = basicStatusRequestPacket()
 			}
-			hsBytes, _ := hsPk.Marshal()
-			otherPkBytes, _ := otherPacket.Marshal()
+			hsBytes := hsPk.Marshal()
+			otherPkBytes := otherPacket.Marshal()
 
 			t.Run("can proxy connection", func(t *testing.T) {
 				c1, c2 := net.Pipe()

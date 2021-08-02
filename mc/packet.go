@@ -34,20 +34,24 @@ type Packet struct {
 	Data []byte
 }
 
+type McPacket interface {
+	MarshalPacket() Packet
+}
+
 // Scan decodes and copies the Packet data into the fields
 func (pk Packet) Scan(fields ...FieldDecoder) error {
 	return ScanFields(bytes.NewReader(pk.Data), fields...)
 }
 
 // Marshal encodes the packet and all it's fields
-func (pk *Packet) Marshal() ([]byte, error) {
+func (pk *Packet) Marshal() []byte {
 	var packedData []byte
 	data := []byte{pk.ID}
 	data = append(data, pk.Data...)
 	packetLength := VarInt(int32(len(data))).Encode()
 	packedData = append(packedData, packetLength...)
 
-	return append(packedData, data...), nil
+	return append(packedData, data...)
 }
 
 // ScanFields decodes a byte stream into fields

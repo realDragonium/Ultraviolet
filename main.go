@@ -1,4 +1,4 @@
-package main
+package Ultraviolet
 
 import (
 	"flag"
@@ -15,7 +15,7 @@ var (
 )
 
 func main() {
-	log.Println("Starting up Alpha-v0.11")
+	log.Println("Starting up Alpha-v0.12")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)

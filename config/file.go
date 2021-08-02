@@ -66,7 +66,7 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 }
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
-	cfg := defaultUltravioletConfig() 
+	cfg := defaultUltravioletConfig()
 
 	// TODO: Check or file exists and if not write default config file to it
 	bb, err := ioutil.ReadFile(path)
@@ -243,14 +243,8 @@ func FileToWorkerConfig2(cfg ServerConfig) (WorkerServerConfig2, error) {
 	if cacheCooldown == 0 {
 		cacheCooldown = time.Second
 	}
-	offlineBytes, err := offlineStatusPk.Marshal()
-	if err != nil {
-		return WorkerServerConfig2{}, err
-	}
-	disconBytes, err := disconPk.Marshal()
-	if err != nil {
-		return WorkerServerConfig2{}, err
-	}
+	offlineBytes := offlineStatusPk.Marshal()
+	disconBytes := disconPk.Marshal()
 	return WorkerServerConfig2{
 		ProxyTo:             cfg.ProxyTo,
 		ProxyBind:           cfg.ProxyBind,

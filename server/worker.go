@@ -50,9 +50,9 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 		}(ln, reqCh)
 	}
 	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
-	
+
 	statusPk := cfg.DefaultStatus.Marshal()
-	defaultStatus, err := statusPk.Marshal()
+	defaultStatus := statusPk.Marshal()
 	if err != nil {
 		log.Printf("error during marshaling default status: %v", err)
 	}
@@ -88,10 +88,7 @@ func NewBasicWorker() BasicWorker {
 func NewWorker(cfg config.WorkerConfig) BasicWorker {
 	dict := make(map[string]chan BackendRequest)
 	statusPk := cfg.DefaultStatus.Marshal()
-	defaultStatus, err := statusPk.Marshal()
-	if err != nil {
-		log.Printf("error during marshaling default status: %v", err)
-	}
+	defaultStatus := statusPk.Marshal()
 	reqCh := make(chan net.Conn)
 	return BasicWorker{
 		ReqCh:         reqCh,

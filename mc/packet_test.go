@@ -39,11 +39,7 @@ func TestPacket_Marshal(t *testing.T) {
 	}
 
 	for _, tc := range tt {
-		actual, err := tc.packet.Marshal()
-		if err != nil {
-			t.Error(err)
-		}
-
+		actual := tc.packet.Marshal()
 		if !bytes.Equal(actual, tc.expected) {
 			t.Errorf("got: %v; want: %v", actual, tc.expected)
 		}
@@ -188,7 +184,7 @@ func benchmarkReadPacker(b *testing.B, amountBytes int) {
 		data = append(data, 1)
 	}
 	pk := mc.Packet{ID: 0x05, Data: data}
-	bytes, _ := pk.Marshal()
+	bytes := pk.Marshal()
 	c1, c2 := net.Pipe()
 	r := bufio.NewReader(c1)
 
