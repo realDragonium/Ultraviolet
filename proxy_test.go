@@ -52,8 +52,8 @@ func TestStatusRequest(t *testing.T) {
 
 	handshake := mc.ServerBoundHandshake{
 		ProtocolVersion: 10,
-		ServerAddress: serverDomain,
-		NextState: mc.StatusState,
+		ServerAddress:   serverDomain,
+		NextState:       mc.StatusState,
 	}
 	serverConn.WriteMcPacket(&handshake)
 	statusRequest := mc.ServerBoundRequest{}

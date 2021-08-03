@@ -81,7 +81,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
 }
 
-func NewBasicWorker() BasicWorker {
+func NewBasicWorkerEmpty() BasicWorker {
 	return BasicWorker{}
 }
 
@@ -97,7 +97,14 @@ func NewWorker(cfg config.WorkerConfig) BasicWorker {
 	}
 }
 
-// Need a better name for this, router doesnt fit right...
+func NewBasicWorker(defaultStatus []byte, reqCh chan net.Conn) BasicWorker {
+	return BasicWorker{
+		ReqCh:         reqCh,
+		defaultStatus: defaultStatus,
+		serverDict:    make(map[string]chan BackendRequest),
+	}
+}
+
 type BasicWorker struct {
 	ReqCh         chan net.Conn
 	defaultStatus []byte
@@ -106,6 +113,10 @@ type BasicWorker struct {
 }
 
 func (r *BasicWorker) RegisterWorker(key string, worker BackendWorker) {
+	r.serverDict[key] = worker.ReqCh
+}
+
+func (r *BasicWorker) RegisterBackendWorker(key string, worker BasicBackendWorker) {
 	r.serverDict[key] = worker.ReqCh
 }
 

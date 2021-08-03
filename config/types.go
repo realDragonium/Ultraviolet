@@ -38,6 +38,7 @@ type UltravioletConfig struct {
 	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
 	NumberOfWorkers   int             `json:"numberOfWorkers"`
 	NumberOfListeners int             `json:"numberOfListeners"`
+	UseProxyProtocol  bool            `json:acceptProxyProtocol`
 
 	LogOutput io.Writer
 }
