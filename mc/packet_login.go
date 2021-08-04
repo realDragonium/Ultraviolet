@@ -70,7 +70,7 @@ func (pk ServerBoundHandshake) Marshal() Packet {
 	)
 }
 
-func (pk *ServerBoundHandshake) MarshalPacket() Packet {
+func (pk ServerBoundHandshake) MarshalPacket() Packet {
 	return pk.Marshal()
 }
 

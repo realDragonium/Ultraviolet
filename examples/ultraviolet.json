@@ -5,6 +5,7 @@
         "protocol": 755,
         "text": "Some broken proxy"
     },
-    "numberOfWorkers": 5,
-    "numberOfListeners": 5
+    "numberOfWorkers": 25,
+    "numberOfListeners": 5,
+    "acceptProxyProtocol": false
 }

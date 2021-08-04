@@ -1,7 +1,6 @@
-package server_test
+package ultraviolet_test
 
 import (
-	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -10,33 +9,10 @@ import (
 	"testing"
 	"time"
 
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
 )
-
-func newTestMcConn(conn net.Conn) testMcConn {
-	return testMcConn{
-		netConn: conn,
-		reader:  bufio.NewReader(conn),
-	}
-}
-
-type testMcConn struct {
-	netConn net.Conn
-	reader  mc.DecodeReader
-}
-
-func (conn testMcConn) ReadPacket() (mc.Packet, error) {
-	pk, err := mc.ReadPacket(conn.reader)
-	return pk, err
-}
-
-func (conn testMcConn) WritePacket(p mc.Packet) error {
-	pk := p.Marshal()
-	_, err := conn.netConn.Write(pk)
-	return err
-}
 
 type testNetConn struct {
 	conn       net.Conn
@@ -106,12 +82,10 @@ func samePK(expected, received mc.Packet) bool {
 	return sameID && sameData
 }
 
-func startWorker(cfg config.WorkerConfig) chan net.Conn {
-	r := server.NewWorker(cfg)
-	go func() {
-		r.Work()
-	}()
-	return r.ReqCh
+func newWorker(cfg config.WorkerConfig) (ultraviolet.BasicWorker, chan net.Conn) {
+	reqCh := make(chan net.Conn)
+	r := ultraviolet.NewWorker(cfg, reqCh)
+	return r, reqCh
 }
 
 func testConnectionClosed(t *testing.T, conn net.Conn) {
@@ -158,7 +132,8 @@ func testProxyConn(t *testing.T, conn1, conn2 net.Conn) {
 
 func TestWorker_CanReceiveConnection(t *testing.T) {
 	cfg := config.WorkerConfig{}
-	reqCh := startWorker(cfg)
+	worker, reqCh := newWorker(cfg)
+	go worker.Work()
 	select {
 	case reqCh <- &net.TCPConn{}:
 		t.Log("worker has successfully received request")
@@ -168,16 +143,16 @@ func TestWorker_CanReceiveConnection(t *testing.T) {
 }
 
 func TestProcessRequest_UnknownAddr(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
+			basicWorker, _ := newWorker(cfg)
 
-			request := server.BackendRequest{
+			request := ultraviolet.BackendRequest{
 				ServerAddr: "ultraviolet",
 				Type:       tc.reqType,
 			}
-			ans := r.ProcessRequest(request)
+			ans := basicWorker.ProcessRequest(request)
 
 			if ans.Action() != tc.unknownAction {
 				t.Errorf("expected: %v \ngot: %v", tc.unknownAction, ans.Action())
@@ -187,22 +162,22 @@ func TestProcessRequest_UnknownAddr(t *testing.T) {
 }
 
 func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
-			workerCh := make(chan server.BackendRequest)
-			worker := server.BackendWorker{
+			basicWorker, _ := newWorker(cfg)
+			workerCh := make(chan ultraviolet.BackendRequest)
+			worker := ultraviolet.BackendWorker{
 				ReqCh: workerCh,
 			}
-			r.RegisterWorker(serverAddr, worker)
+			basicWorker.RegisterBackendWorker(serverAddr, worker)
 
-			request := server.BackendRequest{
+			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
 				Type:       mc.UNKNOWN_STATE,
 			}
-			go r.ProcessRequest(request)
+			go basicWorker.ProcessRequest(request)
 
 			select {
 			case receivedReq := <-workerCh:
@@ -217,28 +192,28 @@ func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
 }
 
 func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
-			workerCh := make(chan server.BackendRequest)
-			worker := server.BackendWorker{
+			basicWorker, _ := newWorker(cfg)
+			workerCh := make(chan ultraviolet.BackendRequest)
+			worker := ultraviolet.BackendWorker{
 				ReqCh: workerCh,
 			}
-			r.RegisterWorker(serverAddr, worker)
+			basicWorker.RegisterBackendWorker(serverAddr, worker)
 
-			request := server.BackendRequest{
+			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
 				Type:       mc.UNKNOWN_STATE,
 			}
-			answer := server.NewCloseAnswer()
+			answer := ultraviolet.NewCloseAnswer()
 			go func() {
 				receivedReq := <-workerCh
 				receivedReq.Ch <- answer
 			}()
 
-			receivedAns := r.ProcessRequest(request)
+			receivedAns := basicWorker.ProcessRequest(request)
 			if receivedAns.Action() != answer.Action() {
 				t.Error("received different answer than we expected!")
 				t.Logf("expected: %v", answer)
@@ -249,21 +224,21 @@ func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
 }
 
 func TestProcessConnection_CanReadHandshake(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			c1, c2 := net.Pipe()
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
+			basicWorker, _ := newWorker(cfg)
 
 			finishedWritingCh := make(chan struct{})
 			go func() {
 				hsPk := basicHandshakePacket(int(tc.reqType))
-				mcConn := newTestMcConn(c1)
+				mcConn := mc.NewMcConn(c1)
 				mcConn.WritePacket(hsPk)
 				finishedWritingCh <- struct{}{}
 			}()
 
-			go r.ProcessConnection(c2)
+			go basicWorker.ProcessConnection(c2)
 
 			select {
 			case <-finishedWritingCh:
@@ -276,17 +251,17 @@ func TestProcessConnection_CanReadHandshake(t *testing.T) {
 }
 
 func TestProcessConnection_CanReadSecondPacket(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			c1, c2 := net.Pipe()
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
+			basicWorker, _ := newWorker(cfg)
 
-			go r.ProcessConnection(c2)
+			go basicWorker.ProcessConnection(c2)
 
 			finishedWritingCh := make(chan struct{})
 			go func() {
-				client := newTestMcConn(c1)
+				client := mc.NewMcConn(c1)
 				hsPk := basicHandshakePacket(int(tc.reqType))
 				client.WritePacket(hsPk)
 				var otherPacket mc.Packet
@@ -336,7 +311,7 @@ func TestProcessConnection_CanUseServerAddress(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			c1, c2 := net.Pipe()
 			cfg := config.WorkerConfig{}
-			r := server.NewWorker(cfg)
+			basicWorker, _ := newWorker(cfg)
 			go func() {
 				hsPk := mc.ServerBoundHandshake{
 					ProtocolVersion: 751,
@@ -346,17 +321,19 @@ func TestProcessConnection_CanUseServerAddress(t *testing.T) {
 				}.Marshal()
 				loginPk := basicLoginStartPacket()
 
-				client := newTestMcConn(c1)
+				client := mc.NewMcConn(c1)
 				client.WritePacket(hsPk)
 				client.WritePacket(loginPk)
 			}()
 
-			request, err := r.ProcessConnection(c2)
+			request, err := basicWorker.ProcessConnection(c2)
 			if err != nil {
 				t.Fatalf("received error: %v", err)
 			}
 			if request.ServerAddr != tc.expectedAddr {
-				t.Errorf("expected:\t %v, \ngot:\t %v", tc.expectedAddr, request.ServerAddr)
+				t.Error("got different server addr then what we expected")
+				t.Logf("expected: %v", tc.expectedAddr)
+				t.Logf("got: %v", request.ServerAddr)
 			}
 
 		})
@@ -372,17 +349,17 @@ func TestProcessConnection_LoginRequest(t *testing.T) {
 	}
 
 	cfg := config.WorkerConfig{}
-	r := server.NewWorker(cfg)
+	basicWorker, _ := newWorker(cfg)
 
 	go func() {
-		client := newTestMcConn(clientConn)
+		client := mc.NewMcConn(clientConn)
 		hsPk := loginHandshakePacket()
 		client.WritePacket(hsPk)
 		loginPk := basicLoginStartPacket()
 		client.WritePacket(loginPk)
 	}()
 
-	ans, err := r.ProcessConnection(&mockClientconn)
+	ans, err := basicWorker.ProcessConnection(&mockClientconn)
 	if err != nil {
 		t.Fatalf("didnt expected error but got: %v", err)
 	}
@@ -404,15 +381,14 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 	t.Run("Can send disconnect packet", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
+		basicWorker, _ := newWorker(cfg)
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
 		}.Marshal()
-		disconBytes := disconPk.Marshal()
-		ans := server.NewDisconnectAnswer(disconBytes)
-		go r.ProcessAnswer(c2, ans)
+		ans := ultraviolet.NewDisconnectAnswer(disconPk)
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		receivedPk, _ := client.ReadPacket()
 
 		if !samePK(disconPk, receivedPk) {
@@ -425,15 +401,14 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 	t.Run("connection is closed after its done", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
+		basicWorker, _ := newWorker(cfg)
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
 		}.Marshal()
-		disconBytes := disconPk.Marshal()
-		ans := server.NewDisconnectAnswer(disconBytes)
-		go r.ProcessAnswer(c2, ans)
+		ans := ultraviolet.NewDisconnectAnswer(disconPk)
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		client.ReadPacket()
 
 		testConnectionClosed(t, c1)
@@ -444,11 +419,11 @@ func TestProcessAnswer_Close(t *testing.T) {
 	t.Run("closes connection", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
-		ans := server.NewCloseAnswer()
-		go r.ProcessAnswer(c2, ans)
+		basicWorker, _ := newWorker(cfg)
+		ans := ultraviolet.NewCloseAnswer()
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		client.ReadPacket()
 		testConnectionClosed(t, c1)
 	})
@@ -463,13 +438,12 @@ func TestProcessAnswer_Status(t *testing.T) {
 	t.Run("can send packet and ping", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
-		statusBytes := statusPk.Marshal()
+		basicWorker, _ := newWorker(cfg)
 
-		ans := server.NewStatusAnswer(statusBytes)
-		go r.ProcessAnswer(c2, ans)
+		ans := ultraviolet.NewStatusAnswer(statusPk)
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		receivedPk, _ := client.ReadPacket()
 		if !samePK(statusPk, receivedPk) {
 			t.Error("received different packet than we expected!")
@@ -490,13 +464,12 @@ func TestProcessAnswer_Status(t *testing.T) {
 	t.Run("is closed after finishing writing", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
-		statusBytes := statusPk.Marshal()
+		basicWorker, _ := newWorker(cfg)
 
-		ans := server.NewStatusAnswer(statusBytes)
-		go r.ProcessAnswer(c2, ans)
+		ans := ultraviolet.NewStatusAnswer(statusPk)
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		client.ReadPacket()
 		pingPk := mc.NewServerBoundPing().Marshal()
 		client.WritePacket(pingPk)
@@ -508,13 +481,12 @@ func TestProcessAnswer_Status(t *testing.T) {
 	t.Run("latency delays response", func(t *testing.T) {
 		c1, c2 := net.Pipe()
 		cfg := config.WorkerConfig{}
-		r := server.NewWorker(cfg)
-		statusBytes := statusPk.Marshal()
+		basicWorker, _ := newWorker(cfg)
 		latency := defaultChTimeout
-		ans := server.NewStatusLatencyAnswer(statusBytes, latency)
-		go r.ProcessAnswer(c2, ans)
+		ans := ultraviolet.NewStatusLatencyAnswer(statusPk, latency)
+		go basicWorker.ProcessAnswer(c2, ans)
 
-		client := newTestMcConn(c1)
+		client := mc.NewMcConn(c1)
 		client.ReadPacket()
 		pingPk := mc.NewServerBoundPing().Marshal()
 		client.WritePacket(pingPk)
@@ -528,15 +500,15 @@ func TestProcessAnswer_Status(t *testing.T) {
 
 		select {
 		case <-receivedPacket:
-			t.Fatal("did receive packet before latence had passed")
-		case <-time.After(latency - time.Millisecond):
-			t.Log("didnt receive packet as expected")
+			t.Fatal("did receive packet before latency had passed")
+		case <-time.After(latency / 10):
+			t.Log("didnt receive packet just, exactly what we expected")
 		}
 
 		select {
 		case <-receivedPacket:
 			t.Log("did receive packet")
-		case <-time.After(latency - time.Millisecond):
+		case <-time.After(latency * 2):
 			t.Error("didnt receive packet")
 		}
 
@@ -544,7 +516,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 }
 
 func TestProcessAnswer_Proxy(t *testing.T) {
-	for _, tc := range LoginStatusTestCases {
+	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			cfg := config.WorkerConfig{}
 			hsPk := mc.ServerBoundHandshake{
@@ -556,21 +528,19 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 			} else if tc.reqType == mc.STATUS {
 				otherPacket = basicStatusRequestPacket()
 			}
-			hsBytes := hsPk.Marshal()
-			otherPkBytes := otherPacket.Marshal()
 
 			t.Run("can proxy connection", func(t *testing.T) {
 				c1, c2 := net.Pipe()
 				s1, s2 := net.Pipe()
-				r := server.NewWorker(cfg)
-				proxyCh := make(chan server.ProxyAction)
+				basicWorker, _ := newWorker(cfg)
+				proxyCh := make(chan ultraviolet.ProxyAction)
 				connFunc := func() (net.Conn, error) {
 					return s2, nil
 				}
-				ans := server.NewProxyAnswer(hsBytes, otherPkBytes, proxyCh, connFunc)
-				go r.ProcessAnswer(c2, ans)
+				ans := ultraviolet.NewProxyAnswer(hsPk, otherPacket, proxyCh, connFunc)
+				go basicWorker.ProcessAnswer(c2, ans)
 
-				sConn := newTestMcConn(s1)
+				sConn := mc.NewMcConn(s1)
 				receivedHsPk, _ := sConn.ReadPacket()
 				if !samePK(hsPk, receivedHsPk) {
 					t.Error("received different packet than we expected!")
@@ -591,22 +561,22 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 			t.Run("proxy channel send signals", func(t *testing.T) {
 				c1, c2 := net.Pipe()
 				s1, s2 := net.Pipe()
-				r := server.NewWorker(cfg)
-				proxyCh := make(chan server.ProxyAction)
+				basicWorker, _ := newWorker(cfg)
+				proxyCh := make(chan ultraviolet.ProxyAction)
 				connFunc := func() (net.Conn, error) {
 					return s2, nil
 				}
-				ans := server.NewProxyAnswer(hsBytes, otherPkBytes, proxyCh, connFunc)
-				go r.ProcessAnswer(c2, ans)
+				ans := ultraviolet.NewProxyAnswer(hsPk, otherPacket, proxyCh, connFunc)
+				go basicWorker.ProcessAnswer(c2, ans)
 
-				sConn := newTestMcConn(s1)
+				sConn := mc.NewMcConn(s1)
 				sConn.ReadPacket()
 				sConn.ReadPacket()
 
 				select {
 				case signal := <-proxyCh:
-					if signal != server.PROXY_OPEN {
-						t.Errorf("received %v instead of %v", signal, server.PROXY_OPEN)
+					if signal != ultraviolet.PROXY_OPEN {
+						t.Errorf("received %v instead of %v", signal, ultraviolet.PROXY_OPEN)
 					}
 				case <-time.After(defaultChTimeout):
 					t.Fatalf("didnt received proxy start signal")
@@ -614,8 +584,8 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 				c1.Close()
 				select {
 				case signal := <-proxyCh:
-					if signal != server.PROXY_CLOSE {
-						t.Errorf("received %v instead of %v", signal, server.PROXY_CLOSE)
+					if signal != ultraviolet.PROXY_CLOSE {
+						t.Errorf("received %v instead of %v", signal, ultraviolet.PROXY_CLOSE)
 					}
 				case <-time.After(defaultChTimeout):
 					t.Fatalf("didnt received proxy end signal")
@@ -629,8 +599,8 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 // //This test is now broken.
 // // func TestReadConnection_WillCloseConn_WhenInvalidPacketSize(t *testing.T) {
 // // 	client, server := net.Pipe()
-// // 	reqCh := make(chan server.McRequest)
-// // 	go server.ReadConnection(server, reqCh)
+// // 	reqCh := make(chan ultraviolet.McRequest)
+// // 	go ultraviolet.ReadConnection(server, reqCh)
 
 // // 	finishedWritingCh := make(chan struct{})
 // // 	go func() {
@@ -653,7 +623,7 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 
 func TestProxyConnection(t *testing.T) {
 	proxyConns := func(c1, c2 net.Conn) {
-		server.ProxyConnection(c1, c2)
+		ultraviolet.ProxyConnection(c1, c2)
 	}
 	testProxy(t, proxyConns)
 	testCloseProxy(t, proxyConns)
@@ -661,7 +631,7 @@ func TestProxyConnection(t *testing.T) {
 
 func TestProxy_IOCOPY(t *testing.T) {
 	proxyConns := func(c1, c2 net.Conn) {
-		server.Proxy_IOCopy(c1, c2)
+		ultraviolet.Proxy_IOCopy(c1, c2)
 	}
 	testProxy(t, proxyConns)
 	// testCloseProxy(t, proxyConns) // ERRORS

@@ -1,4 +1,4 @@
-package Ultraviolet
+package ultraviolet
 
 import (
 	"errors"
@@ -14,11 +14,9 @@ import (
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/server"
 )
 
 var (
-	// Isnt this the proper path to put config files into (for execution without docker)
 	defaultCfgPath = "/etc/ultraviolet"
 )
 
@@ -47,13 +45,12 @@ func RunProxy() {
 	select {}
 }
 
-func createListener(listenAddr string, useProxyProtocol bool) net.Listener {
-	pidFile := "/var/run/Ultraviolet.pid"
+func createListener(listenAddr string, useProxyProtocol bool, pidFile string) net.Listener {
 	upg, err := tableflip.New(tableflip.Options{
 		PIDFile: pidFile,
 	})
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	go func() {
 		sig := make(chan os.Signal, 1)
@@ -91,18 +88,13 @@ func serveListener(listener net.Listener, reqCh chan net.Conn) {
 			log.Println(err)
 			continue
 		}
-		log.Printf("received connection from: %v", conn.RemoteAddr())
 		reqCh <- conn
 	}
 }
 
 func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
 	reqCh := make(chan net.Conn, 50)
-	if cfg.LogOutput != nil {
-		log.SetOutput(cfg.LogOutput)
-	}
-
-	listener := createListener(cfg.ListenTo, cfg.UseProxyProtocol)
+	listener := createListener(cfg.ListenTo, cfg.UseProxyProtocol, cfg.PidFile)
 	for i := 0; i < cfg.NumberOfListeners; i++ {
 		go func(listener net.Listener, reqCh chan net.Conn) {
 			serveListener(listener, reqCh)
@@ -110,12 +102,11 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	}
 	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
 
-	statusPk := cfg.DefaultStatus.Marshal()
-	defaultStatus := statusPk.Marshal()
-	worker := server.NewBasicWorker(defaultStatus, reqCh)
+	workerCfg := config.NewWorkerConfig(cfg)
+	worker := NewWorker(workerCfg, reqCh)
 	for id, serverCfg := range serverCfgs {
-		workerServerCfg, _ := config.FileToWorkerConfig2(serverCfg)
-		serverWorker := server.NewBasicBackendWorker(id, workerServerCfg)
+		workerServerCfg, _ := config.FileToWorkerConfig(serverCfg)
+		serverWorker := NewBackendWorker(id, workerServerCfg)
 		for _, domain := range serverCfg.Domains {
 			worker.RegisterBackendWorker(domain, serverWorker)
 		}
@@ -124,7 +115,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	log.Printf("Registered %v backend(s)", len(serverCfgs))
 
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		go func(worker server.BasicWorker) {
+		go func(worker BasicWorker) {
 			worker.Work()
 		}(worker)
 	}

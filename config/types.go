@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/ecdsa"
-	"io"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -38,12 +37,11 @@ type UltravioletConfig struct {
 	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
 	NumberOfWorkers   int             `json:"numberOfWorkers"`
 	NumberOfListeners int             `json:"numberOfListeners"`
-	UseProxyProtocol  bool            `json:acceptProxyProtocol`
-
-	LogOutput io.Writer
+	UseProxyProtocol  bool            `json:"acceptProxyProtocol"`
+	PidFile           string
 }
 
-func defaultUltravioletConfig() UltravioletConfig {
+func DefaultUltravioletConfig() UltravioletConfig {
 	return UltravioletConfig{
 		ListenTo: ":25565",
 		DefaultStatus: mc.SimpleStatus{
@@ -51,8 +49,9 @@ func defaultUltravioletConfig() UltravioletConfig {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		NumberOfWorkers:   5,
+		NumberOfWorkers:   25,
 		NumberOfListeners: 5,
+		PidFile:           "/var/run/ultraviolet.pid",
 	}
 }
 
@@ -75,28 +74,12 @@ type WorkerServerConfig struct {
 	RateLimitDuration   time.Duration
 }
 
-type WorkerServerConfig2 struct {
-	StateUpdateCooldown time.Duration
-	OldRealIp           bool
-	NewRealIP           bool
-	RealIPKey           *ecdsa.PrivateKey
-	CacheStatus         bool
-	CacheUpdateCooldown time.Duration
-	ValidProtocol       int
-	OfflineStatus       []byte
-	DisconnectPacket    []byte
-	ProxyTo             string
-	ProxyBind           string
-	DialTimeout         time.Duration
-	SendProxyProtocol   bool
-	RateLimit           int
-	RateLimitStatus     bool
-	RateLimitDuration   time.Duration
+type WorkerConfig struct {
+	DefaultStatus mc.SimpleStatus
 }
 
-type WorkerConfig struct {
-	ListenTo          string          `json:"listenTo"`
-	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
-	NumberOfWorkers   int             `json:"numberOfWorkers"`
-	NumberOfListeners int             `json:"numberOfListeners"`
+func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
+	return WorkerConfig{
+		DefaultStatus: uvCfg.DefaultStatus,
+	}
 }

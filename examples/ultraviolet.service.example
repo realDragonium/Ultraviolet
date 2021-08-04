@@ -1,0 +1,9 @@
+[Unit]
+Description=Ultraviolet - A Minecraft reverse proxy
+
+[Service]
+ExecStart=/usr/bin/ultraviolet
+ExecReload=/bin/kill -HUP $MAINPID
+
+[Install]
+WantedBy=multi-user.target

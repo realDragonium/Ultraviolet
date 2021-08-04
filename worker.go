@@ -1,8 +1,7 @@
-package server
+package ultraviolet
 
 import (
 	"bufio"
-	"errors"
 	"io"
 	"log"
 	"net"
@@ -17,109 +16,29 @@ const (
 	// packetLength:2 + packet ID: 1 + protocol version:2 + max string length:255 + port:2 + state: 1 -> 2+1+2+255+2+1 = 263
 )
 
-func ServeListener(listener net.Listener, reqCh chan net.Conn) {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				log.Printf("net.Listener was closed, stopping with accepting calls")
-				break
-			}
-			log.Println(err)
-			continue
-		}
-		log.Printf("received connection from: %v", conn.RemoteAddr())
-		reqCh <- conn
-	}
-}
-
-func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
-	reqCh := make(chan net.Conn, 50)
-	if cfg.LogOutput != nil {
-		log.SetOutput(cfg.LogOutput)
-	}
-
-	ln, err := net.Listen("tcp", cfg.ListenTo)
-	if err != nil {
-		log.Fatalf("Can't listen: %v", err)
-	}
-
-	for i := 0; i < cfg.NumberOfListeners; i++ {
-		go func(listener net.Listener, reqCh chan net.Conn) {
-			ServeListener(listener, reqCh)
-		}(ln, reqCh)
-	}
-	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
-
-	statusPk := cfg.DefaultStatus.Marshal()
-	defaultStatus := statusPk.Marshal()
-	if err != nil {
-		log.Printf("error during marshaling default status: %v", err)
-	}
-	serverDict := make(map[string]chan BackendRequest)
-	for id, serverCfg := range serverCfgs {
-		workerServerCfg, _ := config.FileToWorkerConfig2(serverCfg)
-		serverWorker := NewBasicBackendWorker(id, workerServerCfg)
-
-		for _, domain := range serverCfg.Domains {
-			serverDict[domain] = serverWorker.ReqCh
-		}
-		go serverWorker.Work()
-	}
-	log.Printf("Registered %v backend(s)", len(serverCfgs))
-	worker := BasicWorker{
-		ReqCh:         reqCh,
-		defaultStatus: defaultStatus,
-		serverDict:    serverDict,
-	}
-
-	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		go func(worker BasicWorker) {
-			worker.Work()
-		}(worker)
-	}
-	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
-}
-
-func NewBasicWorkerEmpty() BasicWorker {
-	return BasicWorker{}
-}
-
-func NewWorker(cfg config.WorkerConfig) BasicWorker {
+func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 	dict := make(map[string]chan BackendRequest)
-	statusPk := cfg.DefaultStatus.Marshal()
-	defaultStatus := statusPk.Marshal()
-	reqCh := make(chan net.Conn)
+	defaultStatusPk := cfg.DefaultStatus.Marshal()
 	return BasicWorker{
 		ReqCh:         reqCh,
-		defaultStatus: defaultStatus,
+		defaultStatus: defaultStatusPk,
 		serverDict:    dict,
-	}
-}
-
-func NewBasicWorker(defaultStatus []byte, reqCh chan net.Conn) BasicWorker {
-	return BasicWorker{
-		ReqCh:         reqCh,
-		defaultStatus: defaultStatus,
-		serverDict:    make(map[string]chan BackendRequest),
 	}
 }
 
 type BasicWorker struct {
 	ReqCh         chan net.Conn
-	defaultStatus []byte
+	defaultStatus mc.Packet
 
 	serverDict map[string]chan BackendRequest
 }
 
-func (r *BasicWorker) RegisterWorker(key string, worker BackendWorker) {
+func (r *BasicWorker) RegisterBackendWorker(key string, worker BackendWorker) {
 	r.serverDict[key] = worker.ReqCh
 }
 
-func (r *BasicWorker) RegisterBackendWorker(key string, worker BasicBackendWorker) {
-	r.serverDict[key] = worker.ReqCh
-}
-
+// TODO: 
+// - add more tests with this method
 func (r *BasicWorker) Work() {
 	var err error
 	var conn net.Conn
@@ -130,16 +49,16 @@ func (r *BasicWorker) Work() {
 		conn = <-r.ReqCh
 		req, err = r.ProcessConnection(conn)
 		if err != nil {
+			conn.Close()
 			return
-		}
-		log.Printf("request from %v goes to %v with type %v", conn.RemoteAddr(), req.ServerAddr, req.Type)
+		} 
 		ans = r.ProcessRequest(req)
-		log.Printf("%v - with type %v will take action: %v", conn.RemoteAddr(), req.Type, ans.action)
+		log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 		r.ProcessAnswer(conn, ans)
 	}
 }
 
-func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
 	handshake, err := mc.ReadPacket3_Handshake(b)
@@ -162,9 +81,45 @@ func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 		loginStart, _ := mc.UnmarshalServerBoundLoginStart(packet)
 		request.Username = string(loginStart.Name)
 	}
+	return request, nil
+}
+
+// TODO:
+// - Add IO deadlines
+// - Adding some more error tests
+func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
+	mcConn := mc.NewMcConn(conn)
+	handshakePacket, err := mcConn.ReadPacket()
+	if err != nil {
+		log.Printf("error while reading handshake: %v", err)
+	}
+	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
+	if err != nil {
+		log.Printf("error while parsing handshake: %v", err)
+	}
+	reqType := mc.RequestState(handshake.NextState)
+	if reqType == mc.UNKNOWN_STATE {
+		return BackendRequest{}, ErrNotValidHandshake
+	}
+	request := BackendRequest{
+		Type:       reqType,
+		ServerAddr: handshake.ParseServerAddress(),
+		Addr:       conn.RemoteAddr(),
+		Handshake:  handshake,
+	}
+	packet, err := mcConn.ReadPacket()
+	if err != nil {
+		log.Printf("error while reading second packet: %v", err)
+	}
+	if reqType == mc.LOGIN {
+		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
+		if err != nil {
+			log.Printf("error while parsing login packet: %v", err)
+		}
+		request.Username = string(loginStart.Name)
+	}
 
 	return request, nil
-
 }
 
 func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
@@ -187,6 +142,7 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 }
 
 func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
+	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
 	case PROXY:
 		sConn, err := ans.serverConnFunc()
@@ -195,20 +151,20 @@ func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 			conn.Close()
 			return
 		}
-		sConn.Write(ans.Response())
-		sConn.Write(ans.Response2())
+		mcServerConn := mc.NewMcConn(sConn)
+		mcServerConn.WritePacket(ans.Response())
+		mcServerConn.WritePacket(ans.Response2())
 		go func(client, server net.Conn, proxyCh chan ProxyAction) {
 			proxyCh <- PROXY_OPEN
 			ProxyConnection(client, server)
 			proxyCh <- PROXY_CLOSE
 		}(conn, sConn, ans.ProxyCh())
 	case DISCONNECT:
-		conn.Write(ans.Response())
+		clientMcConn.WritePacket(ans.Response())
 		conn.Close()
 	case SEND_STATUS:
-		conn.Write(ans.Response())
-		readBuf := make([]byte, 128)
-		_, err := conn.Read(readBuf)
+		clientMcConn.WritePacket(ans.Response())
+		pingPacket, err := clientMcConn.ReadPacket()
 		if err != nil {
 			conn.Close()
 			return
@@ -216,7 +172,7 @@ func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 		if ans.Latency() != 0 {
 			time.Sleep(ans.Latency())
 		}
-		conn.Write(readBuf[:])
+		clientMcConn.WritePacket(pingPacket)
 		conn.Close()
 	case CLOSE:
 		conn.Close()

@@ -1,7 +1,7 @@
 package main
 
-import "github.com/realDragonium/Ultraviolet"
+import ultraviolet "github.com/realDragonium/Ultraviolet"
 
 func main() {
-	Ultraviolet.RunProxy()
+	ultraviolet.RunProxy()
 }

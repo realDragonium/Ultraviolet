@@ -1,7 +1,7 @@
 # Ultraviolet - Alpha v0.12
 
 ## What is it
-Like [Infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra lightweight Minecraft reverse proxy written in Go. Not even sure or this will be a production ready software some day, its mostly a different structure I want to try and see what kind of effect it has on performance and such. It should work most of the time, although there isnt much code/features dedicated to prevent some mistakes from happening or which can recover when certain errors occurs.
+Like [infrared](https://github.com/haveachin/infrared), Ultraviolet is an ultra lightweight Minecraft reverse proxy written in Go. Not even sure or this will be a production ready software some day, its mostly a different structure I want to try and see what kind of effect it has on performance and such. It should work most of the time, although there isnt much code/features dedicated to prevent some mistakes from happening or which can recover when certain errors occurs.
 
 
 ## Some notes
