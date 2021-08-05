@@ -22,6 +22,17 @@ func (creator statusCacheConnCreator) Conn() func() (net.Conn, error) {
 	}
 }
 
+type statusCacheConnCreatorMultipleCalls struct {
+	connCh <-chan net.Conn
+}
+
+func (creator statusCacheConnCreatorMultipleCalls) Conn() func() (net.Conn, error) {
+	conn := <-creator.connCh
+	return func() (net.Conn, error) {
+		return conn, nil
+	}
+}
+
 func statusCall_TestError(t *testing.T, cache *ultraviolet.StatusCache, errCh chan error) ultraviolet.ProcessAnswer {
 	t.Helper()
 	answerCh := make(chan ultraviolet.ProcessAnswer)
@@ -151,30 +162,17 @@ func TestStatusCache(t *testing.T) {
 
 	t.Run("doesnt call again while in cooldown", func(t *testing.T) {
 		errCh := make(chan error)
-		targetAddr := testAddr()
-		connCreator := ultraviolet.BasicConnCreator(targetAddr, net.Dialer{})
+		connCh := make(chan net.Conn, 1)
+		connCreator := &statusCacheConnCreatorMultipleCalls{connCh: connCh}
 		statusCache := ultraviolet.NewStatusCache(protocolVersion, cooldown, connCreator)
 		simulator := serverSimulator{}
 
-		go func() {
-			listener, err := net.Listen("tcp", targetAddr)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				err = simulator.simulateServerStatus(conn, statusPacket)
-				if err != nil {
-					errCh <- err
-				}
-			}
-		}()
+		c1, c2 := net.Pipe()
+		connCh <- c1
+		go simulator.simulateServerStatus(c2, statusPacket)
 		statusCall_TestError(t, &statusCache, errCh)
+
+		// This will timeout if its going to call a second time
 		statusCall_TestError(t, &statusCache, errCh)
 		if simulator.callAmount != 1 {
 			t.Errorf("expected backend to be called 1 time but got called %v time(s)", simulator.callAmount)
@@ -184,32 +182,19 @@ func TestStatusCache(t *testing.T) {
 	t.Run("does call again after cooldown", func(t *testing.T) {
 		cooldown = time.Microsecond
 		errCh := make(chan error)
-		targetAddr := testAddr()
-		connCreator := ultraviolet.BasicConnCreator(targetAddr, net.Dialer{})
+		connCh := make(chan net.Conn, 1)
+		connCreator := &statusCacheConnCreatorMultipleCalls{connCh: connCh}
 		statusCache := ultraviolet.NewStatusCache(protocolVersion, cooldown, connCreator)
 		simulator := serverSimulator{}
 
-		go func() {
-			listener, err := net.Listen("tcp", targetAddr)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			for {
-				conn, err := listener.Accept()
-				if err != nil {
-					errCh <- err
-					return
-				}
-				err = simulator.simulateServerStatus(conn, statusPacket)
-				if err != nil {
-					errCh <- err
-				}
-			}
-		}()
-
+		c1, c2 := net.Pipe()
+		connCh <- c1
+		go simulator.simulateServerStatus(c2, statusPacket)
 		statusCall_TestError(t, &statusCache, errCh)
 		time.Sleep(cooldown)
+		c1, c2 = net.Pipe()
+		connCh <- c1
+		go simulator.simulateServerStatus(c2, statusPacket)
 		statusCall_TestError(t, &statusCache, errCh)
 		if simulator.callAmount != 2 {
 			t.Errorf("expected backend to be called 2 time but got called %v time(s)", simulator.callAmount)
@@ -241,7 +226,7 @@ func TestStatusCache(t *testing.T) {
 		tt := []struct {
 			matchStatus       bool
 			shouldReturnError bool
-			closeConnByStep int
+			closeConnByStep   int
 		}{
 			{
 				matchStatus:       false,
