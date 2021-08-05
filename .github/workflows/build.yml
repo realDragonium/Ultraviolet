@@ -15,7 +15,7 @@ jobs:
         go-version: 1.16
 
     - name: Build
-      run: go build ./...
+      run: go build cmd/Ultraviolet/
       env: 
         GOARCH: amd64
         GOOS: linux
@@ -24,4 +24,4 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: ultraviolet
-        path: cmd/ultraviolet/ultraviolet
+        path: cmd/Ultraviolet/ultraviolet
