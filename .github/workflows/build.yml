@@ -16,3 +16,12 @@ jobs:
 
     - name: Build
       run: go build ./...
+      env: 
+        GOARCH: amd64
+        GOOS: linux
+      
+    - name: Save artifact 
+      uses: actions/upload-artifact@v2
+      with:
+        name: ultraviolet
+        path: cmd/ultraviolet/ultraviolet
