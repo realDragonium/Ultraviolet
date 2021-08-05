@@ -2,9 +2,11 @@ package ultraviolet
 
 import (
 	"bufio"
+	"errors"
 	"io"
 	"log"
 	"net"
+	"os"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -19,6 +21,8 @@ const (
 )
 
 var (
+	ErrClientToSlow = errors.New("client was to slow with sending its packets")
+
 	newConnections = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ultraviolet_new_connections",
 		Help: "The number of new connections created since started running",
@@ -61,6 +65,9 @@ func (r *BasicWorker) Work() {
 	for {
 		conn = <-r.ReqCh
 		req, err = r.ProcessConnection(conn)
+		if errors.Is(err, ErrClientToSlow) {
+			log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
+		}
 		if err != nil {
 			conn.Close()
 			return
@@ -101,16 +108,21 @@ func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReques
 // TODO:
 // - Add IO deadlines
 // - Adding some more error tests
+// - Add beter timeout tests (currently only being test with proxy protocol tests)
 func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	mcConn := mc.NewMcConn(conn)
+	conn.SetDeadline(time.Now().Add(time.Second))
 	handshakePacket, err := mcConn.ReadPacket()
-	if err != nil {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return BackendRequest{}, ErrClientToSlow
+	} else if err != nil {
 		log.Printf("error while reading handshake: %v", err)
 	}
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
 	if err != nil {
 		log.Printf("error while parsing handshake: %v", err)
 	}
+
 	reqType := mc.RequestState(handshake.NextState)
 	newConnections.WithLabelValues(reqType.String()).Inc()
 	if reqType == mc.UNKNOWN_STATE {
@@ -122,10 +134,16 @@ func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 		Addr:       conn.RemoteAddr(),
 		Handshake:  handshake,
 	}
+
+	conn.SetDeadline(time.Now().Add(time.Second))
 	packet, err := mcConn.ReadPacket()
-	if err != nil {
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return BackendRequest{}, ErrClientToSlow
+	} else if err != nil {
 		log.Printf("error while reading second packet: %v", err)
 	}
+	
+	conn.SetDeadline(time.Time{})
 	if reqType == mc.LOGIN {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {
@@ -157,6 +175,8 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 	return <-req.Ch
 }
 
+// TODO:
+// - Add deadlines
 func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 	processedConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)

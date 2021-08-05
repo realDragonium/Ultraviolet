@@ -34,11 +34,3 @@ func (conn mcConn) WriteMcPacket(s McPacket) error {
 	_, err := conn.netConn.Write(bytes)
 	return err
 }
-
-func DialMCServer(addr string) (mcConn, error) {
-	conn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return mcConn{}, err
-	}
-	return NewMcConn(conn), err
-}

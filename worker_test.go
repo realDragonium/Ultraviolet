@@ -88,7 +88,7 @@ func newWorker(cfg config.WorkerConfig) (ultraviolet.BasicWorker, chan net.Conn)
 	return r, reqCh
 }
 
-func testConnectionClosed(t *testing.T, conn net.Conn) {
+func testPipeConnClosed(t *testing.T, conn net.Conn) {
 	errCh := make(chan error)
 	go func() {
 		_, err := conn.Write([]byte{1})
@@ -411,7 +411,7 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 		client := mc.NewMcConn(c1)
 		client.ReadPacket()
 
-		testConnectionClosed(t, c1)
+		testPipeConnClosed(t, c1)
 	})
 }
 
@@ -425,7 +425,7 @@ func TestProcessAnswer_Close(t *testing.T) {
 
 		client := mc.NewMcConn(c1)
 		client.ReadPacket()
-		testConnectionClosed(t, c1)
+		testPipeConnClosed(t, c1)
 	})
 }
 
@@ -475,7 +475,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 		client.WritePacket(pingPk)
 		client.ReadPacket()
 
-		testConnectionClosed(t, c1)
+		testPipeConnClosed(t, c1)
 	})
 
 	t.Run("latency delays response", func(t *testing.T) {
@@ -686,7 +686,7 @@ func testCloseProxy(t *testing.T, proxyConns func(net.Conn, net.Conn)) {
 		go proxyConns(c2, s2)
 		c1.Close()
 		time.Sleep(defaultChTimeout)
-		testConnectionClosed(t, s1)
+		testPipeConnClosed(t, s1)
 	})
 
 	t.Run("Closing server will close client", func(t *testing.T) {
@@ -695,6 +695,6 @@ func testCloseProxy(t *testing.T, proxyConns func(net.Conn, net.Conn)) {
 		go proxyConns(c2, s2)
 		s1.Close()
 		time.Sleep(defaultChTimeout)
-		testConnectionClosed(t, c1)
+		testPipeConnClosed(t, c1)
 	})
 }
