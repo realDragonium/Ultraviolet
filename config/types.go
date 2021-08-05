@@ -38,6 +38,8 @@ type UltravioletConfig struct {
 	NumberOfWorkers   int             `json:"numberOfWorkers"`
 	NumberOfListeners int             `json:"numberOfListeners"`
 	UseProxyProtocol  bool            `json:"acceptProxyProtocol"`
+	UsePrometheus     bool            `json:"enablePrometheus"`
+	PrometheusBind    string          `json:"prometheusBind"`
 	PidFile           string
 }
 
@@ -49,13 +51,17 @@ func DefaultUltravioletConfig() UltravioletConfig {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		NumberOfWorkers:   25,
-		NumberOfListeners: 5,
+		NumberOfWorkers:   10,
+		NumberOfListeners: 1,
 		PidFile:           "/var/run/ultraviolet.pid",
+		UseProxyProtocol:  false,
+		UsePrometheus:     true,
+		PrometheusBind:    ":9100",
 	}
 }
 
 type WorkerServerConfig struct {
+	Name                string
 	StateUpdateCooldown time.Duration
 	OldRealIp           bool
 	NewRealIP           bool

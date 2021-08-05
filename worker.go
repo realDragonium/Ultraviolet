@@ -37,7 +37,7 @@ func (r *BasicWorker) RegisterBackendWorker(key string, worker BackendWorker) {
 	r.serverDict[key] = worker.ReqCh
 }
 
-// TODO: 
+// TODO:
 // - add more tests with this method
 func (r *BasicWorker) Work() {
 	var err error
@@ -51,7 +51,7 @@ func (r *BasicWorker) Work() {
 		if err != nil {
 			conn.Close()
 			return
-		} 
+		}
 		ans = r.ProcessRequest(req)
 		log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 		r.ProcessAnswer(conn, ans)
@@ -159,6 +159,7 @@ func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 			ProxyConnection(client, server)
 			proxyCh <- PROXY_CLOSE
 		}(conn, sConn, ans.ProxyCh())
+
 	case DISCONNECT:
 		clientMcConn.WritePacket(ans.Response())
 		conn.Close()
@@ -190,6 +191,8 @@ func Proxy_IOCopy(client, server net.Conn) {
 	server.Close()
 }
 
+// TODO:
+// - check or servers close the connection when they disconnect players if not add something to prevent abuse
 func ProxyConnection(client, server net.Conn) {
 	go func() {
 		pipe(server, client)

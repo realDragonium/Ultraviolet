@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
@@ -13,6 +15,10 @@ import (
 var (
 	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
 	ErrNotValidHandshake = errors.New("not a valid handshake state")
+	playersConnected     = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "ultraviolet_connected",
+		Help: "The total number of connected players",
+	}, []string{"host"})
 )
 
 type BackendAction byte
@@ -190,8 +196,9 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig) BackendWorker
 	}
 
 	return BackendWorker{
-		ReqCh:   make(chan BackendRequest, 5),
-		proxyCh: make(chan ProxyAction, 10),
+		identifyingName: cfg.Name,
+		ReqCh:           make(chan BackendRequest, 5),
+		proxyCh:         make(chan ProxyAction, 10),
 
 		sendProxyProtocol: cfg.SendProxyProtocol,
 
@@ -207,9 +214,10 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig) BackendWorker
 }
 
 type BackendWorker struct {
-	activeConns int
-	proxyCh     chan ProxyAction
-	ReqCh       chan BackendRequest
+	identifyingName string
+	activeConns     int
+	proxyCh         chan ProxyAction
+	ReqCh           chan BackendRequest
 
 	sendProxyProtocol bool
 
@@ -239,8 +247,10 @@ func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case PROXY_OPEN:
 		worker.activeConns++
+		playersConnected.With(prometheus.Labels{"host": worker.identifyingName}).Inc()
 	case PROXY_CLOSE:
 		worker.activeConns--
+		playersConnected.With(prometheus.Labels{"host": worker.identifyingName}).Dec()
 	}
 }
 

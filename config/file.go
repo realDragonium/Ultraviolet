@@ -199,6 +199,7 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 		cacheCooldown = time.Second
 	}
 	return WorkerServerConfig{
+		Name:                cfg.Domains[0],
 		ProxyTo:             cfg.ProxyTo,
 		ProxyBind:           cfg.ProxyBind,
 		DialTimeout:         dialTimeout,

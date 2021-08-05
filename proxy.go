@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
 )
 
@@ -21,7 +23,7 @@ var (
 )
 
 func RunProxy() {
-	log.Println("Starting up Alpha-v0.12")
+	log.Println("Starting up Alpha-v0.10")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)
@@ -40,9 +42,15 @@ func RunProxy() {
 	}
 
 	StartWorkers(mainCfg, serverCfgs)
+	log.Println("Finished starting up proxy")
 
-	log.Printf("Finished starting up")
-	select {}
+	log.Println("Now starting prometheus endpoint")
+	if mainCfg.UsePrometheus {
+		http.Handle("/metrics", promhttp.Handler())
+		log.Fatal(http.ListenAndServe(mainCfg.PrometheusBind, nil))
+	} else {
+		select {}
+	}
 }
 
 func createListener(listenAddr string, useProxyProtocol bool, pidFile string) net.Listener {
