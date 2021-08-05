@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.10
+# Ultraviolet - Alpha v0.10.2
 
 ## What is Ultraviolet?
 [infrared](https://github.com/haveachin/infrared) but different.
@@ -35,7 +35,7 @@ IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultravio
 `-configs` specifies the path to the config directory [default: `"/etc/ultraviolet/"`]  
 
 The main config file needs have the name `ultraviolet.json`.  
-Every server config needs to be in a directory called `config` and end it needs to end with `.json`. Server config files can also be placed inside other directories in the config directory. 
+Every server config needs to end with `.json`. Server config files will be searched for recursively.
 
 ## How does some stuff work
 ### rate limiting

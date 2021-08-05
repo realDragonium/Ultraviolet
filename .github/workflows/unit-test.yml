@@ -1,12 +1,12 @@
-name: Go
+name: Unit tests
 
 on:
   push:
-    tags:
-      - v* 
+    branches: *
+  pull_request:
+    branches: *
 
 jobs:
-
   build:
     runs-on: ubuntu-latest
     steps:
@@ -16,10 +16,6 @@ jobs:
       uses: actions/setup-go@v2
       with:
         go-version: 1.16
-
-    - name: Build
-      working-directory: ./cmd/ultraviolet
-      run: go build 
 
     - name: Test
       run: go test ./...

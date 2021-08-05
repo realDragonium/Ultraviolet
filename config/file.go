@@ -35,6 +35,9 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		if filepath.Ext(path) != ".json" {
 			return nil
 		}
+		if info.Name() == "ultraviolet" {
+			return nil
+		}
 		filePaths = append(filePaths, path)
 		return nil
 	})

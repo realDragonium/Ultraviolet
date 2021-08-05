@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -29,7 +30,7 @@ var (
 )
 
 func RunProxy() {
-	log.Println("Starting up Alpha-v0.10")
+	log.Println("Starting up Alpha-v0.10.2")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)
@@ -41,8 +42,7 @@ func RunProxy() {
 		log.Fatalf("Read main config file at '%s' - error: %v", mainCfgPath, err)
 	}
 
-	serverCfgsPath := filepath.Join(*cfgDir, "config")
-	serverCfgs, err := config.ReadServerConfigs(serverCfgsPath)
+	serverCfgs, err := config.ReadServerConfigs(*cfgDir)
 	if err != nil {
 		log.Fatalf("Something went wrong while reading config files: %v", err)
 	}
@@ -60,27 +60,33 @@ func RunProxy() {
 }
 
 func createListener(listenAddr string, useProxyProtocol bool, pidFile string) net.Listener {
-	upg, err := tableflip.New(tableflip.Options{
-		PIDFile: pidFile,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-	go func() {
-		sig := make(chan os.Signal, 1)
-		signal.Notify(sig, syscall.SIGHUP)
-		for range sig {
-			err := upg.Upgrade()
-			if err != nil {
-				log.Println("upgrade failed:", err)
-			}
+	var ln net.Listener
+	var err error
+	if runtime.GOOS == "windows" {
+		ln, err = net.Listen("tcp", listenAddr)
+	} else {
+		upg, err := tableflip.New(tableflip.Options{
+			PIDFile: pidFile,
+		})
+		if err != nil {
+			log.Fatal(err)
 		}
-	}()
-
-	ln, err := upg.Listen("tcp", listenAddr)
+		go func() {
+			sig := make(chan os.Signal, 1)
+			signal.Notify(sig, syscall.SIGHUP)
+			for range sig {
+				err := upg.Upgrade()
+				if err != nil {
+					log.Println("upgrade failed:", err)
+				}
+			}
+		}()
+		ln, err = upg.Listen("tcp", listenAddr)
+	}
 	if err != nil {
 		log.Fatalf("Can't listen: %v", err)
 	}
+
 	if useProxyProtocol {
 		proxyListener := &proxyproto.Listener{
 			Listener:          ln,

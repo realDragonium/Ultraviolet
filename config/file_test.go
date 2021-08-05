@@ -22,7 +22,7 @@ import (
 
 func TestReadServerConfig(t *testing.T) {
 	cfg := config.ServerConfig{
-		Domains: []string{"infrared"},
+		Domains: []string{"ultraviolet"},
 		ProxyTo: ":25566",
 	}
 	tmpfile, err := ioutil.TempFile("", "example*.json")
@@ -49,61 +49,73 @@ func TestReadServerConfig(t *testing.T) {
 }
 
 func TestReadServerConfigs(t *testing.T) {
+	generateNumberOfFile := 3
 	cfg := config.ServerConfig{
-		Domains: []string{"infrared"},
+		Domains: []string{"ultraviolet"},
 		ProxyTo: ":25566",
 	}
-	tmpDir, _ := ioutil.TempDir("", "configs")
-	for i := 0; i < 3; i++ {
-		file, _ := json.MarshalIndent(cfg, "", " ")
-		tmpfile, err := ioutil.TempFile(tmpDir, "example*.json")
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.Remove(tmpfile.Name())
-		if _, err := tmpfile.Write(file); err != nil {
-			t.Fatal(err)
-		}
-		if err := tmpfile.Close(); err != nil {
-			t.Fatal(err)
-		}
+	tt := []struct {
+		testName         string
+		hasDifferentFile bool
+		specialName      string
+		expectedReadFile int
+	}{
+		{
+			testName:         "normal configs",
+			hasDifferentFile: false,
+			expectedReadFile: generateNumberOfFile,
+		},
+		{
+			testName:         "doesnt read file with no extension",
+			hasDifferentFile: true,
+			specialName:      "example*",
+			expectedReadFile: generateNumberOfFile - 1,
+		},
+		{
+			testName:         "doesnt read file with different extension",
+			hasDifferentFile: true,
+			specialName:      "example*.yml",
+			expectedReadFile: generateNumberOfFile - 1,
+		},
+		{
+			testName:         "doesnt read ultraviolet config file",
+			hasDifferentFile: true,
+			specialName:      "ultraviolet.json",
+			expectedReadFile: generateNumberOfFile - 1,
+		},
 	}
-	loadedCfgs, _ := config.ReadServerConfigs(tmpDir)
-	for i, loadedCfg := range loadedCfgs {
-		loadedCfg.FilePath = ""
-		if !reflect.DeepEqual(cfg, loadedCfg) {
-			t.Errorf("index: %d \nWanted:%v \n got: %v", i, cfg, loadedCfg)
-		}
-	}
-}
 
-func TestReadServerConfigs_OnlyReadJson(t *testing.T) {
-	cfg := config.ServerConfig{
-		Domains: []string{"infrared"},
-		ProxyTo: ":25566",
-	}
-	tmpDir, _ := ioutil.TempDir("", "configs")
-	for i := 0; i < 3; i++ {
-		fileName := "example*.json"
-		if i == 0 {
-			fileName = "example*"
-		}
-		file, _ := json.MarshalIndent(cfg, "", " ")
-		tmpfile, err := ioutil.TempFile(tmpDir, fileName)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer os.Remove(tmpfile.Name())
-		if _, err := tmpfile.Write(file); err != nil {
-			t.Fatal(err)
-		}
-		if err := tmpfile.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}
-	loadedCfgs, _ := config.ReadServerConfigs(tmpDir)
-	if len(loadedCfgs) != 2 {
-		t.Errorf("Expected 2 configs to be read but there are %d configs read", len(loadedCfgs))
+	for _, tc := range tt {
+		t.Run(tc.testName, func(t *testing.T) {
+			tmpDir, _ := ioutil.TempDir("", "configs")
+			bb, _ := json.MarshalIndent(cfg, "", " ")
+			for i := 0; i < generateNumberOfFile; i++ {
+				fileName := "example*.json"
+				if tc.hasDifferentFile && i == 0 {
+					fileName = tc.specialName
+				}
+				tmpfile, err := ioutil.TempFile(tmpDir, fileName)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := tmpfile.Write(bb); err != nil {
+					t.Fatal(err)
+				}
+				if err := tmpfile.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			loadedCfgs, _ := config.ReadServerConfigs(tmpDir)
+			for i, loadedCfg := range loadedCfgs {
+				loadedCfg.FilePath = ""
+				if !reflect.DeepEqual(cfg, loadedCfg) {
+					t.Errorf("index: %d \nWanted:%v \n got: %v", i, cfg, loadedCfg)
+				}
+			}
+			if len(loadedCfgs) != tc.expectedReadFile {
+				t.Errorf("Expected %v configs to be read but there are %d configs read", tc.expectedReadFile, len(loadedCfgs))
+			}
+		})
 	}
 }
 
