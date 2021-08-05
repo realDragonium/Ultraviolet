@@ -42,6 +42,7 @@ func TestStatusRequest(t *testing.T) {
 	cfg := config.UltravioletConfig{
 		NumberOfWorkers:   1,
 		NumberOfListeners: 1,
+		EnableHotSwap:     false,
 	}
 	serverCfgs := []config.ServerConfig{}
 
@@ -89,9 +90,10 @@ func TestProxyProtocol(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			serverDomain := "Ultraviolet"
 			cfg := config.UltravioletConfig{
-				NumberOfWorkers:   1,
-				NumberOfListeners: 1,
-				UseProxyProtocol:  tc.acceptProxyProtocol,
+				NumberOfWorkers:     1,
+				NumberOfListeners:   1,
+				AcceptProxyProtocol: tc.acceptProxyProtocol,
+				EnableHotSwap:       false,
 			}
 			serverCfgs := []config.ServerConfig{}
 

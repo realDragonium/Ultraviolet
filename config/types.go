@@ -37,9 +37,10 @@ type UltravioletConfig struct {
 	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
 	NumberOfWorkers   int             `json:"numberOfWorkers"`
 	NumberOfListeners int             `json:"numberOfListeners"`
-	UseProxyProtocol  bool            `json:"acceptProxyProtocol"`
+	AcceptProxyProtocol  bool            `json:"acceptProxyProtocol"`
 	UsePrometheus     bool            `json:"enablePrometheus"`
 	PrometheusBind    string          `json:"prometheusBind"`
+	EnableHotSwap     bool
 	PidFile           string
 }
 
@@ -54,7 +55,8 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		NumberOfWorkers:   10,
 		NumberOfListeners: 1,
 		PidFile:           "/var/run/ultraviolet.pid",
-		UseProxyProtocol:  false,
+		AcceptProxyProtocol:  false,
+		EnableHotSwap:     true,
 		UsePrometheus:     true,
 		PrometheusBind:    ":9100",
 	}

@@ -59,14 +59,14 @@ func RunProxy() {
 	}
 }
 
-func createListener(listenAddr string, useProxyProtocol bool, pidFile string) net.Listener {
+func createListener(cfg config.UltravioletConfig) net.Listener {
 	var ln net.Listener
 	var err error
-	if runtime.GOOS == "windows" {
-		ln, err = net.Listen("tcp", listenAddr)
+	if runtime.GOOS == "windows" || !cfg.EnableHotSwap {
+		ln, err = net.Listen("tcp", cfg.ListenTo)
 	} else {
 		upg, err := tableflip.New(tableflip.Options{
-			PIDFile: pidFile,
+			PIDFile: cfg.PidFile,
 		})
 		if err != nil {
 			log.Fatal(err)
@@ -81,13 +81,13 @@ func createListener(listenAddr string, useProxyProtocol bool, pidFile string) ne
 				}
 			}
 		}()
-		ln, err = upg.Listen("tcp", listenAddr)
+		ln, err = upg.Listen("tcp", cfg.ListenTo)
 	}
 	if err != nil {
 		log.Fatalf("Can't listen: %v", err)
 	}
 
-	if useProxyProtocol {
+	if cfg.AcceptProxyProtocol {
 		proxyListener := &proxyproto.Listener{
 			Listener:          ln,
 			ReadHeaderTimeout: 1 * time.Second,
@@ -114,7 +114,7 @@ func serveListener(listener net.Listener, reqCh chan net.Conn) {
 
 func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
 	reqCh := make(chan net.Conn, 50)
-	listener := createListener(cfg.ListenTo, cfg.UseProxyProtocol, cfg.PidFile)
+	listener := createListener(cfg)
 	for i := 0; i < cfg.NumberOfListeners; i++ {
 		go func(listener net.Listener, reqCh chan net.Conn) {
 			serveListener(listener, reqCh)
