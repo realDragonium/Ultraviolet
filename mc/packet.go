@@ -1,6 +1,7 @@
 package mc
 
 import (
+	"bufio"
 	"bytes"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ var (
 
 const (
 	ServerBoundHandshakePacketID byte = 0x00
+	HandshakePacketID            int  = 0x00
 
 	StatusState = 1
 	LoginState  = 2
@@ -32,20 +34,24 @@ type Packet struct {
 	Data []byte
 }
 
+type McPacket interface {
+	MarshalPacket() Packet
+}
+
 // Scan decodes and copies the Packet data into the fields
 func (pk Packet) Scan(fields ...FieldDecoder) error {
 	return ScanFields(bytes.NewReader(pk.Data), fields...)
 }
 
 // Marshal encodes the packet and all it's fields
-func (pk *Packet) Marshal() ([]byte, error) {
+func (pk *Packet) Marshal() []byte {
 	var packedData []byte
 	data := []byte{pk.ID}
 	data = append(data, pk.Data...)
 	packetLength := VarInt(int32(len(data))).Encode()
 	packedData = append(packedData, packetLength...)
 
-	return append(packedData, data...), nil
+	return append(packedData, data...)
 }
 
 // ScanFields decodes a byte stream into fields
@@ -122,4 +128,69 @@ func ReadPacket(r DecodeReader) (Packet, error) {
 		ID:   data[0],
 		Data: data[1:],
 	}, nil
+}
+
+func ReadPacket_WithBytes(b []byte) (Packet, error) {
+	buf := bytes.NewBuffer(b)
+	reader := bufio.NewReader(buf)
+	return ReadPacket3(reader)
+}
+
+func ReadPacket3(r *bufio.Reader) (Packet, error) {
+	packetLength, err := ReadVarInt_ByteReader(r)
+	if err != nil {
+		return Packet{}, err
+	}
+
+	if packetLength < 1 {
+		return Packet{}, fmt.Errorf("packet length too short")
+	}
+	data := make([]byte, packetLength)
+	if _, err := io.ReadFull(r, data); err != nil {
+		return Packet{}, fmt.Errorf("reading the content of the packet failed: %v", err)
+	}
+
+	return Packet{
+		ID:   data[0],
+		Data: data[1:],
+	}, nil
+}
+
+func ReadPacket3_Handshake(r *bufio.Reader) (ServerBoundHandshake, error) {
+	var hs ServerBoundHandshake
+	packetLength, err := ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+
+	if packetLength < 1 {
+		return hs, fmt.Errorf("packet length too short")
+	}
+
+	packetID, err := ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	if packetID != HandshakePacketID {
+		return hs, ErrInvalidPacketID
+	}
+
+	hs.ProtocolVersion, err = ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerAddress, err = ReadString_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.ServerPort, err = ReadShot_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+	hs.NextState, err = ReadVarInt_ByteReader(r)
+	if err != nil {
+		return hs, err
+	}
+
+	return hs, nil
 }

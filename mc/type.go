@@ -243,3 +243,57 @@ func ReadPacketSize_Bytes(bytes []byte) (int, int, error) {
 	}
 	return int(n), i, nil
 }
+
+func ReadNBytes_ByteReader(r io.ByteReader, n int) ([]byte, error) {
+	bb := make([]byte, n)
+	var err error
+	for i := 0; i < n; i++ {
+		bb[i], err = r.ReadByte()
+		if err != nil {
+			return nil, err
+		}
+	}
+	return bb, nil
+}
+
+func ReadVarInt_ByteReader(b io.ByteReader) (int, error) {
+	var n uint32
+
+	for i := 0; ; i++ {
+		sec, err := b.ReadByte()
+		if err != nil {
+			return 0, err
+		}
+		n |= uint32(sec&0x7F) << uint32(7*i)
+		if i >= 5 {
+			return 0, ErrVarIntSize
+		} else if sec&0x80 == 0 {
+			break
+		}
+	}
+	return int(n), nil
+}
+
+// Decode a String
+func ReadString_ByteReader(r io.ByteReader) (string, error) {
+	length, err := ReadVarInt_ByteReader(r)
+	if err != nil {
+		return "", err
+	}
+
+	bb, err := ReadNBytes_ByteReader(r, length)
+	if err != nil {
+		return "", err
+	}
+
+	return string(bb), nil
+}
+
+// Decode a UnsignedShort
+func ReadShot_ByteReader(r io.ByteReader) (int16, error) {
+	bb, err := ReadNBytes_ByteReader(r, 2)
+	if err != nil {
+		return 0, err
+	}
+	return (int16(bb[0])<<8 | int16(bb[1])), nil
+}

@@ -115,7 +115,6 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 			Protocol:    755,
 			Description: "One dangerous proxy",
 		},
-
 		NumberOfWorkers: 5,
 	}
 	file, _ := json.MarshalIndent(cfg, "", " ")
@@ -135,7 +134,12 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 		t.Error(err)
 	}
 
-	if !reflect.DeepEqual(cfg, loadedCfg) {
+	expectedCfg, err := config.CombineUltravioletConfigs(config.DefaultUltravioletConfig(), cfg)
+	if err != nil {
+		t.Fatalf("didnt expect error but got: %v", err)
+	}
+
+	if !reflect.DeepEqual(expectedCfg, loadedCfg) {
 		t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
 	}
 }
@@ -221,7 +225,10 @@ func TestFileToWorkerConfig(t *testing.T) {
 	expectedUpdateCooldown := 1 * time.Minute
 	expectedDialTimeout := 1 * time.Second
 
-	workerCfg := config.FileToWorkerConfig(serverCfg)
+	workerCfg, err := config.FileToWorkerConfig(serverCfg)
+	if err != nil {
+		t.Fatalf("received unexpected error: %v", err)
+	}
 
 	if workerCfg.ProxyTo != serverCfg.ProxyTo {
 		t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
@@ -288,7 +295,10 @@ func TestFileToWorkerConfig_NewRealIP_ReadsKeyCorrectly(t *testing.T) {
 		RealIPKey: keyPath,
 	}
 
-	workerCfg := config.FileToWorkerConfig(serverCfg)
+	workerCfg, err := config.FileToWorkerConfig(serverCfg)
+	if err != nil {
+		t.Fatalf("received unexpected error: %v", err)
+	}
 
 	if !workerCfg.RealIPKey.Equal(privKey) {
 		t.Logf("generatedKey: %v", privKey)
@@ -309,7 +319,11 @@ func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 		NewRealIP: true,
 	}
 
-	workerCfg := config.FileToWorkerConfig(serverCfg)
+	workerCfg, err := config.FileToWorkerConfig(serverCfg)
+	if err != nil {
+		t.Fatalf("received unexpected error: %v", err)
+	}
+
 	readKey, err := config.ReadPrivateKey(keyPrivatePath)
 	if err != nil {
 		t.Fatalf("error during key reading: %v", err)
@@ -325,6 +339,9 @@ func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 		t.Fatalf("error during key reading: %v", err)
 	}
 	pub, err := x509.ParsePKIXPublicKey(bb)
+	if err != nil {
+		t.Fatalf("didnt expect error but got: %v", err)
+	}
 	pubkey := pub.(*ecdsa.PublicKey)
 	newPubkey := workerCfg.RealIPKey.PublicKey
 	if !reflect.DeepEqual(*pubkey, newPubkey) {

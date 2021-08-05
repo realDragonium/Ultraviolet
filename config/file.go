@@ -17,7 +17,10 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-var ErrPrivateKey = errors.New("could not load private key")
+var (
+	ErrPrivateKey         = errors.New("could not load private key")
+	ErrCantCombineConfigs = errors.New("failed to combine config structs")
+)
 
 func ReadServerConfigs(path string) ([]ServerConfig, error) {
 	var cfgs []ServerConfig
@@ -66,7 +69,7 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 }
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
-	var cfg UltravioletConfig
+	cfg := DefaultUltravioletConfig()
 
 	// TODO: Check or file exists and if not write default config file to it
 	bb, err := ioutil.ReadFile(path)
@@ -79,6 +82,18 @@ func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 	return cfg, nil
 }
 
+func CombineUltravioletConfigs(old, new UltravioletConfig) (UltravioletConfig, error) {
+	cfg := old
+	bb, err := json.Marshal(new)
+	if err != nil {
+		return cfg, ErrCantCombineConfigs
+	}
+	if err := json.Unmarshal(bb, &cfg); err != nil {
+		return cfg, ErrCantCombineConfigs
+	}
+	return cfg, nil
+}
+
 func ReadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 	var key *ecdsa.PrivateKey
 	bb, err := ioutil.ReadFile(path)
@@ -86,64 +101,6 @@ func ReadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 		return key, err
 	}
 	return x509.ParseECPrivateKey(bb)
-}
-
-func FileToWorkerConfig(cfg ServerConfig) WorkerServerConfig {
-	var privateKey *ecdsa.PrivateKey
-	if cfg.NewRealIP {
-		var err error
-		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
-		if errors.Is(err, os.ErrNotExist) {
-			//Check or there is already one generate or save the generated path
-			// TODO: IMPROVE THIS
-			if key, ok := existingGeneratedKey(cfg); ok {
-				privateKey = key
-			} else {
-				log.Printf("No existing key for %s has been found, generating one...", cfg.Domains[0])
-				privateKey = generateKeys(cfg)
-			}
-		} else if err != nil {
-			log.Printf("error during reading of private key: %v", err)
-		}
-	}
-	disconPk := mc.ClientBoundDisconnect{
-		Reason: mc.Chat(cfg.DisconnectMessage),
-	}.Marshal()
-	offlineStatusPk := cfg.OfflineStatus.Marshal()
-	duration, _ := time.ParseDuration(cfg.RateDuration)
-	if duration == 0 {
-		duration = time.Second
-	}
-	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
-	if cooldown == 0 {
-		cooldown = time.Second
-	}
-	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
-	if dialTimeout == 0 {
-		dialTimeout = time.Second
-	}
-	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
-	if cacheCooldown == 0 {
-		cacheCooldown = time.Second
-	}
-	return WorkerServerConfig{
-		ProxyTo:             cfg.ProxyTo,
-		ProxyBind:           cfg.ProxyBind,
-		DialTimeout:         dialTimeout,
-		SendProxyProtocol:   cfg.SendProxyProtocol,
-		CacheStatus:         cfg.CacheStatus,
-		ValidProtocol:       cfg.ValidProtocol,
-		CacheUpdateCooldown: cacheCooldown,
-		OfflineStatus:       offlineStatusPk,
-		DisconnectPacket:    disconPk,
-		RateLimit:           cfg.RateLimit,
-		RateLimitStatus:     cfg.RateLimitStatus,
-		RateLimitDuration:   duration,
-		StateUpdateCooldown: cooldown,
-		OldRealIp:           cfg.OldRealIP,
-		NewRealIP:           cfg.NewRealIP,
-		RealIPKey:           privateKey,
-	}
 }
 
 func existingGeneratedKey(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
@@ -203,4 +160,61 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 		log.Printf("error during closing public key file: %v", err)
 	}
 	return privkey
+}
+
+func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
+	var privateKey *ecdsa.PrivateKey
+	if cfg.NewRealIP {
+		var err error
+		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
+		if errors.Is(err, os.ErrNotExist) {
+			if key, ok := existingGeneratedKey(cfg); ok {
+				privateKey = key
+			} else {
+				log.Printf("No existing key for %s has been found, generating one...", cfg.Domains[0])
+				privateKey = generateKeys(cfg)
+			}
+		} else if err != nil {
+			log.Printf("error during reading of private key: %v", err)
+		}
+	}
+	disconPk := mc.ClientBoundDisconnect{
+		Reason: mc.Chat(cfg.DisconnectMessage),
+	}.Marshal()
+	offlineStatusPk := cfg.OfflineStatus.Marshal()
+	duration, _ := time.ParseDuration(cfg.RateDuration)
+	if duration == 0 {
+		duration = time.Second
+	}
+	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
+	if cooldown == 0 {
+		cooldown = time.Second
+	}
+	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
+	if dialTimeout == 0 {
+		dialTimeout = time.Second
+	}
+	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
+	if cacheCooldown == 0 {
+		cacheCooldown = time.Second
+	}
+	return WorkerServerConfig{
+		Name:                cfg.Domains[0],
+		ProxyTo:             cfg.ProxyTo,
+		ProxyBind:           cfg.ProxyBind,
+		DialTimeout:         dialTimeout,
+		SendProxyProtocol:   cfg.SendProxyProtocol,
+		CacheStatus:         cfg.CacheStatus,
+		ValidProtocol:       cfg.ValidProtocol,
+		CacheUpdateCooldown: cacheCooldown,
+		OfflineStatus:       offlineStatusPk,
+		DisconnectPacket:    disconPk,
+		RateLimit:           cfg.RateLimit,
+		RateLimitStatus:     cfg.RateLimitStatus,
+		RateLimitDuration:   duration,
+		StateUpdateCooldown: cooldown,
+		OldRealIp:           cfg.OldRealIP,
+		NewRealIP:           cfg.NewRealIP,
+		RealIPKey:           privateKey,
+	}, nil
 }

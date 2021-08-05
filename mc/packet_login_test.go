@@ -351,7 +351,7 @@ func TestServerBoundHandshake_UpgradeToOldRealIP(t *testing.T) {
 	}
 }
 
-// Add something to make sure it uses SHA512 
+// Add something to make sure it uses SHA512
 func TestServerBoundHandshake_UpgradeToNewRealIP(t *testing.T) {
 	tt := []struct {
 		addr       string
@@ -602,5 +602,29 @@ func TestUnmarshalClientDisconnect(t *testing.T) {
 		if disconnectMessage.Reason != tc.unmarshalledPacket.Reason {
 			t.Errorf("got: %v, want: %v", disconnectMessage.Reason, tc.unmarshalledPacket.Reason)
 		}
+	}
+}
+
+func BenchmarkParseServerAddres(b *testing.B) {
+	addr := "ultraviolet"
+	hs := mc.ServerBoundHandshake{
+		ServerAddress: addr,
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		hs.ParseServerAddress()
+	}
+}
+
+func BenchmarkParseServerAddres_WithRealIP(b *testing.B) {
+	addr := "ultraviolet///982349182389132801328///23487092348093284"
+	hs := mc.ServerBoundHandshake{
+		ServerAddress: addr,
+	}
+
+	b.ResetTimer()
+	for n := 0; n < b.N; n++ {
+		hs.ParseServerAddress()
 	}
 }

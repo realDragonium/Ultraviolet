@@ -2,7 +2,6 @@ package config
 
 import (
 	"crypto/ecdsa"
-	"io"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -34,14 +33,35 @@ type ServerConfig struct {
 }
 
 type UltravioletConfig struct {
-	ListenTo        string          `json:"listenTo"`
-	DefaultStatus   mc.SimpleStatus `json:"defaultStatus"`
-	NumberOfWorkers int             `json:"numberOfWorkers"`
+	ListenTo          string          `json:"listenTo"`
+	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers   int             `json:"numberOfWorkers"`
+	NumberOfListeners int             `json:"numberOfListeners"`
+	UseProxyProtocol  bool            `json:"acceptProxyProtocol"`
+	UsePrometheus     bool            `json:"enablePrometheus"`
+	PrometheusBind    string          `json:"prometheusBind"`
+	PidFile           string
+}
 
-	LogOutput io.Writer
+func DefaultUltravioletConfig() UltravioletConfig {
+	return UltravioletConfig{
+		ListenTo: ":25565",
+		DefaultStatus: mc.SimpleStatus{
+			Name:        "Ultraviolet",
+			Protocol:    755,
+			Description: "Some broken proxy",
+		},
+		NumberOfWorkers:   10,
+		NumberOfListeners: 1,
+		PidFile:           "/var/run/ultraviolet.pid",
+		UseProxyProtocol:  false,
+		UsePrometheus:     true,
+		PrometheusBind:    ":9100",
+	}
 }
 
 type WorkerServerConfig struct {
+	Name                string
 	StateUpdateCooldown time.Duration
 	OldRealIp           bool
 	NewRealIP           bool
@@ -58,4 +78,14 @@ type WorkerServerConfig struct {
 	RateLimit           int
 	RateLimitStatus     bool
 	RateLimitDuration   time.Duration
+}
+
+type WorkerConfig struct {
+	DefaultStatus mc.SimpleStatus
+}
+
+func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
+	return WorkerConfig{
+		DefaultStatus: uvCfg.DefaultStatus,
+	}
 }

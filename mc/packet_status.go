@@ -32,9 +32,14 @@ func (pk SimpleStatus) Marshal() Packet {
 		Favicon: fmt.Sprintf("data:image/png;base64,%s", pk.Favicon),
 	}
 	text, _ := json.Marshal(jsonResponse)
-	return ClientBoundResponse{
+	response := ClientBoundResponse{
 		JSONResponse: String(text),
-	}.Marshal()
+	}
+	return response.Marshal()
+}
+
+func (pk *SimpleStatus) MarshalPacket() Packet {
+	return pk.Marshal()
 }
 
 type DifferentStatusResponse struct {
@@ -43,23 +48,24 @@ type DifferentStatusResponse struct {
 	Favicon     string          `json:"favicon,omitempty"`
 }
 
-func (pk DifferentStatusResponse) Marshal() Packet {
+func (pk *DifferentStatusResponse) Marshal() Packet {
 	jsonResponse := ResponseJSON{
 		Version:     pk.Version,
 		Description: pk.Description,
 		Favicon:     pk.Favicon,
 	}
 	text, _ := json.Marshal(jsonResponse)
-	return ClientBoundResponse{
+	response := ClientBoundResponse{
 		JSONResponse: String(text),
-	}.Marshal()
+	}
+	return response.Marshal()
 }
 
 type ClientBoundResponse struct {
 	JSONResponse String
 }
 
-func (pk ClientBoundResponse) Marshal() Packet {
+func (pk *ClientBoundResponse) Marshal() Packet {
 	return MarshalPacket(
 		ClientBoundResponsePacketID,
 		pk.JSONResponse,
@@ -111,10 +117,18 @@ type DescriptionJSON struct {
 
 type ServerBoundRequest struct{}
 
+func ServerBoundRequestPacket() Packet {
+	return Packet{ID: ServerBoundRequestPacketID}
+}
+
 func (pk ServerBoundRequest) Marshal() Packet {
 	return MarshalPacket(
 		ServerBoundRequestPacketID,
 	)
+}
+
+func (pk *ServerBoundRequest) MarshalPacket() Packet {
+	return pk.Marshal()
 }
 
 func NewServerBoundPing() ServerBoundPing {
