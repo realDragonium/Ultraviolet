@@ -21,7 +21,7 @@ $ go build
 [x] Rate limiting  
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
-[x] Prometheus API  
+[x] Prometheus Support  
 ... More coming later?
 
 

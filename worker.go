@@ -19,8 +19,14 @@ const (
 )
 
 var (
-	newConnections     = promauto.NewCounterVec(prometheus.CounterOpts{}, []string{"unknown", "login", "status"})
-	processConnections = promauto.NewCounterVec(prometheus.CounterOpts{}, []string{"proxy", "disconnect", "send_status", "close", "error"})
+	newConnections = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ultraviolet_new_connections",
+		Help: "The number of new connections created since started running",
+	}, []string{"type"}) // which can be "unknown", "login" or "status"
+	processedConnections = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "ultraviolet_processed_connections",
+		Help: "The number actions taken for 'valid' connections",
+	}, []string{"action"}) // which can be "proxy", "disconnect", "send_status", "close" or "error"
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
@@ -59,6 +65,7 @@ func (r *BasicWorker) Work() {
 			conn.Close()
 			return
 		}
+		log.Printf("received connection from %v", conn.RemoteAddr())
 		ans = r.ProcessRequest(req)
 		log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 		r.ProcessAnswer(conn, ans)
@@ -133,6 +140,7 @@ func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 	ch, ok := w.serverDict[req.ServerAddr]
 	if !ok {
+		log.Printf("didnt find a server for %v", req.ServerAddr)
 		if req.Type == mc.STATUS {
 			return ProcessAnswer{
 				action:      SEND_STATUS,
@@ -143,14 +151,14 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 			action: CLOSE,
 		}
 	}
-
+	log.Printf("Found a matching server for %v", req.ServerAddr)
 	req.Ch = make(chan ProcessAnswer)
 	ch <- req
 	return <-req.Ch
 }
 
 func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
-	processConnections.WithLabelValues(ans.Action().String()).Inc()
+	processedConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
 	case PROXY:

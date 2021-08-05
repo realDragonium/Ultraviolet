@@ -247,10 +247,10 @@ func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case PROXY_OPEN:
 		worker.activeConns++
-		playersConnected.With(prometheus.Labels{"host": worker.identifyingName}).Inc()
+		playersConnected.WithLabelValues(worker.identifyingName).Inc()
 	case PROXY_CLOSE:
 		worker.activeConns--
-		playersConnected.With(prometheus.Labels{"host": worker.identifyingName}).Dec()
+		playersConnected.WithLabelValues(worker.identifyingName).Dec()
 	}
 }
 
@@ -263,7 +263,6 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 			return NewDisconnectAnswer(worker.offlineDisconnectMessage)
 		}
 	}
-
 	if worker.StatusCache != nil && req.Type == mc.STATUS {
 		ans, err := worker.StatusCache.Status()
 		if err != nil {
@@ -277,7 +276,6 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 			return ans
 		}
 	}
-
 	connFunc := worker.ConnCreator.Conn()
 	if worker.sendProxyProtocol {
 		connFunc = func() (net.Conn, error) {

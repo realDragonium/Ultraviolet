@@ -14,12 +14,18 @@ import (
 
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
 )
 
 var (
 	defaultCfgPath = "/etc/ultraviolet"
+	proxiesCounter = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "ultraviolet_proxy_total",
+		Help: "The total number of registered proxies",
+	})
 )
 
 func RunProxy() {
@@ -120,7 +126,9 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 		}
 		go serverWorker.Work()
 	}
-	log.Printf("Registered %v backend(s)", len(serverCfgs))
+	numberOfProxies := len(serverCfgs)
+	proxiesCounter.Add(float64(numberOfProxies))
+	log.Printf("Registered %v backend(s)", numberOfProxies)
 
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
 		go func(worker BasicWorker) {
