@@ -7,6 +7,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
@@ -14,6 +16,11 @@ import (
 const (
 	maxHandshakeLength int = 264 // 264 -> 'max handshake packet length' + 1
 	// packetLength:2 + packet ID: 1 + protocol version:2 + max string length:255 + port:2 + state: 1 -> 2+1+2+255+2+1 = 263
+)
+
+var (
+	newConnections     = promauto.NewCounterVec(prometheus.CounterOpts{}, []string{"unknown", "login", "status"})
+	processConnections = promauto.NewCounterVec(prometheus.CounterOpts{}, []string{"proxy", "disconnect", "send_status", "close", "error"})
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
@@ -98,6 +105,7 @@ func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 		log.Printf("error while parsing handshake: %v", err)
 	}
 	reqType := mc.RequestState(handshake.NextState)
+	newConnections.WithLabelValues(reqType.String()).Inc()
 	if reqType == mc.UNKNOWN_STATE {
 		return BackendRequest{}, ErrNotValidHandshake
 	}
@@ -142,6 +150,7 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 }
 
 func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
+	processConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
 	case PROXY:
@@ -159,7 +168,6 @@ func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 			ProxyConnection(client, server)
 			proxyCh <- PROXY_CLOSE
 		}(conn, sConn, ans.ProxyCh())
-
 	case DISCONNECT:
 		clientMcConn.WritePacket(ans.Response())
 		conn.Close()

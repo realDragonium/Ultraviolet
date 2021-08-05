@@ -6,7 +6,7 @@
 
 ## Some notes
 ### Limited connections when running binary
-Because of how linux works the default settings for FD is 1024, this means that you can by default only proxy 1024 connections before it starts refusing connections because it cant open anymore FD's. Because of some internal queues you should consider increasing the limit if you expect to proxy over 900 open connections at the same time. 
+Because linux the default settings for fd is 1024, this means that you can by default Ultraviolet can have 1024 open connections before it starts refusing connections because it cant open anymore fds. Because of some internal queues you should consider increasing the limit if you expect to proxy over 900 open connections at the same time. 
 
 ### How to build
 Ultraviolet can be ran by using docker or you can also build a binary yourself by running:
@@ -21,6 +21,7 @@ $ go build
 [x] Rate limiting  
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
+[x] Prometheus API  
 ... More coming later?
 
 

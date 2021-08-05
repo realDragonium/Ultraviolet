@@ -37,11 +37,11 @@ func (t HandshakeState) String() string {
 	var text string
 	switch t {
 	case UNKNOWN_STATE:
-		text = "Unknown"
+		text = "unknown"
 	case STATUS:
-		text = "Status"
+		text = "status"
 	case LOGIN:
-		text = "Login"
+		text = "login"
 	}
 	return text
 }

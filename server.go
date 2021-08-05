@@ -35,15 +35,15 @@ func (state BackendAction) String() string {
 	var text string
 	switch state {
 	case PROXY:
-		text = "Proxy"
+		text = "proxy"
 	case DISCONNECT:
-		text = "Disconnect"
+		text = "disconnect"
 	case SEND_STATUS:
-		text = "Send Status"
+		text = "send_status"
 	case CLOSE:
-		text = "Close"
+		text = "close"
 	case ERROR:
-		text = "Error"
+		text = "error"
 	}
 	return text
 }
