@@ -218,6 +218,7 @@ type BackendWorker struct {
 	activeConns     int
 	proxyCh         chan ProxyAction
 	ReqCh           chan BackendRequest
+	ConnCheckCh     chan checkOpenConns
 
 	sendProxyProtocol bool
 
@@ -239,6 +240,8 @@ func (worker *BackendWorker) Work() {
 			req.Ch <- ans
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
+		case connCheck := <-worker.ConnCheckCh:
+			connCheck.Ch <- worker.activeConns > 0
 		}
 	}
 }

@@ -26,7 +26,7 @@ $ go build
 
 
 ### Tableflip
-This has implemented [tableflip](https://github.com/cloudflare/tableflip) which should make it able to reload/restart Ultraviolet without closing existing connections on Linux and macOS. Ultraviolet should still be usable on windows (testing purposes only pls). 
+This has implemented [tableflip](https://github.com/cloudflare/tableflip) which should make it able to reload/hotswap Ultraviolet without closing existing connections on Linux and macOS. Ultraviolet should still be usable on windows (testing purposes only pls). 
 Check their [documentation](https://pkg.go.dev/github.com/cloudflare/tableflip) to know what or how. 
 
 IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultraviolet once you need to wait until the parent process is closed (all previous connections have been closed) before you can reload it again.

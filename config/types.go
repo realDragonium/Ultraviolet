@@ -33,15 +33,16 @@ type ServerConfig struct {
 }
 
 type UltravioletConfig struct {
-	ListenTo          string          `json:"listenTo"`
-	DefaultStatus     mc.SimpleStatus `json:"defaultStatus"`
-	NumberOfWorkers   int             `json:"numberOfWorkers"`
-	NumberOfListeners int             `json:"numberOfListeners"`
-	AcceptProxyProtocol  bool            `json:"acceptProxyProtocol"`
-	UsePrometheus     bool            `json:"enablePrometheus"`
-	PrometheusBind    string          `json:"prometheusBind"`
-	EnableHotSwap     bool
-	PidFile           string
+	ListenTo            string          `json:"listenTo"`
+	DefaultStatus       mc.SimpleStatus `json:"defaultStatus"`
+	NumberOfWorkers     int             `json:"numberOfWorkers"`
+	NumberOfListeners   int             `json:"numberOfListeners"`
+	AcceptProxyProtocol bool            `json:"acceptProxyProtocol"`
+	UsePrometheus       bool            `json:"enablePrometheus"`
+	PrometheusBind      string          `json:"prometheusBind"`
+	EnableHotSwap       bool
+	PidFile             string
+	IODeadline          time.Duration
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
@@ -52,13 +53,15 @@ func DefaultUltravioletConfig() UltravioletConfig {
 			Protocol:    755,
 			Description: "Some broken proxy",
 		},
-		NumberOfWorkers:   10,
-		NumberOfListeners: 1,
-		PidFile:           "/var/run/ultraviolet.pid",
-		AcceptProxyProtocol:  false,
-		EnableHotSwap:     true,
-		UsePrometheus:     true,
-		PrometheusBind:    ":9100",
+		NumberOfWorkers:     10,
+		NumberOfListeners:   1,
+		AcceptProxyProtocol: false,
+		UsePrometheus:       true,
+		PrometheusBind:      ":9100",
+
+		PidFile:       "/var/run/ultraviolet.pid",
+		EnableHotSwap: true,
+		IODeadline:    time.Second,
 	}
 }
 
@@ -82,12 +85,23 @@ type WorkerServerConfig struct {
 	RateLimitDuration   time.Duration
 }
 
+func DefaultWorkerConfig() WorkerConfig{
+	return WorkerConfig{
+		IOTimeout: time.Second,
+	}
+}
+
 type WorkerConfig struct {
 	DefaultStatus mc.SimpleStatus
+	IOTimeout     time.Duration
 }
 
 func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
+	if uvCfg.IODeadline == 0 {
+		uvCfg.IODeadline = time.Second
+	}
 	return WorkerConfig{
 		DefaultStatus: uvCfg.DefaultStatus,
+		IOTimeout:     uvCfg.IODeadline,
 	}
 }

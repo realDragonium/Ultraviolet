@@ -21,6 +21,8 @@ import (
 	"github.com/realDragonium/Ultraviolet/config"
 )
 
+var upg tableflip.Upgrader
+var checkFinished chan checkOpenConns = make(chan checkOpenConns)
 var (
 	defaultCfgPath = "/etc/ultraviolet"
 	proxiesCounter = promauto.NewGauge(prometheus.GaugeOpts{
@@ -28,6 +30,10 @@ var (
 		Help: "The total number of registered proxies",
 	})
 )
+
+type checkOpenConns struct {
+	Ch chan bool
+}
 
 func RunProxy() {
 	log.Println("Starting up Alpha-v0.10.2")
@@ -53,10 +59,35 @@ func RunProxy() {
 	log.Println("Now starting prometheus endpoint")
 	if mainCfg.UsePrometheus {
 		http.Handle("/metrics", promhttp.Handler())
-		log.Fatal(http.ListenAndServe(mainCfg.PrometheusBind, nil))
-	} else {
-		select {}
+		go http.ListenAndServe(mainCfg.PrometheusBind, nil)
 	}
+
+	if runtime.GOOS == "windows" {
+		select {}
+	} else {
+		if err := upg.Ready(); err != nil {
+			panic(err)
+		}
+		<-upg.Exit()
+	}
+
+	log.Println("Waiting for all connections to be closed before shutting down")
+
+	for {
+		someCh := make(chan bool)
+		something := checkOpenConns{
+			Ch: someCh,
+		}
+		checkFinished <- something
+
+		everythingClosed := <-someCh
+		if everythingClosed {
+			break
+		}
+		time.Sleep(time.Minute)
+	}
+
+	log.Println("All connections closed, shutting down process")
 }
 
 func createListener(cfg config.UltravioletConfig) net.Listener {
@@ -123,6 +154,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
 
 	workerCfg := config.NewWorkerConfig(cfg)
+
 	worker := NewWorker(workerCfg, reqCh)
 	for id, serverCfg := range serverCfgs {
 		workerServerCfg, _ := config.FileToWorkerConfig(serverCfg)
@@ -135,7 +167,8 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	numberOfProxies := len(serverCfgs)
 	proxiesCounter.Add(float64(numberOfProxies))
 	log.Printf("Registered %v backend(s)", numberOfProxies)
-
+	
+	worker.checkOpenConnCh = checkFinished
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
 		go func(worker BasicWorker) {
 			worker.Work()

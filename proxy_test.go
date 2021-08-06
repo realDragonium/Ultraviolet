@@ -6,6 +6,7 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/pires/go-proxyproto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
@@ -94,6 +95,7 @@ func TestProxyProtocol(t *testing.T) {
 				NumberOfListeners:   1,
 				AcceptProxyProtocol: tc.acceptProxyProtocol,
 				EnableHotSwap:       false,
+				IODeadline:          time.Millisecond,
 			}
 			serverCfgs := []config.ServerConfig{}
 

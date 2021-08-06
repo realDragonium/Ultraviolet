@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"testing"
 	"time"
@@ -131,7 +132,7 @@ func testProxyConn(t *testing.T, conn1, conn2 net.Conn) {
 }
 
 func TestWorker_CanReceiveConnection(t *testing.T) {
-	cfg := config.WorkerConfig{}
+	cfg := config.DefaultWorkerConfig()
 	worker, reqCh := newWorker(cfg)
 	go worker.Work()
 	select {
@@ -145,7 +146,7 @@ func TestWorker_CanReceiveConnection(t *testing.T) {
 func TestProcessRequest_UnknownAddr(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 
 			request := ultraviolet.BackendRequest{
@@ -165,7 +166,7 @@ func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 			workerCh := make(chan ultraviolet.BackendRequest)
 			worker := ultraviolet.BackendWorker{
@@ -195,7 +196,7 @@ func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			serverAddr := "ultraviolet"
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 			workerCh := make(chan ultraviolet.BackendRequest)
 			worker := ultraviolet.BackendWorker{
@@ -227,7 +228,7 @@ func TestProcessConnection_CanReadHandshake(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			c1, c2 := net.Pipe()
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 
 			finishedWritingCh := make(chan struct{})
@@ -244,7 +245,7 @@ func TestProcessConnection_CanReadHandshake(t *testing.T) {
 			case <-finishedWritingCh:
 				t.Log("test has successfully written data to server")
 			case <-time.After(defaultChTimeout):
-				t.Error("test hasnt finished writen to server in time")
+				t.Error("test hasnt finished writing to server in time")
 			}
 		})
 	}
@@ -254,7 +255,7 @@ func TestProcessConnection_CanReadSecondPacket(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
 			c1, c2 := net.Pipe()
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 
 			go basicWorker.ProcessConnection(c2)
@@ -310,7 +311,7 @@ func TestProcessConnection_CanUseServerAddress(t *testing.T) {
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
 			c1, c2 := net.Pipe()
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 			go func() {
 				hsPk := mc.ServerBoundHandshake{
@@ -348,7 +349,7 @@ func TestProcessConnection_LoginRequest(t *testing.T) {
 		remoteAddr: &clientAddr,
 	}
 
-	cfg := config.WorkerConfig{}
+	cfg := config.DefaultWorkerConfig()
 	basicWorker, _ := newWorker(cfg)
 
 	go func() {
@@ -377,10 +378,84 @@ func TestProcessConnection_LoginRequest(t *testing.T) {
 	}
 }
 
+func TestProcessConnection_IODeadlines(t *testing.T) {
+	t.Run("Handshake", func(t *testing.T) {
+		_, proxyFrontend := net.Pipe()
+		mockClientconn := testNetConn{
+			conn: proxyFrontend,
+		}
+		deadlineDuration := time.Millisecond
+		cfg := config.WorkerConfig{
+			IOTimeout: deadlineDuration,
+		}
+		basicWorker, _ := newWorker(cfg)
+
+		_, err := basicWorker.ProcessConnection(&mockClientconn)
+		if !errors.Is(err, ultraviolet.ErrClientToSlow) {
+			t.Fatalf("did expect client to slow error but got: %v", err)
+		}
+	})
+
+	t.Run("Second packet", func(t *testing.T) {
+		clientConn, proxyFrontend := net.Pipe()
+		mockClientconn := testNetConn{
+			conn: proxyFrontend,
+		}
+		deadlineDuration := time.Millisecond
+		cfg := config.WorkerConfig{
+			IOTimeout: deadlineDuration,
+		}
+		basicWorker, _ := newWorker(cfg)
+		go func() {
+			client := mc.NewMcConn(clientConn)
+			hsPk := loginHandshakePacket()
+			client.WritePacket(hsPk)
+		}()
+
+		_, err := basicWorker.ProcessConnection(&mockClientconn)
+		if !errors.Is(err, ultraviolet.ErrClientToSlow) {
+			t.Fatalf("did expect client to slow error but got: %v", err)
+		}
+	})
+}
+
+func TestProcessAnswer_IODeadlines(t *testing.T) {
+	t.Run("send status", func(t *testing.T) {
+		clientConn, proxyFrontend := net.Pipe()
+		mockClientconn := testNetConn{
+			conn: proxyFrontend,
+		}
+		deadlineDuration := time.Millisecond
+		cfg := config.WorkerConfig{
+			IOTimeout: deadlineDuration,
+		}
+		basicWorker, _ := newWorker(cfg)
+		go func() {
+			client := mc.NewMcConn(clientConn)
+			client.ReadPacket()
+		}()
+		answer := ultraviolet.NewStatusAnswer(mc.Packet{})
+		finishedCh := make(chan struct{})
+		go func() {
+			basicWorker.ProcessAnswer(&mockClientconn, answer)
+			log.Println("finished processing answer")
+			finishedCh <- struct{}{}
+			log.Println("finished sending signal through channel")
+		}()
+
+		select {
+		case <-finishedCh:
+			t.Log("Process is cancelled")
+		case <-time.After(defaultChTimeout):
+			t.Error("Process was not cancelled")
+		}
+	})
+}
+
 func TestProcessAnswer_Disconnect(t *testing.T) {
 	t.Run("Can send disconnect packet", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
@@ -400,7 +475,7 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 
 	t.Run("connection is closed after its done", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "Because we dont want people like you",
@@ -418,7 +493,7 @@ func TestProcessAnswer_Disconnect(t *testing.T) {
 func TestProcessAnswer_Close(t *testing.T) {
 	t.Run("closes connection", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 		ans := ultraviolet.NewCloseAnswer()
 		go basicWorker.ProcessAnswer(c2, ans)
@@ -437,7 +512,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 	}.Marshal()
 	t.Run("can send packet and ping", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 
 		ans := ultraviolet.NewStatusAnswer(statusPk)
@@ -463,7 +538,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 
 	t.Run("is closed after finishing writing", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 
 		ans := ultraviolet.NewStatusAnswer(statusPk)
@@ -480,7 +555,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 
 	t.Run("latency delays response", func(t *testing.T) {
 		c1, c2 := net.Pipe()
-		cfg := config.WorkerConfig{}
+		cfg := config.DefaultWorkerConfig()
 		basicWorker, _ := newWorker(cfg)
 		latency := defaultChTimeout
 		ans := ultraviolet.NewStatusLatencyAnswer(statusPk, latency)
@@ -518,7 +593,7 @@ func TestProcessAnswer_Status(t *testing.T) {
 func TestProcessAnswer_Proxy(t *testing.T) {
 	for _, tc := range RequestStateInfo {
 		t.Run(fmt.Sprintf("reqType-%v", tc.reqType), func(t *testing.T) {
-			cfg := config.WorkerConfig{}
+			cfg := config.DefaultWorkerConfig()
 			hsPk := mc.ServerBoundHandshake{
 				NextState: mc.LoginState,
 			}.Marshal()

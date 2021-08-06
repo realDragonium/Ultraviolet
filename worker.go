@@ -21,7 +21,8 @@ const (
 )
 
 var (
-	ErrClientToSlow = errors.New("client was to slow with sending its packets")
+	ErrClientToSlow     = errors.New("client was to slow with sending its packets")
+	ErrClientClosedConn = errors.New("client closed the connection")
 
 	newConnections = promauto.NewCounterVec(prometheus.CounterOpts{
 		Name: "ultraviolet_new_connections",
@@ -37,21 +38,38 @@ func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 	dict := make(map[string]chan BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
 	return BasicWorker{
-		ReqCh:         reqCh,
+		reqCh:         reqCh,
 		defaultStatus: defaultStatusPk,
 		serverDict:    dict,
+		ioTimeout:     cfg.IOTimeout,
 	}
 }
 
-type BasicWorker struct {
-	ReqCh         chan net.Conn
-	defaultStatus mc.Packet
+type serverData struct {
+	domains []string
+	ch chan checkOpenConns
+}
 
+type BasicWorker struct {
+	reqCh           chan net.Conn
+	defaultStatus   mc.Packet
+	ioTimeout       time.Duration
+	checkOpenConnCh chan checkOpenConns
+
+	servers map[int]serverData
 	serverDict map[string]chan BackendRequest
+}
+
+func (worker *BasicWorker) IODeadline() time.Time {
+	return time.Now().Add(worker.ioTimeout)
 }
 
 func (r *BasicWorker) RegisterBackendWorker(key string, worker BackendWorker) {
 	r.serverDict[key] = worker.ReqCh
+}
+
+func (worker *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
+	worker.checkOpenConnCh = ch
 }
 
 // TODO:
@@ -63,19 +81,36 @@ func (r *BasicWorker) Work() {
 	var ans ProcessAnswer
 
 	for {
-		conn = <-r.ReqCh
-		req, err = r.ProcessConnection(conn)
-		if errors.Is(err, ErrClientToSlow) {
-			log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
+		select {
+		case conn = <-r.reqCh:
+			req, err = r.ProcessConnection(conn)
+			if err != nil {
+				if errors.Is(err, ErrClientToSlow) {
+					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
+				}
+				conn.Close()
+				continue
+			}
+			log.Printf("received connection from %v", conn.RemoteAddr())
+			ans = r.ProcessRequest(req)
+			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
+			r.ProcessAnswer(conn, ans)
+		case req := <-r.checkOpenConnCh:
+			activeConns := false
+			for _, data := range r.servers {
+				ch := data.ch
+				answerCh := make(chan bool)
+				ch <- checkOpenConns{
+					Ch: answerCh,
+				}
+				answer := <-answerCh
+				if answer {
+					activeConns = true
+					break
+				}
+			}
+			req.Ch <- activeConns
 		}
-		if err != nil {
-			conn.Close()
-			return
-		}
-		log.Printf("received connection from %v", conn.RemoteAddr())
-		ans = r.ProcessRequest(req)
-		log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
-		r.ProcessAnswer(conn, ans)
 	}
 }
 
@@ -106,12 +141,10 @@ func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReques
 }
 
 // TODO:
-// - Add IO deadlines
 // - Adding some more error tests
-// - Add beter timeout tests (currently only being test with proxy protocol tests)
-func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (worker *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	mcConn := mc.NewMcConn(conn)
-	conn.SetDeadline(time.Now().Add(time.Second))
+	conn.SetDeadline(worker.IODeadline())
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
@@ -135,19 +168,21 @@ func (r *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 		Handshake:  handshake,
 	}
 
-	conn.SetDeadline(time.Now().Add(time.Second))
+	conn.SetDeadline(worker.IODeadline())
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
 	} else if err != nil {
 		log.Printf("error while reading second packet: %v", err)
+		return BackendRequest{}, err
 	}
-	
+
 	conn.SetDeadline(time.Time{})
 	if reqType == mc.LOGIN {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {
 			log.Printf("error while parsing login packet: %v", err)
+			return BackendRequest{}, err
 		}
 		request.Username = string(loginStart.Name)
 	}
@@ -176,8 +211,8 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 }
 
 // TODO:
-// - Add deadlines
-func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
+// - figure out or this need more deadlines
+func (worker *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 	processedConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
@@ -201,6 +236,7 @@ func (w *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 		conn.Close()
 	case SEND_STATUS:
 		clientMcConn.WritePacket(ans.Response())
+		conn.SetDeadline(worker.IODeadline())
 		pingPacket, err := clientMcConn.ReadPacket()
 		if err != nil {
 			conn.Close()
