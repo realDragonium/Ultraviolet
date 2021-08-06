@@ -9,6 +9,7 @@ import (
 
 type ServerConfig struct {
 	FilePath string
+	Name     string   `json:"name"`
 	Domains  []string `json:"domains"`
 
 	ProxyTo           string `json:"proxyTo"`
@@ -26,9 +27,12 @@ type ServerConfig struct {
 	ValidProtocol       int             `json:"validProtocol"`
 	OfflineStatus       mc.SimpleStatus `json:"offlineStatus"`
 
+	// RateLimitStatus     bool   `json:"rateLimitStatus"`
 	RateLimit           int    `json:"rateLimit"`
-	RateLimitStatus     bool   `json:"rateLimitStatus"`
 	RateDuration        string `json:"rateCooldown"`
+	RateBanListCooldown string `json:"banListCooldown"`
+	RateDisconMsg       string `json:"reconnectMsg"`
+
 	StateUpdateCooldown string `json:"stateUpdateCooldown"`
 }
 
@@ -40,9 +44,10 @@ type UltravioletConfig struct {
 	AcceptProxyProtocol bool            `json:"acceptProxyProtocol"`
 	UsePrometheus       bool            `json:"enablePrometheus"`
 	PrometheusBind      string          `json:"prometheusBind"`
-	EnableHotSwap       bool
-	PidFile             string
-	IODeadline          time.Duration
+
+	EnableHotSwap bool
+	PidFile       string
+	IODeadline    time.Duration
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
@@ -83,9 +88,11 @@ type WorkerServerConfig struct {
 	RateLimit           int
 	RateLimitStatus     bool
 	RateLimitDuration   time.Duration
+	RateBanListCooldown time.Duration
+	RateDisconPk       mc.Packet
 }
 
-func DefaultWorkerConfig() WorkerConfig{
+func DefaultWorkerConfig() WorkerConfig {
 	return WorkerConfig{
 		IOTimeout: time.Second,
 	}

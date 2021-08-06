@@ -172,7 +172,7 @@ func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
 			worker := ultraviolet.BackendWorker{
 				ReqCh: workerCh,
 			}
-			basicWorker.RegisterBackendWorker(serverAddr, worker)
+			basicWorker.RegisterBackendWorker([]string{serverAddr}, &worker)
 
 			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
@@ -202,7 +202,7 @@ func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
 			worker := ultraviolet.BackendWorker{
 				ReqCh: workerCh,
 			}
-			basicWorker.RegisterBackendWorker(serverAddr, worker)
+			basicWorker.RegisterBackendWorker([]string{serverAddr}, &worker)
 
 			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
@@ -672,29 +672,29 @@ func TestProcessAnswer_Proxy(t *testing.T) {
 }
 
 // //This test is now broken.
-// // func TestReadConnection_WillCloseConn_WhenInvalidPacketSize(t *testing.T) {
-// // 	client, server := net.Pipe()
-// // 	reqCh := make(chan ultraviolet.McRequest)
-// // 	go ultraviolet.ReadConnection(server, reqCh)
+// func TestReadConnection_WillCloseConn_WhenInvalidPacketSize(t *testing.T) {
+// 	client, server := net.Pipe()
+// 	reqCh := make(chan ultraviolet.McRequest)
+// 	go ultraviolet.ReadConnection(server, reqCh)
 
-// // 	finishedWritingCh := make(chan struct{})
-// // 	go func() {
-// // 		pkData := make([]byte, 5097160)
-// // 		pk := mc.Packet{Data: pkData}
-// // 		bytes, _ := pk.Marshal()
-// // 		client.Write(bytes)
-// // 		finishedWritingCh <- struct{}{}
-// // 	}()
+// 	finishedWritingCh := make(chan struct{})
+// 	go func() {
+// 		pkData := make([]byte, 5097160)
+// 		pk := mc.Packet{Data: pkData}
+// 		bytes, _ := pk.Marshal()
+// 		client.Write(bytes)
+// 		finishedWritingCh <- struct{}{}
+// 	}()
 
-// // 	select {
-// // 	case <-finishedWritingCh:
-// // 		t.Log("test has successfully written data to server")
-// // 	case <-time.After(defaultChTimeout):
-// // 		t.Error("test hasnt finished writen to server in time")
-// // 	}
+// 	select {
+// 	case <-finishedWritingCh:
+// 		t.Log("test has successfully written data to server")
+// 	case <-time.After(defaultChTimeout):
+// 		t.Error("test hasnt finished writen to server in time")
+// 	}
 
-// // 	testConnectionClosed(t, client)
-// // }
+// 	testConnectionClosed(t, client)
+// }
 
 func TestProxyConnection(t *testing.T) {
 	proxyConns := func(c1, c2 net.Conn) {
@@ -771,5 +771,43 @@ func testCloseProxy(t *testing.T, proxyConns func(net.Conn, net.Conn)) {
 		s1.Close()
 		time.Sleep(defaultChTimeout)
 		testPipeConnClosed(t, c1)
+	})
+}
+
+func TestCheckActiveConnections(t *testing.T) {
+	t.Run("empty worker", func(t *testing.T) {
+		cfg := config.DefaultWorkerConfig()
+		basicWorker, _ := newWorker(cfg)
+		active := basicWorker.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+	})
+
+	t.Run("no processed connections", func(t *testing.T) {
+		cfg := config.DefaultWorkerConfig()
+		basicWorker, _ := newWorker(cfg)
+		backendWorker := ultraviolet.BackendWorker{}
+		domains := []string{"uv"}
+		basicWorker.RegisterBackendWorker(domains, &backendWorker)
+		go backendWorker.Work()
+		active := basicWorker.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+	})
+
+	t.Run("active connection", func(t *testing.T) {
+		cfg := config.DefaultWorkerConfig()
+		basicWorker, _ := newWorker(cfg)
+		backendWorker := ultraviolet.BackendWorker{}
+		domains := []string{"uv"}
+		basicWorker.RegisterBackendWorker(domains, &backendWorker)
+		backendWorker.ActiveConns++
+		go backendWorker.Work()
+		active := basicWorker.CheckActiveConnections()
+		if !active {
+			t.Error("expected there to be active connections")
+		}
 	})
 }

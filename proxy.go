@@ -36,7 +36,7 @@ type checkOpenConns struct {
 }
 
 func RunProxy() {
-	log.Println("Starting up Alpha-v0.10.2")
+	log.Println("Starting up Alpha-v0.11")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)
@@ -156,19 +156,17 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	workerCfg := config.NewWorkerConfig(cfg)
 
 	worker := NewWorker(workerCfg, reqCh)
+	worker.AddActiveConnsCh(checkFinished)
 	for id, serverCfg := range serverCfgs {
 		workerServerCfg, _ := config.FileToWorkerConfig(serverCfg)
 		serverWorker := NewBackendWorker(id, workerServerCfg)
-		for _, domain := range serverCfg.Domains {
-			worker.RegisterBackendWorker(domain, serverWorker)
-		}
+		worker.RegisterBackendWorker(serverCfg.Domains, &serverWorker)
 		go serverWorker.Work()
 	}
 	numberOfProxies := len(serverCfgs)
 	proxiesCounter.Add(float64(numberOfProxies))
 	log.Printf("Registered %v backend(s)", numberOfProxies)
-	
-	worker.checkOpenConnCh = checkFinished
+
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
 		go func(worker BasicWorker) {
 			worker.Work()

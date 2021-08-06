@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.10.2
+# Ultraviolet - Alpha v0.11
 
 ## What is Ultraviolet?
 [infrared](https://github.com/haveachin/infrared) but different.

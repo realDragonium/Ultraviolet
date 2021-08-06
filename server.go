@@ -163,6 +163,68 @@ func (ans ProcessAnswer) Action() BackendAction {
 	return ans.action
 }
 
+func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
+	var connCreator ConnectionCreator
+	var hsModifier HandshakeModifier
+	var rateLimiter ConnectionLimiter
+	var statusCache StatusCache
+	dialer := net.Dialer{
+		Timeout: cfg.DialTimeout,
+		LocalAddr: &net.TCPAddr{
+			IP: net.ParseIP(cfg.ProxyBind),
+		},
+	}
+
+	connCreator = BasicConnCreator(cfg.ProxyTo, dialer)
+	if cfg.RateLimit > 0 {
+		rateLimiter = NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, cfg.RateBanListCooldown, cfg.RateDisconPk)
+	} else {
+		rateLimiter = AlwaysAllowConnection{}
+	}
+	if cfg.CacheStatus {
+		statusCache = NewStatusCache(cfg.ValidProtocol, cfg.CacheUpdateCooldown, connCreator)
+	}
+	serverState := McServerState{
+		cooldown:    cfg.StateUpdateCooldown,
+		connCreator: connCreator,
+	}
+
+	if cfg.OldRealIp {
+		hsModifier = realIPv2_4{}
+	} else if cfg.NewRealIP {
+		hsModifier = realIPv2_5{realIPKey: cfg.RealIPKey}
+	}
+
+	return BackendWorkerConfig{
+		name:                cfg.Name,
+		updateProxyProtocol: true,
+		sendProxyProtocol:   cfg.SendProxyProtocol,
+
+		offlineDisconnectMessage: cfg.DisconnectPacket,
+		offlineStatus:            cfg.OfflineStatus,
+
+		ConnCreator: connCreator,
+		HsModifier:  hsModifier,
+		ConnLimiter: rateLimiter,
+		ServerState: &serverState,
+		StatusCache: statusCache,
+	}
+}
+
+type BackendWorkerConfig struct {
+	name                     string
+	updateProxyProtocol      bool
+	sendProxyProtocol        bool
+	offlineDisconnectMessage mc.Packet
+	offlineStatus            mc.Packet
+
+	HsModifier  HandshakeModifier
+	ConnCreator ConnectionCreator
+	ConnLimiter ConnectionLimiter
+	ServerState StateAgent
+	StatusCache StatusCache
+}
+
 func NewBackendWorker(serverId int, cfg config.WorkerServerConfig) BackendWorker {
 	var connCreator ConnectionCreator
 	var hsModifier HandshakeModifier
@@ -196,9 +258,9 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig) BackendWorker
 	}
 
 	return BackendWorker{
-		identifyingName: cfg.Name,
-		ReqCh:           make(chan BackendRequest, 5),
-		proxyCh:         make(chan ProxyAction, 10),
+		name:    cfg.Name,
+		ReqCh:   make(chan BackendRequest, 5),
+		proxyCh: make(chan ProxyAction, 10),
 
 		sendProxyProtocol: cfg.SendProxyProtocol,
 
@@ -214,11 +276,12 @@ func NewBackendWorker(serverId int, cfg config.WorkerServerConfig) BackendWorker
 }
 
 type BackendWorker struct {
-	identifyingName string
-	activeConns     int
-	proxyCh         chan ProxyAction
-	ReqCh           chan BackendRequest
-	ConnCheckCh     chan checkOpenConns
+	name        string
+	ActiveConns int
+	proxyCh     chan ProxyAction
+	ReqCh       chan BackendRequest
+	ConnCheckCh chan checkOpenConns
+	updateCh    chan BackendWorkerConfig
 
 	sendProxyProtocol bool
 
@@ -232,6 +295,36 @@ type BackendWorker struct {
 	StatusCache StatusCache
 }
 
+func (w *BackendWorker) Update(wCfg BackendWorkerConfig) {
+	if wCfg.name != "" {
+		w.name = wCfg.name
+	}
+	if wCfg.updateProxyProtocol {
+		w.sendProxyProtocol = wCfg.sendProxyProtocol
+	}
+	if len(wCfg.offlineDisconnectMessage.Data) > 0 {
+		w.offlineDisconnectMessage = wCfg.offlineDisconnectMessage
+	}
+	if len(wCfg.offlineStatus.Data) > 0 {
+		w.offlineStatus = wCfg.offlineStatus
+	}
+	if wCfg.HsModifier != nil {
+		w.HsModifier = wCfg.HsModifier
+	}
+	if wCfg.ConnCreator != nil {
+		w.ConnCreator = wCfg.ConnCreator
+	}
+	if wCfg.ConnLimiter != nil {
+		w.ConnLimiter = wCfg.ConnLimiter
+	}
+	if wCfg.ServerState != nil {
+		w.ServerState = wCfg.ServerState
+	}
+	if wCfg.StatusCache != nil {
+		w.StatusCache = wCfg.StatusCache
+	}
+}
+
 func (worker *BackendWorker) Work() {
 	for {
 		select {
@@ -241,7 +334,9 @@ func (worker *BackendWorker) Work() {
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
 		case connCheck := <-worker.ConnCheckCh:
-			connCheck.Ch <- worker.activeConns > 0
+			connCheck.Ch <- worker.ActiveConns > 0
+		case cfg := <-worker.updateCh:
+			worker.Update(cfg)
 		}
 	}
 }
@@ -249,11 +344,11 @@ func (worker *BackendWorker) Work() {
 func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case PROXY_OPEN:
-		worker.activeConns++
-		playersConnected.WithLabelValues(worker.identifyingName).Inc()
+		worker.ActiveConns++
+		playersConnected.WithLabelValues(worker.name).Inc()
 	case PROXY_CLOSE:
-		worker.activeConns--
-		playersConnected.WithLabelValues(worker.identifyingName).Dec()
+		worker.ActiveConns--
+		playersConnected.WithLabelValues(worker.name).Dec()
 	}
 }
 

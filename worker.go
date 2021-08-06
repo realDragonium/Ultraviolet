@@ -42,12 +42,13 @@ func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 		defaultStatus: defaultStatusPk,
 		serverDict:    dict,
 		ioTimeout:     cfg.IOTimeout,
+		servers:       make([]serverData, 0),
 	}
 }
 
 type serverData struct {
 	domains []string
-	ch chan checkOpenConns
+	ch      chan checkOpenConns
 }
 
 type BasicWorker struct {
@@ -56,7 +57,7 @@ type BasicWorker struct {
 	ioTimeout       time.Duration
 	checkOpenConnCh chan checkOpenConns
 
-	servers map[int]serverData
+	servers    []serverData
 	serverDict map[string]chan BackendRequest
 }
 
@@ -64,8 +65,17 @@ func (worker *BasicWorker) IODeadline() time.Time {
 	return time.Now().Add(worker.ioTimeout)
 }
 
-func (r *BasicWorker) RegisterBackendWorker(key string, worker BackendWorker) {
-	r.serverDict[key] = worker.ReqCh
+func (worker *BasicWorker) RegisterBackendWorker(domains []string, backendWorker *BackendWorker) {
+	for _, domain := range domains {
+		worker.serverDict[domain] = backendWorker.ReqCh
+	}
+	ch := make(chan checkOpenConns)
+	backendWorker.ConnCheckCh = ch
+	data := serverData{
+		domains: domains,
+		ch:      ch,
+	}
+	worker.servers = append(worker.servers, data)
 }
 
 func (worker *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
@@ -74,16 +84,15 @@ func (worker *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
 
 // TODO:
 // - add more tests with this method
-func (r *BasicWorker) Work() {
+func (worker *BasicWorker) Work() {
 	var err error
 	var conn net.Conn
 	var req BackendRequest
 	var ans ProcessAnswer
-
 	for {
 		select {
-		case conn = <-r.reqCh:
-			req, err = r.ProcessConnection(conn)
+		case conn = <-worker.reqCh:
+			req, err = worker.ProcessConnection(conn)
 			if err != nil {
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
@@ -92,26 +101,30 @@ func (r *BasicWorker) Work() {
 				continue
 			}
 			log.Printf("received connection from %v", conn.RemoteAddr())
-			ans = r.ProcessRequest(req)
+			ans = worker.ProcessRequest(req)
 			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
-			r.ProcessAnswer(conn, ans)
-		case req := <-r.checkOpenConnCh:
-			activeConns := false
-			for _, data := range r.servers {
-				ch := data.ch
-				answerCh := make(chan bool)
-				ch <- checkOpenConns{
-					Ch: answerCh,
-				}
-				answer := <-answerCh
-				if answer {
-					activeConns = true
-					break
-				}
-			}
+			worker.ProcessAnswer(conn, ans)
+		case req := <-worker.checkOpenConnCh:
+			activeConns := worker.CheckActiveConnections()
 			req.Ch <- activeConns
 		}
 	}
+}
+
+func (worker *BasicWorker) CheckActiveConnections() bool {
+	activeConns := false
+	for _, data := range worker.servers {
+		answerCh := make(chan bool)
+		data.ch <- checkOpenConns{
+			Ch: answerCh,
+		}
+		answer := <-answerCh
+		if answer {
+			activeConns = true
+			break
+		}
+	}
+	return activeConns
 }
 
 func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
@@ -193,7 +206,6 @@ func (worker *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, err
 func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 	ch, ok := w.serverDict[req.ServerAddr]
 	if !ok {
-		log.Printf("didnt find a server for %v", req.ServerAddr)
 		if req.Type == mc.STATUS {
 			return ProcessAnswer{
 				action:      SEND_STATUS,
@@ -204,7 +216,6 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 			action: CLOSE,
 		}
 	}
-	log.Printf("Found a matching server for %v", req.ServerAddr)
 	req.Ch = make(chan ProcessAnswer)
 	ch <- req
 	return <-req.Ch

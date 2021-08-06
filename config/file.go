@@ -193,6 +193,10 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 	if cooldown == 0 {
 		cooldown = time.Second
 	}
+	rateBanCooldown, _ := time.ParseDuration(cfg.RateBanListCooldown)
+	if rateBanCooldown == 0 {
+		rateBanCooldown = 15 * time.Minute
+	}
 	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
 	if dialTimeout == 0 {
 		dialTimeout = time.Second
@@ -201,8 +205,16 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 	if cacheCooldown == 0 {
 		cacheCooldown = time.Second
 	}
+	name := cfg.Name
+	if name == "" {
+		name = cfg.Domains[0]
+	}
+
+	rateDisconPk := mc.ClientBoundDisconnect{
+		Reason: mc.String(cfg.RateDisconMsg),
+	}.Marshal()
 	return WorkerServerConfig{
-		Name:                cfg.Domains[0],
+		Name:                name,
 		ProxyTo:             cfg.ProxyTo,
 		ProxyBind:           cfg.ProxyBind,
 		DialTimeout:         dialTimeout,
@@ -213,7 +225,9 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 		OfflineStatus:       offlineStatusPk,
 		DisconnectPacket:    disconPk,
 		RateLimit:           cfg.RateLimit,
-		RateLimitStatus:     cfg.RateLimitStatus,
+		// RateLimitStatus:     cfg.RateLimitStatus,
+		RateDisconPk:        rateDisconPk,
+		RateBanListCooldown: rateBanCooldown,
 		RateLimitDuration:   duration,
 		StateUpdateCooldown: cooldown,
 		OldRealIp:           cfg.OldRealIP,

@@ -207,76 +207,95 @@ func samePK(expected, received mc.Packet) bool {
 }
 
 func TestFileToWorkerConfig(t *testing.T) {
-	serverCfg := config.ServerConfig{
-		Domains:           []string{"Ultraviolet", "Ultraviolet2", "UltraV", "UV"},
-		ProxyTo:           "127.0.10.5:25565",
-		ProxyBind:         "127.0.0.5",
-		OldRealIP:         true,
-		DialTimeout:       "1s",
-		SendProxyProtocol: true,
-		DisconnectMessage: "HelloThereWeAreClosed...Sorry",
-		OfflineStatus: mc.SimpleStatus{
+	t.Run("filled in values should match", func(t *testing.T) {
+		serverCfg := config.ServerConfig{
+			Name:              "UV",
+			Domains:           []string{"Ultraviolet", "Ultraviolet2", "UltraV", "UV"},
+			ProxyTo:           "127.0.10.5:25565",
+			ProxyBind:         "127.0.0.5",
+			OldRealIP:         true,
+			DialTimeout:       "1s",
+			SendProxyProtocol: true,
+			DisconnectMessage: "HelloThereWeAreClosed...Sorry",
+			OfflineStatus: mc.SimpleStatus{
+				Name:        "Ultraviolet",
+				Protocol:    755,
+				Description: "Some broken proxy",
+			},
+			RateLimit:           5,
+			RateDuration:        "1m",
+			StateUpdateCooldown: "1m",
+		}
+
+		expectedDisconPk := mc.ClientBoundDisconnect{
+			Reason: mc.String(serverCfg.DisconnectMessage),
+		}.Marshal()
+		expectedOfflineStatus := mc.SimpleStatus{
 			Name:        "Ultraviolet",
 			Protocol:    755,
 			Description: "Some broken proxy",
-		},
-		RateLimit:           5,
-		RateDuration:        "1m",
-		StateUpdateCooldown: "1m",
-	}
+		}.Marshal()
+		expectedRateDuration := 1 * time.Minute
+		expectedUpdateCooldown := 1 * time.Minute
+		expectedDialTimeout := 1 * time.Second
 
-	expectedDisconPk := mc.ClientBoundDisconnect{
-		Reason: mc.String(serverCfg.DisconnectMessage),
-	}.Marshal()
-	expectedOfflineStatus := mc.SimpleStatus{
-		Name:        "Ultraviolet",
-		Protocol:    755,
-		Description: "Some broken proxy",
-	}.Marshal()
-	expectedRateDuration := 1 * time.Minute
-	expectedUpdateCooldown := 1 * time.Minute
-	expectedDialTimeout := 1 * time.Second
+		workerCfg, err := config.FileToWorkerConfig(serverCfg)
+		if err != nil {
+			t.Fatalf("received unexpected error: %v", err)
+		}
 
-	workerCfg, err := config.FileToWorkerConfig(serverCfg)
-	if err != nil {
-		t.Fatalf("received unexpected error: %v", err)
-	}
+		if workerCfg.Name != serverCfg.Name {
+			t.Errorf("expected: %v - got: %v", serverCfg.Name, workerCfg.Name)
+		}
+		if workerCfg.ProxyTo != serverCfg.ProxyTo {
+			t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
+		}
+		if workerCfg.ProxyBind != serverCfg.ProxyBind {
+			t.Errorf("expected: %v - got: %v", serverCfg.ProxyBind, workerCfg.ProxyBind)
+		}
+		if workerCfg.SendProxyProtocol != serverCfg.SendProxyProtocol {
+			t.Errorf("expected: %v - got: %v", serverCfg.SendProxyProtocol, workerCfg.SendProxyProtocol)
+		}
+		if workerCfg.RateLimit != serverCfg.RateLimit {
+			t.Errorf("expected: %v - got: %v", serverCfg.RateLimit, workerCfg.RateLimit)
+		}
+		if workerCfg.OldRealIp != serverCfg.OldRealIP {
+			t.Errorf("expected: %v - got: %v", serverCfg.OldRealIP, workerCfg.OldRealIp)
+		}
+		if expectedRateDuration != workerCfg.RateLimitDuration {
+			t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.RateLimitDuration)
+		}
+		if expectedUpdateCooldown != workerCfg.StateUpdateCooldown {
+			t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.StateUpdateCooldown)
+		}
+		if expectedDialTimeout != workerCfg.DialTimeout {
+			t.Errorf("expected: %v - got: %v", expectedDialTimeout, workerCfg.DialTimeout)
+		}
+		if !samePK(expectedOfflineStatus, workerCfg.OfflineStatus) {
+			offlineStatus, _ := mc.UnmarshalClientBoundResponse(expectedOfflineStatus)
+			receivedStatus, _ := mc.UnmarshalClientBoundResponse(workerCfg.OfflineStatus)
+			t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
+		}
 
-	if workerCfg.ProxyTo != serverCfg.ProxyTo {
-		t.Errorf("expected: %v - got: %v", serverCfg.ProxyTo, workerCfg.ProxyTo)
-	}
-	if workerCfg.ProxyBind != serverCfg.ProxyBind {
-		t.Errorf("expected: %v - got: %v", serverCfg.ProxyBind, workerCfg.ProxyBind)
-	}
-	if workerCfg.SendProxyProtocol != serverCfg.SendProxyProtocol {
-		t.Errorf("expected: %v - got: %v", serverCfg.SendProxyProtocol, workerCfg.SendProxyProtocol)
-	}
-	if workerCfg.RateLimit != serverCfg.RateLimit {
-		t.Errorf("expected: %v - got: %v", serverCfg.RateLimit, workerCfg.RateLimit)
-	}
-	if workerCfg.OldRealIp != serverCfg.OldRealIP {
-		t.Errorf("expected: %v - got: %v", serverCfg.OldRealIP, workerCfg.OldRealIp)
-	}
-	if expectedRateDuration != workerCfg.RateLimitDuration {
-		t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.RateLimitDuration)
-	}
-	if expectedUpdateCooldown != workerCfg.StateUpdateCooldown {
-		t.Errorf("expected: %v - got: %v", expectedRateDuration, workerCfg.StateUpdateCooldown)
-	}
-	if expectedDialTimeout != workerCfg.DialTimeout {
-		t.Errorf("expected: %v - got: %v", expectedDialTimeout, workerCfg.DialTimeout)
-	}
-	if !samePK(expectedOfflineStatus, workerCfg.OfflineStatus) {
-		offlineStatus, _ := mc.UnmarshalClientBoundResponse(expectedOfflineStatus)
-		receivedStatus, _ := mc.UnmarshalClientBoundResponse(workerCfg.OfflineStatus)
-		t.Errorf("expcted: %v \ngot: %v", offlineStatus, receivedStatus)
-	}
+		if !samePK(expectedDisconPk, workerCfg.DisconnectPacket) {
+			expectedDiscon, _ := mc.UnmarshalClientDisconnect(expectedDisconPk)
+			receivedDiscon, _ := mc.UnmarshalClientDisconnect(workerCfg.DisconnectPacket)
+			t.Errorf("expcted: %v \ngot: %v", expectedDiscon, receivedDiscon)
+		}
+	})
 
-	if !samePK(expectedDisconPk, workerCfg.DisconnectPacket) {
-		expectedDiscon, _ := mc.UnmarshalClientDisconnect(expectedDisconPk)
-		receivedDiscon, _ := mc.UnmarshalClientDisconnect(workerCfg.DisconnectPacket)
-		t.Errorf("expcted: %v \ngot: %v", expectedDiscon, receivedDiscon)
-	}
+	t.Run("when no name, first domain will be name", func(t *testing.T) {
+		serverCfg := config.ServerConfig{
+			Domains: []string{"Ultraviolet", "UV"},
+		}
+		workerCfg, err := config.FileToWorkerConfig(serverCfg)
+		if err != nil {
+			t.Fatalf("received unexpected error: %v", err)
+		}
+		if workerCfg.Name != serverCfg.Domains[0] {
+			t.Errorf("expected: %v - got: %v", serverCfg.Domains[0], workerCfg.Name)
+		}
+	})
 }
 
 func TestFileToWorkerConfig_NewRealIP_ReadsKeyCorrectly(t *testing.T) {
