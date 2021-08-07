@@ -15,8 +15,6 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
-type testBackendWorker struct{}
-
 type testNetConn struct {
 	conn       net.Conn
 	remoteAddr net.Addr
@@ -172,9 +170,10 @@ func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
 			serverAddr := "ultraviolet"
 			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
-			worker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-			workerCh := worker.ReqCh()
-			basicWorker.RegisterBackendWorker([]string{serverAddr}, worker)
+			workerCh := make(chan ultraviolet.BackendRequest)
+			servers := make(map[string]chan<- ultraviolet.BackendRequest)
+			servers[serverAddr] = workerCh
+			basicWorker.SetServers(servers)
 
 			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
@@ -202,9 +201,10 @@ func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
 			serverAddr := "ultraviolet"
 			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
-			worker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-			workerCh := worker.ReqCh()
-			basicWorker.RegisterBackendWorker([]string{serverAddr}, worker)
+			workerCh := make(chan ultraviolet.BackendRequest)
+			servers := make(map[string]chan<- ultraviolet.BackendRequest)
+			servers[serverAddr] = workerCh
+			basicWorker.SetServers(servers)
 
 			request := ultraviolet.BackendRequest{
 				ServerAddr: serverAddr,
@@ -778,47 +778,5 @@ func testCloseProxy(t *testing.T, proxyConns func(net.Conn, net.Conn)) {
 		s1.Close()
 		time.Sleep(defaultChTimeout)
 		testPipeConnClosed(t, c1)
-	})
-}
-
-func TestCheckActiveConnections(t *testing.T) {
-	t.Run("empty worker", func(t *testing.T) {
-		cfg := config.DefaultWorkerConfig()
-		basicWorker, _ := newWorker(cfg)
-		active := basicWorker.CheckActiveConnections()
-		if active {
-			t.Error("expected no active connections")
-		}
-	})
-
-	t.Run("no processed connections", func(t *testing.T) {
-		cfg := config.DefaultWorkerConfig()
-		basicWorker, _ := newWorker(cfg)
-		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-		domains := []string{"uv"}
-		basicWorker.RegisterBackendWorker(domains, backendWorker)
-		go backendWorker.Work()
-		active := basicWorker.CheckActiveConnections()
-		if active {
-			t.Error("expected no active connections")
-		}
-		ch := backendWorker.CloseCh()
-		ch <- struct{}{}
-	})
-
-	t.Run("active connection", func(t *testing.T) {
-		cfg := config.DefaultWorkerConfig()
-		basicWorker, _ := newWorker(cfg)
-		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-		domains := []string{"uv"}
-		basicWorker.RegisterBackendWorker(domains, backendWorker)
-		backendWorker.ActiveConns++
-		go backendWorker.Work()
-		active := basicWorker.CheckActiveConnections()
-		if !active {
-			t.Error("expected there to be active connections")
-		}
-		ch := backendWorker.CloseCh()
-		ch <- struct{}{}
 	})
 }

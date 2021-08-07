@@ -38,19 +38,18 @@ type ServerConfig struct {
 
 func DefaultServerConfig() ServerConfig {
 	return ServerConfig{
-		ProxyBind: "",
-		DialTimeout: "1s",
-		OldRealIP: false,
-		NewRealIP: false,
-		SendProxyProtocol: false,
-		DisconnectMessage: "Server  is offline",
-		CacheStatus: false,
-		RateLimit: 5,
-		RateDuration: "1s",
+		ProxyBind:           "",
+		DialTimeout:         "1s",
+		OldRealIP:           false,
+		NewRealIP:           false,
+		SendProxyProtocol:   false,
+		DisconnectMessage:   "Server  is offline",
+		CacheStatus:         false,
+		RateLimit:           5,
+		RateDuration:        "1s",
 		RateBanListCooldown: "5m",
-		RateDisconMsg: "Please reconnect to verify yourself",
+		RateDisconMsg:       "Please reconnect to verify yourself",
 		StateUpdateCooldown: "1s",
-		
 	}
 }
 
@@ -107,7 +106,7 @@ type WorkerServerConfig struct {
 	RateLimitStatus     bool
 	RateLimitDuration   time.Duration
 	RateBanListCooldown time.Duration
-	RateDisconPk       mc.Packet
+	RateDisconPk        mc.Packet
 }
 
 func DefaultWorkerConfig() WorkerConfig {

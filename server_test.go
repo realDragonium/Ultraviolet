@@ -147,7 +147,6 @@ func testCloseConnection(t *testing.T, conn net.Conn) {
 func samePk(expected, received mc.Packet) bool {
 	sameID := expected.ID == received.ID
 	sameData := bytes.Equal(expected.Data, received.Data)
-
 	return sameID && sameData
 }
 
@@ -598,5 +597,31 @@ func TestBackendWorker_Update(t *testing.T) {
 		if worker.ServerState == cfg.ServerState {
 			t.Errorf("didnt expect: %v", worker.ServerState)
 		}
+	})
+
+	t.Run("can update while running", func(t *testing.T) {
+		worker := ultraviolet.NewEmptyBackendWorker()
+		worker.ServerState = ultraviolet.AlwaysOfflineState{}
+		updateCh := worker.UpdateCh()
+		reqCh := worker.ReqCh()
+		closeCh := worker.CloseCh()
+		go worker.Work()
+		testPk := mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6}}
+		updateCfg := ultraviolet.BackendWorkerConfig{
+			OfflineDisconnectMessage: testPk,
+		}
+
+		updateCh <- updateCfg
+		ansCh := make(chan ultraviolet.ProcessAnswer)
+		reqCh <- ultraviolet.BackendRequest{
+			Type: mc.LOGIN,
+			Ch:   ansCh,
+		}
+		ans := <-ansCh
+
+		if !samePk(testPk, ans.Response()) {
+			t.Errorf("expected: %v - got: %v", testPk, ans.Response())
+		}
+		closeCh <- struct{}{}
 	})
 }

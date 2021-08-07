@@ -42,24 +42,18 @@ func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 		defaultStatus: defaultStatusPk,
 		serverDict:    dict,
 		ioTimeout:     cfg.IOTimeout,
-		servers:       make([]serverData, 0),
 		closeCh:       make(chan struct{}),
+		updateCh:      make(chan map[string]chan<- BackendRequest),
 	}
 }
 
-type serverData struct {
-	domains []string
-	ch      chan<- checkOpenConns
-}
-
 type BasicWorker struct {
-	reqCh           chan net.Conn
-	checkOpenConnCh chan checkOpenConns
-	closeCh         chan struct{}
+	reqCh    chan net.Conn
+	closeCh  chan struct{}
+	updateCh chan map[string]chan<- BackendRequest
 
 	defaultStatus mc.Packet
 	ioTimeout     time.Duration
-	servers       []serverData
 	serverDict    map[string]chan<- BackendRequest
 }
 
@@ -71,20 +65,12 @@ func (w *BasicWorker) CloseCh() chan<- struct{} {
 	return w.closeCh
 }
 
-func (bw *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
-	bw.checkOpenConnCh = ch
+func (w *BasicWorker) UpdateCh() chan<- map[string]chan<- BackendRequest {
+	return w.updateCh
 }
 
-func (bw *BasicWorker) RegisterBackendWorker(domains []string, backendWorker BackendWorker) {
-	for _, domain := range domains {
-		bw.serverDict[domain] = backendWorker.ReqCh()
-	}
-	ch := backendWorker.ActiveConnCh()
-	data := serverData{
-		domains: domains,
-		ch:      ch,
-	}
-	bw.servers = append(bw.servers, data)
+func (w *BasicWorker) SetServers(servers map[string]chan<- BackendRequest) {
+	w.serverDict = servers
 }
 
 // TODO:
@@ -109,29 +95,12 @@ func (bw *BasicWorker) Work() {
 			ans = bw.ProcessRequest(req)
 			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 			bw.ProcessAnswer(conn, ans)
-		case req := <-bw.checkOpenConnCh:
-			activeConns := bw.CheckActiveConnections()
-			req.Ch <- activeConns
 		case <-bw.closeCh:
 			return
+		case serverChs := <-bw.updateCh:
+			bw.SetServers(serverChs)
 		}
 	}
-}
-
-func (bw *BasicWorker) CheckActiveConnections() bool {
-	activeConns := false
-	for _, data := range bw.servers {
-		answerCh := make(chan bool)
-		data.ch <- checkOpenConns{
-			Ch: answerCh,
-		}
-		answer := <-answerCh
-		if answer {
-			activeConns = true
-			break
-		}
-	}
-	return activeConns
 }
 
 func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {

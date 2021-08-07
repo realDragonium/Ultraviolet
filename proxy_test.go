@@ -141,3 +141,54 @@ func TestProxyProtocol(t *testing.T) {
 		})
 	}
 }
+
+func TestCheckActiveConnections(t *testing.T) {
+	t.Run("empty map", func(t *testing.T) {
+		active := ultraviolet.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+	})
+
+	t.Run("no processed connections", func(t *testing.T) {
+		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
+		ultraviolet.RegisterBackendWorker("path", backendWorker)
+		go backendWorker.Work()
+		active := ultraviolet.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+		backendWorker.CloseCh() <- struct{}{}
+	})
+
+	t.Run("active connection", func(t *testing.T) {
+		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
+		backendWorker.ActiveConns++
+		ultraviolet.RegisterBackendWorker("path", backendWorker)
+		go backendWorker.Work()
+		active := ultraviolet.CheckActiveConnections()
+		if !active {
+			t.Error("expected there to be active connection")
+		}
+		backendWorker.CloseCh() <- struct{}{}
+	})
+
+	t.Run("multiple active connections", func(t *testing.T) {
+		closeChs := make([]chan<- struct{}, 3)
+		for i := 0; i < 3; i++ {
+			backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
+			backendWorker.ActiveConns++
+			ultraviolet.RegisterBackendWorker("path", backendWorker)
+			go backendWorker.Work()
+			closeChs[i] = backendWorker.CloseCh()
+		}
+		active := ultraviolet.CheckActiveConnections()
+		if !active {
+			t.Error("expected there to be active connections")
+		}
+
+		for _, ch := range closeChs {
+			ch <- struct{}{}
+		}
+	})
+}

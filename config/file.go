@@ -36,7 +36,7 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		if filepath.Ext(path) != ".json" {
 			return nil
 		}
-		if info.Name() == "ultraviolet" {
+		if info.Name() == "ultraviolet.json" {
 			return nil
 		}
 		filePaths = append(filePaths, path)
@@ -169,6 +169,7 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 	name := cfg.Name
 	if name == "" {
+		log.Println(cfg.FilePath)
 		name = cfg.Domains[0]
 	}
 	workerCfg := WorkerServerConfig{

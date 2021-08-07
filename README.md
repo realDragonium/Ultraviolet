@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.11
+# Ultraviolet - Alpha v0.11.1
 
 ## What is Ultraviolet?
 [infrared](https://github.com/haveachin/infrared) but different.
@@ -39,9 +39,10 @@ Every server config needs to end with `.json`. Server config files will be searc
 
 ## How does some stuff work
 ### rate limiting
-With rate limiting Ultraviolet will allow a specific number of connections to be made to the backend within a given time frame. It will reset when the time frame `rateCooldown` has passed. When the number has been exceeded but the cooldown isnt over yet, Ultraviolet will behave like the server is offline.  
+~~With rate limiting Ultraviolet will allow a specific number of connections to be made to the backend within a given time frame. It will reset when the time frame `rateCooldown` has passed. When the number has been exceeded but the cooldown isnt over yet, Ultraviolet will behave like the server is offline.  
 By default status request arent rate limited but you can turn this on. When its turned on and the connection rate exceeds the rate limit it can still send the status of the to the player when cache status is turned on. 
-Disabling rate limiting can be done by setting it to 0 and allows as many connections as it can to be created. (There is no difference in rate limiting disconnect and offline disconnect packets yet.)
+Disabling rate limiting can be done by setting it to 0 and allows as many connections as it can to be created. (There is no difference in rate limiting disconnect and offline disconnect packets yet.)~~
+It works differently now, based on playernames and ips instead of absolute connections. Status request will never be blocked, if you want to prevent spam from those turn on the status caching. (Later more detail explanation)  
 
 ### state update Cooldown
 To prevent a lot of calls being made to the backend without a reason Ultraviolet will keep track of the state from the backend. The state is currently being based on whether or not the backend will accept an tcp connection or not. When this happened and ultraviolet knows that the backend is `ONLINE` or `OFFLINE` it will wait the time `stateUpdateCooldown` is set to before it will check the state of the backend again. 
@@ -87,6 +88,8 @@ jar -uf path/to/jarfile -C path/to/dir/in/jar path/to/file
 |offlineStatus|[this](#status-config-value)|The status it will send the player when the server is offline.|
 |rateLimit|0|The number of connections it will allow to be made to the backend in the given `rateCooldown` time. 0 will disable rate limiting.|
 |rateCooldown|"1s"|rateCooldown is the time which it will take before the rateLimit will be reset.|
+|banListCooldown|"5m"|The amount of time someone an ip will need to wait (when its banned) before it will get unbanned from joining a specific server.|
+|reconnectMsg|"Please reconnect to verify yourself"|The message the player will be shown when its trying to join a server which is above its rate limit.|
 |stateUpdateCooldown|"1s"|The time it will assume that the state of the server isnt changed (that server isnt offline now while it was online the last time we checked). |
 |cacheStatus|false|Turn on or off whether it should cache the online cache of the server. If the server is recognized as `OFFLINE` it will send the offline status to the player.|
 |validProtocol|0|validProtocol is the protocol integer the handshake will have when sending the handshake to the backend. Its only necessary to have this when `cacheStatus` is on.|

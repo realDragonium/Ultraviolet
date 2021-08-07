@@ -228,8 +228,8 @@ type BackendWorkerConfig struct {
 func NewBackendWorker(cfgServer config.WorkerServerConfig) BackendWorker {
 	cfg := NewBackendWorkerConfig(cfgServer)
 	return BackendWorker{
-		reqCh:       make(chan BackendRequest, 5),
 		proxyCh:     make(chan ProxyAction, 10),
+		reqCh:       make(chan BackendRequest, 5),
 		connCheckCh: make(chan checkOpenConns),
 		updateCh:    make(chan BackendWorkerConfig),
 		closeCh:     make(chan struct{}),
@@ -244,6 +244,16 @@ func NewBackendWorker(cfgServer config.WorkerServerConfig) BackendWorker {
 		ConnLimiter: cfg.ConnLimiter,
 		ServerState: cfg.ServerState,
 		StatusCache: cfg.StatusCache,
+	}
+}
+
+func NewEmptyBackendWorker() BackendWorker {
+	return BackendWorker{
+		proxyCh:     make(chan ProxyAction, 10),
+		reqCh:       make(chan BackendRequest, 5),
+		connCheckCh: make(chan checkOpenConns),
+		updateCh:    make(chan BackendWorkerConfig),
+		closeCh:     make(chan struct{}),
 	}
 }
 
@@ -267,7 +277,7 @@ type BackendWorker struct {
 	StatusCache StatusCache
 }
 
-func (w *BackendWorker) ReqCh() chan BackendRequest {
+func (w *BackendWorker) ReqCh() chan<- BackendRequest {
 	return w.reqCh
 }
 
