@@ -100,12 +100,10 @@ func RunProxy() {
 	log.Println("Now starting prometheus endpoint")
 	if mainCfg.UsePrometheus {
 		http.Handle("/metrics", promhttp.Handler())
-		go http.ListenAndServe(mainCfg.PrometheusBind, nil)
 	}
-
 	http.HandleFunc("/reload", reloadHandler)
-	go log.Fatal(http.ListenAndServe(":8080", nil))
-
+	go http.ListenAndServe(mainCfg.PrometheusBind, nil)
+	
 	if runtime.GOOS == "windows" {
 		select {}
 	}
@@ -268,6 +266,7 @@ func ReloadBackendWorkers(currentServerCfgs []config.ServerConfig) {
 	keepCount := 0
 	newCount := 0
 	updateCount := 0
+	deleteBackends := []chan<- struct{}{}
 	// keepCfgs := []config.ServerConfig{}
 	for key, value := range configStatus {
 		switch value {
@@ -275,7 +274,7 @@ func ReloadBackendWorkers(currentServerCfgs []config.ServerConfig) {
 			deteleCount++
 			bw := backendWorkers[key]
 			closeCh := bw.CloseCh()
-			closeCh <- struct{}{}
+			deleteBackends = append(deleteBackends, closeCh)
 		case 2: // new
 			newCount++
 			startNewBackendWorker(currentCfgs[key])
@@ -297,6 +296,10 @@ func ReloadBackendWorkers(currentServerCfgs []config.ServerConfig) {
 	for _, worker := range basicWorkers {
 		ch := worker.UpdateCh()
 		ch <- serverChs
+	}
+
+	for _, ch := range deleteBackends {
+		ch <- struct{}{}
 	}
 
 	log.Printf("%v backend(s) registered", newCount)
