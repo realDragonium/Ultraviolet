@@ -36,6 +36,24 @@ type ServerConfig struct {
 	StateUpdateCooldown string `json:"stateUpdateCooldown"`
 }
 
+func DefaultServerConfig() ServerConfig {
+	return ServerConfig{
+		ProxyBind: "",
+		DialTimeout: "1s",
+		OldRealIP: false,
+		NewRealIP: false,
+		SendProxyProtocol: false,
+		DisconnectMessage: "Server  is offline",
+		CacheStatus: false,
+		RateLimit: 5,
+		RateDuration: "1s",
+		RateBanListCooldown: "5m",
+		RateDisconMsg: "Please reconnect to verify yourself",
+		StateUpdateCooldown: "1s",
+		
+	}
+}
+
 type UltravioletConfig struct {
 	ListenTo            string          `json:"listenTo"`
 	DefaultStatus       mc.SimpleStatus `json:"defaultStatus"`

@@ -18,8 +18,9 @@ import (
 )
 
 var (
-	ErrPrivateKey         = errors.New("could not load private key")
-	ErrCantCombineConfigs = errors.New("failed to combine config structs")
+	ErrPrivateKey            = errors.New("could not load private key")
+	ErrCantCombineConfigs    = errors.New("failed to combine config structs")
+	ErrFailedToConvertConfig = errors.New("failed to convert server config to a more usable config")
 )
 
 func ReadServerConfigs(path string) ([]ServerConfig, error) {
@@ -63,7 +64,7 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 	if err != nil {
 		return ServerConfig{}, err
 	}
-	cfg := ServerConfig{}
+	cfg := DefaultServerConfig()
 	if err := json.Unmarshal(bb, &cfg); err != nil {
 		return cfg, err
 	}
@@ -166,8 +167,24 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 }
 
 func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
-	var privateKey *ecdsa.PrivateKey
+	name := cfg.Name
+	if name == "" {
+		name = cfg.Domains[0]
+	}
+	workerCfg := WorkerServerConfig{
+		Name:              name,
+		ProxyTo:           cfg.ProxyTo,
+		ProxyBind:         cfg.ProxyBind,
+		SendProxyProtocol: cfg.SendProxyProtocol,
+		CacheStatus:       cfg.CacheStatus,
+		ValidProtocol:     cfg.ValidProtocol,
+		RateLimit:         cfg.RateLimit,
+		OldRealIp:         cfg.OldRealIP,
+		NewRealIP:         cfg.NewRealIP,
+	}
+
 	if cfg.NewRealIP {
+		var privateKey *ecdsa.PrivateKey
 		var err error
 		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
 		if errors.Is(err, os.ErrNotExist) {
@@ -178,60 +195,67 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 				privateKey = generateKeys(cfg)
 			}
 		} else if err != nil {
-			log.Printf("error during reading of private key: %v", err)
+			return WorkerServerConfig{}, err
 		}
+		workerCfg.NewRealIP = true
+		workerCfg.RealIPKey = privateKey
 	}
 	disconPk := mc.ClientBoundDisconnect{
 		Reason: mc.Chat(cfg.DisconnectMessage),
 	}.Marshal()
+	workerCfg.DisconnectPacket = disconPk
 	offlineStatusPk := cfg.OfflineStatus.Marshal()
-	duration, _ := time.ParseDuration(cfg.RateDuration)
-	if duration == 0 {
-		duration = time.Second
+	workerCfg.OfflineStatus = offlineStatusPk
+
+	stateUpdateCooldown, err := time.ParseDuration(cfg.StateUpdateCooldown)
+	if err != nil {
+		stateUpdateCooldown = time.Second
 	}
-	cooldown, _ := time.ParseDuration(cfg.StateUpdateCooldown)
-	if cooldown == 0 {
-		cooldown = time.Second
-	}
-	rateBanCooldown, _ := time.ParseDuration(cfg.RateBanListCooldown)
-	if rateBanCooldown == 0 {
-		rateBanCooldown = 15 * time.Minute
-	}
-	dialTimeout, _ := time.ParseDuration(cfg.DialTimeout)
-	if dialTimeout == 0 {
+	workerCfg.StateUpdateCooldown = stateUpdateCooldown
+
+	dialTimeout, err := time.ParseDuration(cfg.DialTimeout)
+	if err != nil {
 		dialTimeout = time.Second
 	}
-	cacheCooldown, _ := time.ParseDuration(cfg.CacheUpdateCooldown)
-	if cacheCooldown == 0 {
-		cacheCooldown = time.Second
-	}
-	name := cfg.Name
-	if name == "" {
-		name = cfg.Domains[0]
+	workerCfg.DialTimeout = dialTimeout
+
+	if cfg.CacheStatus {
+		cacheCooldown, err := time.ParseDuration(cfg.CacheUpdateCooldown)
+		if err != nil {
+			cacheCooldown = time.Second
+		}
+		workerCfg.CacheStatus = true
+		workerCfg.CacheUpdateCooldown = cacheCooldown
 	}
 
-	rateDisconPk := mc.ClientBoundDisconnect{
-		Reason: mc.String(cfg.RateDisconMsg),
-	}.Marshal()
-	return WorkerServerConfig{
-		Name:                name,
-		ProxyTo:             cfg.ProxyTo,
-		ProxyBind:           cfg.ProxyBind,
-		DialTimeout:         dialTimeout,
-		SendProxyProtocol:   cfg.SendProxyProtocol,
-		CacheStatus:         cfg.CacheStatus,
-		ValidProtocol:       cfg.ValidProtocol,
-		CacheUpdateCooldown: cacheCooldown,
-		OfflineStatus:       offlineStatusPk,
-		DisconnectPacket:    disconPk,
-		RateLimit:           cfg.RateLimit,
-		// RateLimitStatus:     cfg.RateLimitStatus,
-		RateDisconPk:        rateDisconPk,
-		RateBanListCooldown: rateBanCooldown,
-		RateLimitDuration:   duration,
-		StateUpdateCooldown: cooldown,
-		OldRealIp:           cfg.OldRealIP,
-		NewRealIP:           cfg.NewRealIP,
-		RealIPKey:           privateKey,
-	}, nil
+	if cfg.RateLimit > 0 {
+		rateDuration, err := time.ParseDuration(cfg.RateDuration)
+		if err != nil {
+			rateDuration = time.Second
+		}
+		rateBanCooldown, err := time.ParseDuration(cfg.RateBanListCooldown)
+		if err != nil {
+			rateBanCooldown = 15 * time.Minute
+		}
+		rateDisconPk := mc.ClientBoundDisconnect{
+			Reason: mc.String(cfg.RateDisconMsg),
+		}.Marshal()
+
+		workerCfg.RateLimitDuration = rateDuration
+		workerCfg.RateBanListCooldown = rateBanCooldown
+		workerCfg.RateDisconPk = rateDisconPk
+	}
+	return workerCfg, nil
+}
+
+func CombineServerConfigs(old, new ServerConfig) (ServerConfig, error) {
+	cfg := old
+	bb, err := json.Marshal(new)
+	if err != nil {
+		return cfg, ErrCantCombineConfigs
+	}
+	if err := json.Unmarshal(bb, &cfg); err != nil {
+		return cfg, ErrCantCombineConfigs
+	}
+	return cfg, nil
 }

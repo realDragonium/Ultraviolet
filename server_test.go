@@ -116,8 +116,7 @@ func setupBackendWorker(t *testing.T, serverCfg config.ServerConfig) ultraviolet
 	if err != nil {
 		t.Fatalf("error encounterd: %v", err)
 	}
-	serverWorker := ultraviolet.NewBackendWorker(0, workerServerCfg)
-	go serverWorker.Work()
+	serverWorker := ultraviolet.NewBackendWorker(workerServerCfg)
 	return serverWorker
 }
 
@@ -154,25 +153,6 @@ func samePk(expected, received mc.Packet) bool {
 
 func netAddrToIp(addr net.Addr) string {
 	return strings.Split(addr.String(), ":")[0]
-}
-
-func createListener(t *testing.T, addr string) (<-chan net.Conn, <-chan error) {
-	connCh := make(chan net.Conn)
-	errorCh := make(chan error)
-	listener, err := net.Listen("tcp", addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				errorCh <- err
-			}
-			connCh <- conn
-		}
-	}()
-	return connCh, errorCh
 }
 
 func TestBackendWorker_OfflineServer(t *testing.T) {
@@ -227,7 +207,14 @@ func TestBackendWorker_OnlineServer(t *testing.T) {
 			req := ultraviolet.BackendRequest{
 				Type: tc.reqType,
 			}
-			createListener(t, targetAddr)
+			listener, err := net.Listen("tcp", targetAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			go func() {
+				listener.Accept()
+
+			}()
 			worker := setupBackendWorker(t, serverCfg)
 			answer := processRequest_TestTimeout(t, worker, req)
 			if answer.Action() != tc.onlineAction {
@@ -291,23 +278,19 @@ func TestBackendWorker_ProxyBind(t *testing.T) {
 				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
 
-			connCh, errorCh := createListener(t, targetAddr)
-			conn := <-connCh // State check call (proxy bind should be used here too)
+			listener, err := net.Listen("tcp", targetAddr)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			conn, err := listener.Accept() // State check call (proxy bind should be used here too)
+			if err != nil {
+				t.Fatal(err)
+			}
 			if netAddrToIp(conn.RemoteAddr()) != proxyBind {
 				t.Errorf("expected: %v - got: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
 			}
 
-			select {
-			case err := <-errorCh:
-				t.Fatalf("error while accepting connection: %v", err)
-			case conn := <-connCh:
-				t.Log("connection has been created")
-				if netAddrToIp(conn.RemoteAddr()) != proxyBind {
-					t.Errorf("expected: %v - got: %v", proxyBind, netAddrToIp(conn.RemoteAddr()))
-				}
-			case <-time.After(defaultChTimeout):
-				t.Error("timed out")
-			}
 		})
 	}
 }
@@ -339,10 +322,11 @@ func TestBackendWorker_ProxyProtocol(t *testing.T) {
 			connCh := make(chan net.Conn)
 			errorCh := make(chan error)
 			go func() {
-				for {
+				for i := 0; i < 2; i++ {
 					conn, err := proxyListener.Accept()
 					if err != nil {
 						errorCh <- err
+						return
 					}
 					connCh <- conn
 				}
@@ -526,5 +510,93 @@ func TestBackendWorker_StatusCache(t *testing.T) {
 			}
 		})
 	}
+}
 
+func TestBackendWorker_Update(t *testing.T) {
+	t.Run("change when update config contains new value", func(t *testing.T) {
+		worker := ultraviolet.BackendWorker{}
+		cfg := ultraviolet.BackendWorkerConfig{
+			Name:                     "UV",
+			UpdateProxyProtocol:      true,
+			SendProxyProtocol:        true,
+			OfflineDisconnectMessage: mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
+			OfflineStatus:            mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
+			HsModifier:               &testHandshakeModifier{},
+			ConnCreator:              &stateConnCreator{},
+			ConnLimiter:              &testConnectionLimiter{},
+			ServerState:              &testServerState{},
+			StatusCache:              &testStatusCache{},
+		}
+		worker.Update(cfg)
+		if worker.Name != cfg.Name {
+			t.Errorf("expected: %v - got: %v", cfg.Name, worker.Name)
+		}
+		if worker.SendProxyProtocol != cfg.SendProxyProtocol {
+			t.Errorf("expected: %v - got: %v", cfg.SendProxyProtocol, worker.SendProxyProtocol)
+		}
+		if !samePk(worker.OfflineDisconnectMessage, cfg.OfflineDisconnectMessage) {
+			t.Errorf("expected: %v - got: %v", cfg.OfflineDisconnectMessage, worker.OfflineDisconnectMessage)
+		}
+		if !samePk(worker.OfflineStatus, cfg.OfflineStatus) {
+			t.Errorf("expected: %v - got: %v", cfg.OfflineStatus, worker.OfflineStatus)
+		}
+		if worker.HsModifier != cfg.HsModifier {
+			t.Errorf("expected: %v - got: %v", cfg.HsModifier, worker.HsModifier)
+		}
+		if worker.ConnCreator != cfg.ConnCreator {
+			t.Errorf("expected: %v - got: %v", cfg.ConnCreator, worker.ConnCreator)
+		}
+		if worker.ConnLimiter != cfg.ConnLimiter {
+			t.Errorf("expected: %v - got: %v", cfg.ConnLimiter, worker.ConnLimiter)
+		}
+		if worker.StatusCache != cfg.StatusCache {
+			t.Errorf("expected: %v - got: %v", cfg.StatusCache, worker.StatusCache)
+		}
+		if worker.ServerState != cfg.ServerState {
+			t.Errorf("expected: %v - got: %v", cfg.ServerState, worker.ServerState)
+		}
+	})
+
+	t.Run("change when update config contains new value", func(t *testing.T) {
+		worker := ultraviolet.BackendWorker{
+			Name:                     "UV",
+			SendProxyProtocol:        true,
+			OfflineDisconnectMessage: mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
+			OfflineStatus:            mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
+			HsModifier:               &testHandshakeModifier{},
+			ConnCreator:              &stateConnCreator{},
+			ConnLimiter:              &testConnectionLimiter{},
+			ServerState:              &testServerState{},
+			StatusCache:              &testStatusCache{},
+		}
+		cfg := ultraviolet.BackendWorkerConfig{}
+		worker.Update(cfg)
+		if worker.Name == cfg.Name {
+			t.Errorf("didnt expect: %v", worker.Name)
+		}
+		if worker.SendProxyProtocol == cfg.SendProxyProtocol {
+			t.Errorf("didnt expect: %v", worker.SendProxyProtocol)
+		}
+		if samePk(worker.OfflineDisconnectMessage, cfg.OfflineDisconnectMessage) {
+			t.Errorf("didnt expect: %v", worker.OfflineDisconnectMessage)
+		}
+		if samePk(worker.OfflineStatus, cfg.OfflineStatus) {
+			t.Errorf("didnt expect: %v", worker.OfflineStatus)
+		}
+		if worker.HsModifier == cfg.HsModifier {
+			t.Errorf("didnt expect: %v", worker.HsModifier)
+		}
+		if worker.ConnCreator == cfg.ConnCreator {
+			t.Errorf("didnt expect: %v", worker.ConnCreator)
+		}
+		if worker.ConnLimiter == cfg.ConnLimiter {
+			t.Errorf("didnt expect: %v", worker.ConnLimiter)
+		}
+		if worker.StatusCache == cfg.StatusCache {
+			t.Errorf("didnt expect: %v", worker.StatusCache)
+		}
+		if worker.ServerState == cfg.ServerState {
+			t.Errorf("didnt expect: %v", worker.ServerState)
+		}
+	})
 }

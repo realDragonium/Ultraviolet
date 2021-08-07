@@ -157,10 +157,10 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 
 	worker := NewWorker(workerCfg, reqCh)
 	worker.AddActiveConnsCh(checkFinished)
-	for id, serverCfg := range serverCfgs {
+	for _, serverCfg := range serverCfgs {
 		workerServerCfg, _ := config.FileToWorkerConfig(serverCfg)
-		serverWorker := NewBackendWorker(id, workerServerCfg)
-		worker.RegisterBackendWorker(serverCfg.Domains, &serverWorker)
+		serverWorker := NewBackendWorker(workerServerCfg)
+		worker.RegisterBackendWorker(serverCfg.Domains, serverWorker)
 		go serverWorker.Work()
 	}
 	numberOfProxies := len(serverCfgs)

@@ -260,6 +260,7 @@ func TestStatusCache(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				errCh := make(chan error)
 				answerCh := make(chan ultraviolet.ProcessAnswer)
+				
 				c1, c2 := net.Pipe()
 				connCreator := statusCacheConnCreator{conn: c1}
 				statusCache := ultraviolet.NewStatusCache(protocolVersion, cooldown, connCreator)
@@ -272,12 +273,17 @@ func TestStatusCache(t *testing.T) {
 						errCh <- err
 					}
 				}()
+				closeCh := make(chan struct{})
 				go func() {
 					answer, err := statusCache.Status()
 					if err != nil {
 						errCh <- err
 					}
-					answerCh <- answer
+					select {
+					case answerCh <- answer:
+					case <- closeCh:
+					}
+					
 				}()
 
 				var answer ultraviolet.ProcessAnswer
@@ -286,10 +292,12 @@ func TestStatusCache(t *testing.T) {
 				case answer = <-answerCh:
 					t.Log("worker has successfully responded")
 				case err = <-errCh:
+					closeCh<- struct{}{}
 					if !tc.shouldReturnError {
 						t.Fatalf("didnt expect an error but got: %v", err)
 					}
 				case <-time.After(defaultChTimeout):
+					closeCh<- struct{}{}
 					t.Fatal("timed out")
 				}
 
@@ -302,6 +310,7 @@ func TestStatusCache(t *testing.T) {
 					t.Logf("expected: %v", statusPacket)
 					t.Logf("received: %v", answer.Response())
 				}
+
 			})
 		}
 	})

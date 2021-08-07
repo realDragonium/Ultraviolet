@@ -35,7 +35,7 @@ var (
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
-	dict := make(map[string]chan BackendRequest)
+	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
 	return BasicWorker{
 		reqCh:         reqCh,
@@ -43,56 +43,61 @@ func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 		serverDict:    dict,
 		ioTimeout:     cfg.IOTimeout,
 		servers:       make([]serverData, 0),
+		closeCh:       make(chan struct{}),
 	}
 }
 
 type serverData struct {
 	domains []string
-	ch      chan checkOpenConns
+	ch      chan<- checkOpenConns
 }
 
 type BasicWorker struct {
 	reqCh           chan net.Conn
-	defaultStatus   mc.Packet
-	ioTimeout       time.Duration
 	checkOpenConnCh chan checkOpenConns
+	closeCh         chan struct{}
 
-	servers    []serverData
-	serverDict map[string]chan BackendRequest
+	defaultStatus mc.Packet
+	ioTimeout     time.Duration
+	servers       []serverData
+	serverDict    map[string]chan<- BackendRequest
 }
 
-func (worker *BasicWorker) IODeadline() time.Time {
-	return time.Now().Add(worker.ioTimeout)
+func (w *BasicWorker) IODeadline() time.Time {
+	return time.Now().Add(w.ioTimeout)
 }
 
-func (worker *BasicWorker) RegisterBackendWorker(domains []string, backendWorker *BackendWorker) {
+func (w *BasicWorker) CloseCh() chan<- struct{} {
+	return w.closeCh
+}
+
+func (bw *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
+	bw.checkOpenConnCh = ch
+}
+
+func (bw *BasicWorker) RegisterBackendWorker(domains []string, backendWorker BackendWorker) {
 	for _, domain := range domains {
-		worker.serverDict[domain] = backendWorker.ReqCh
+		bw.serverDict[domain] = backendWorker.ReqCh()
 	}
-	ch := make(chan checkOpenConns)
-	backendWorker.ConnCheckCh = ch
+	ch := backendWorker.ActiveConnCh()
 	data := serverData{
 		domains: domains,
 		ch:      ch,
 	}
-	worker.servers = append(worker.servers, data)
-}
-
-func (worker *BasicWorker) AddActiveConnsCh(ch chan checkOpenConns) {
-	worker.checkOpenConnCh = ch
+	bw.servers = append(bw.servers, data)
 }
 
 // TODO:
 // - add more tests with this method
-func (worker *BasicWorker) Work() {
+func (bw *BasicWorker) Work() {
 	var err error
 	var conn net.Conn
 	var req BackendRequest
 	var ans ProcessAnswer
 	for {
 		select {
-		case conn = <-worker.reqCh:
-			req, err = worker.ProcessConnection(conn)
+		case conn = <-bw.reqCh:
+			req, err = bw.ProcessConnection(conn)
 			if err != nil {
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
@@ -101,19 +106,21 @@ func (worker *BasicWorker) Work() {
 				continue
 			}
 			log.Printf("received connection from %v", conn.RemoteAddr())
-			ans = worker.ProcessRequest(req)
+			ans = bw.ProcessRequest(req)
 			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
-			worker.ProcessAnswer(conn, ans)
-		case req := <-worker.checkOpenConnCh:
-			activeConns := worker.CheckActiveConnections()
+			bw.ProcessAnswer(conn, ans)
+		case req := <-bw.checkOpenConnCh:
+			activeConns := bw.CheckActiveConnections()
 			req.Ch <- activeConns
+		case <-bw.closeCh:
+			return
 		}
 	}
 }
 
-func (worker *BasicWorker) CheckActiveConnections() bool {
+func (bw *BasicWorker) CheckActiveConnections() bool {
 	activeConns := false
-	for _, data := range worker.servers {
+	for _, data := range bw.servers {
 		answerCh := make(chan bool)
 		data.ch <- checkOpenConns{
 			Ch: answerCh,
@@ -127,7 +134,7 @@ func (worker *BasicWorker) CheckActiveConnections() bool {
 	return activeConns
 }
 
-func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
 	handshake, err := mc.ReadPacket3_Handshake(b)
@@ -155,9 +162,9 @@ func (r *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReques
 
 // TODO:
 // - Adding some more error tests
-func (worker *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	mcConn := mc.NewMcConn(conn)
-	conn.SetDeadline(worker.IODeadline())
+	conn.SetDeadline(bw.IODeadline())
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
@@ -181,7 +188,7 @@ func (worker *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, err
 		Handshake:  handshake,
 	}
 
-	conn.SetDeadline(worker.IODeadline())
+	conn.SetDeadline(bw.IODeadline())
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
@@ -203,13 +210,13 @@ func (worker *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, err
 	return request, nil
 }
 
-func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
-	ch, ok := w.serverDict[req.ServerAddr]
+func (bw *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
+	ch, ok := bw.serverDict[req.ServerAddr]
 	if !ok {
 		if req.Type == mc.STATUS {
 			return ProcessAnswer{
 				action:      SEND_STATUS,
-				firstPacket: w.defaultStatus,
+				firstPacket: bw.defaultStatus,
 			}
 		}
 		return ProcessAnswer{
@@ -223,7 +230,7 @@ func (w *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 
 // TODO:
 // - figure out or this need more deadlines
-func (worker *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
+func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 	processedConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
@@ -247,7 +254,7 @@ func (worker *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 		conn.Close()
 	case SEND_STATUS:
 		clientMcConn.WritePacket(ans.Response())
-		conn.SetDeadline(worker.IODeadline())
+		conn.SetDeadline(bw.IODeadline())
 		pingPacket, err := clientMcConn.ReadPacket()
 		if err != nil {
 			conn.Close()

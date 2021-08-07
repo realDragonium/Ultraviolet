@@ -20,6 +20,12 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
+func samePK(expected, received mc.Packet) bool {
+	sameID := expected.ID == received.ID
+	sameData := bytes.Equal(expected.Data, received.Data)
+	return sameID && sameData
+}
+
 func TestReadServerConfig(t *testing.T) {
 	cfg := config.ServerConfig{
 		Domains: []string{"ultraviolet"},
@@ -197,13 +203,6 @@ func TestReadRealIPPrivateKey_NonExistingFile_ReturnsError(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("error during key reading: %v", err)
 	}
-}
-
-func samePK(expected, received mc.Packet) bool {
-	sameID := expected.ID == received.ID
-	sameData := bytes.Equal(expected.Data, received.Data)
-
-	return sameID && sameData
 }
 
 func TestFileToWorkerConfig(t *testing.T) {
