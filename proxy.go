@@ -20,8 +20,6 @@ import (
 	"github.com/realDragonium/Ultraviolet/config"
 )
 
-// var bWorkerManager WorkerManager
-
 var (
 	upg            tableflip.Upgrader
 	defaultCfgPath = "/etc/ultraviolet"
@@ -38,7 +36,7 @@ type CheckOpenConns struct {
 }
 
 func RunProxy() {
-	log.Println("Starting up Alpha-v0.11.1")
+	log.Println("Starting up Alpha-v0.11.2")
 	var (
 		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
 	)
@@ -183,71 +181,3 @@ func reloadHandler(w http.ResponseWriter, r *http.Request) {
 	backendManager.LoadAllConfigs(newCfgs)
 	fmt.Fprintf(w, "config: %v", configPath)
 }
-
-// func ReloadBackendWorkers(currentServerCfgs []config.ServerConfig) {
-// 	// First remove the deleted ones
-// 	// Load and start the new ones
-// 	// update the current ones
-
-// 	// Then update the basic workers
-
-// 	currentCfgs := make(map[string]config.ServerConfig)
-// 	configStatus := make(map[string]int)
-// 	for _, cfg := range serverCfgs {
-// 		key := cfg.FilePath
-// 		configStatus[key] += 1
-// 	}
-// 	for _, cfg := range currentServerCfgs {
-// 		key := cfg.FilePath
-// 		currentCfgs[key] = cfg
-// 		configStatus[key] += 2
-// 	}
-
-// 	deteleCount := 0
-// 	keepCount := 0
-// 	newCount := 0
-// 	updateCount := 0
-// 	deleteBackends := []BackendWorker{}
-// 	// keepCfgs := []config.ServerConfig{}
-// 	for key, value := range configStatus {
-// 		switch value {
-// 		case 1: // delete
-// 			deteleCount++
-// 			bw := backendWorkers[key]
-// 			oldCfg := serverCfgs[key]
-// 			DeregisterBackendWorker(oldCfg.FilePath, bw)
-// 			DeregisterServerconfig(oldCfg)
-// 			DeregisterServerCh(oldCfg.Domains)
-// 			deleteBackends = append(deleteBackends, bw)
-// 		case 2: // new
-// 			newCount++
-// 			// startNewBackendWorker(currentCfgs[key])
-// 		case 3: // keep
-// 			if reflect.DeepEqual(serverCfgs[key], currentCfgs[key]) {
-// 				keepCount++
-// 				continue
-// 			}
-// 			// updateCount++
-// 			// newCfg := currentCfgs[key]
-// 			// oldCfg := serverCfgs[key]
-
-// 			// if newCfg.Domains != oldCfg.Domains {
-
-// 			// }
-// 		}
-// 	}
-
-// 	for _, worker := range basicWorkers {
-// 		ch := worker.UpdateCh()
-// 		ch <- serverChs
-// 	}
-
-// 	for _, bw := range deleteBackends {
-// 		bw.Close()
-// 	}
-
-// 	log.Printf("%v backend(s) registered", newCount)
-// 	log.Printf("%v backend(s) removed", deteleCount)
-// 	log.Printf("%v backend(s) kept", keepCount)
-// 	log.Printf("%v backend(s) updated", updateCount)
-// }

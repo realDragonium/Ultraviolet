@@ -46,6 +46,8 @@ type testBackend struct {
 	reqCh        chan ultraviolet.BackendRequest
 	calledClose  bool
 	calledUpdate bool
+	timesClosed  int
+	timesUpdated int
 }
 
 func (backend *testBackend) ReqCh() chan<- ultraviolet.BackendRequest {
@@ -54,15 +56,17 @@ func (backend *testBackend) ReqCh() chan<- ultraviolet.BackendRequest {
 func (backend *testBackend) HasActiveConn() bool {
 	return false
 }
-func (backend *testBackend) Update(cfg config.ServerConfig) error {
+func (backend *testBackend) Update(cfg ultraviolet.BackendConfig) error {
 	backend.calledUpdate = true
+	backend.timesUpdated++
 	return nil
 }
 func (backend *testBackend) Close() {
 	backend.calledClose = true
+	backend.timesClosed++
 }
 
-var testBackendFactory ultraviolet.BackendFactoryFunc = func(sc config.ServerConfig) (ultraviolet.Backend, error) {
+var testBackendFactory ultraviolet.BackendFactoryFunc = func(cfg config.BackendWorkerConfig) (ultraviolet.Backend, error) {
 	backend := newTestBackend()
 	return &backend, nil
 }
@@ -104,9 +108,21 @@ func TestBackendManager_Add(t *testing.T) {
 		}
 	})
 
+	t.Run("adding config gives changes to worker", func(t *testing.T) {
+		manager, workerManager := newBackendManager(testBackendFactory)
+		domain := "uv"
+		cfg := config.ServerConfig{
+			Domains: []string{domain},
+		}
+		manager.AddConfig(cfg)
+		if !workerManager.KnowsDomain(domain) {
+			t.Error("manager should have known this domain")
+		}
+	})
+
 	t.Run("adding config creates new backend", func(t *testing.T) {
 		ch := make(chan struct{})
-		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+		factory := func(cfg config.BackendWorkerConfig) (ultraviolet.Backend, error) {
 			ch <- struct{}{}
 			backend := newTestBackend()
 			return &backend, nil
@@ -192,7 +208,7 @@ func TestBackendManager_Remove(t *testing.T) {
 
 	t.Run("removing backend config closese backend", func(t *testing.T) {
 		backend := newTestBackend()
-		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+		factory := func(cfg config.BackendWorkerConfig) (ultraviolet.Backend, error) {
 			return &backend, nil
 		}
 		manager, _ := newBackendManager(factory)
@@ -306,7 +322,7 @@ func TestBackendManager_Update(t *testing.T) {
 
 	t.Run("updating config also changes backend", func(t *testing.T) {
 		backend := newTestBackend()
-		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+		factory := func(cfg config.BackendWorkerConfig) (ultraviolet.Backend, error) {
 			return &backend, nil
 		}
 		manager, _ := newBackendManager(factory)
@@ -359,7 +375,7 @@ func TestBackendManager_LoadAllConfigs(t *testing.T) {
 
 	t.Run("loading new configs will update if config file has changed", func(t *testing.T) {
 		backend := newTestBackend()
-		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+		factory := func(cfg config.BackendWorkerConfig) (ultraviolet.Backend, error) {
 			return &backend, nil
 		}
 		manager, _ := newBackendManager(factory)

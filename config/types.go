@@ -112,7 +112,7 @@ func NewStateOption(option string) StateOptions {
 	return o
 }
 
-type WorkerServerConfig struct {
+type BackendWorkerConfig struct {
 	Name                string
 	StateOption         StateOptions
 	StateUpdateCooldown time.Duration

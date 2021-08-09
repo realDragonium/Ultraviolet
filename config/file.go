@@ -21,6 +21,9 @@ var (
 	ErrPrivateKey            = errors.New("could not load private key")
 	ErrCantCombineConfigs    = errors.New("failed to combine config structs")
 	ErrFailedToConvertConfig = errors.New("failed to convert server config to a more usable config")
+
+	ErrNoDomainInConfig = errors.New("'Domains' is not allowed to be empty")
+	ErrNoProxyToAddr    = errors.New("'ProxyTo' is not allowed to be empty")
 )
 
 func ReadServerConfigs(path string) ([]ServerConfig, error) {
@@ -166,21 +169,18 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	return privkey
 }
 
-var ErrNoDomainInConfig = errors.New("there wasnt any domain in config")
-var ErrNoProxyToAddr = errors.New("there wasnt any domain in config")
-
-func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
+func FileToWorkerConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
 	if len(cfg.Domains) == 0 {
-		return WorkerServerConfig{}, ErrNoDomainInConfig
+		return BackendWorkerConfig{}, ErrNoDomainInConfig
 	}
 	if cfg.ProxyTo == "" {
-		return WorkerServerConfig{}, ErrNoProxyToAddr
+		return BackendWorkerConfig{}, ErrNoProxyToAddr
 	}
 	name := cfg.Name
 	if name == "" {
 		name = cfg.Domains[0]
 	}
-	workerCfg := WorkerServerConfig{
+	workerCfg := BackendWorkerConfig{
 		Name:              name,
 		ProxyTo:           cfg.ProxyTo,
 		ProxyBind:         cfg.ProxyBind,
@@ -203,7 +203,7 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 				privateKey = generateKeys(cfg)
 			}
 		} else if err != nil {
-			return WorkerServerConfig{}, err
+			return BackendWorkerConfig{}, err
 		}
 		workerCfg.NewRealIP = true
 		workerCfg.RealIPKey = privateKey

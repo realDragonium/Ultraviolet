@@ -39,7 +39,8 @@ func (manager *BackendManager) AddConfig(cfg config.ServerConfig) {
 	for _, domain := range cfg.Domains {
 		manager.domains[domain] = cfg.ID()
 	}
-	backend, _ := manager.backendFactory(cfg)
+	bwCfg, _ := config.FileToWorkerConfig(cfg)
+	backend, _ := manager.backendFactory(bwCfg)
 	manager.backends[cfg.ID()] = backend
 	manager.workerManager.AddBackend(cfg.Domains, backend.ReqCh())
 }
@@ -56,7 +57,7 @@ func (manager *BackendManager) RemoveConfig(cfg config.ServerConfig) {
 	}
 	manager.workerManager.RemoveBackend(cfg.Domains)
 
-	//Call this after updating the workers, so a worker doesnt send a request to a closed backend
+	//so a worker doesnt send a request to a closed backend
 	backend.Close()
 	delete(manager.backends, cfg.ID())
 }
@@ -93,7 +94,9 @@ func (manager *BackendManager) UpdateConfig(cfg config.ServerConfig) error {
 	manager.workerManager.AddBackend(addedDomains, backend.ReqCh())
 	manager.workerManager.RemoveBackend(removedDomains)
 
-	backend.Update(cfg)
+	backendWorkerCfg, _ := config.FileToWorkerConfig(cfg)
+	backendConfig := NewBackendConfig(backendWorkerCfg)
+	backend.Update(backendConfig)
 	return nil
 }
 
@@ -115,6 +118,7 @@ func (manager *BackendManager) LoadAllConfigs(cfgs []config.ServerConfig) {
 	for id, oldCfg := range manager.cfgs {
 		if _, ok := newCfgs[id]; !ok {
 			manager.RemoveConfig(oldCfg)
+
 		}
 	}
 

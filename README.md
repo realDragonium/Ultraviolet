@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.11.1
+# Ultraviolet - Alpha v0.11.2
 
 ## What is Ultraviolet?
 [infrared](https://github.com/haveachin/infrared) but different.
@@ -18,10 +18,10 @@ $ go build
 ### Features
 [x] Proxy Protocol(v2) support  
 [x] RealIP (v2.4&v2.5)  
-[x] Rate limiting  
+[x] Rate limiting -> Login verification
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
-[x] Prometheus Support  
+[x] Prometheus Support (unstable, likely to change) 
 ... More coming later?
 
 

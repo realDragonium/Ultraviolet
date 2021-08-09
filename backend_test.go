@@ -515,17 +515,17 @@ func TestBackendWorker_StatusCache(t *testing.T) {
 func TestBackendWorker_Update(t *testing.T) {
 	t.Run("change when update config contains new value", func(t *testing.T) {
 		worker := ultraviolet.BackendWorker{}
-		cfg := ultraviolet.BackendWorkerConfig{
-			Name:                     "UV",
-			UpdateProxyProtocol:      true,
-			SendProxyProtocol:        true,
-			OfflineDisconnectMessage: mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
-			OfflineStatus:            mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
-			HsModifier:               &testHandshakeModifier{},
-			ConnCreator:              &stateConnCreator{},
-			ConnLimiter:              &testConnectionLimiter{},
-			ServerState:              &testServerState{},
-			StatusCache:              &testStatusCache{},
+		cfg := ultraviolet.BackendConfig{
+			Name:                "UV",
+			UpdateProxyProtocol: true,
+			SendProxyProtocol:   true,
+			DisconnectPacket:   mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
+			OfflineStatusPacket:       mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
+			HsModifier:          &testHandshakeModifier{},
+			ConnCreator:         &stateConnCreator{},
+			ConnLimiter:         &testConnectionLimiter{},
+			ServerState:         &testServerState{},
+			StatusCache:         &testStatusCache{},
 		}
 		worker.UpdateSameGoroutine(cfg)
 		if worker.Name != cfg.Name {
@@ -534,11 +534,11 @@ func TestBackendWorker_Update(t *testing.T) {
 		if worker.SendProxyProtocol != cfg.SendProxyProtocol {
 			t.Errorf("expected: %v - got: %v", cfg.SendProxyProtocol, worker.SendProxyProtocol)
 		}
-		if !samePk(worker.OfflineDisconnectMessage, cfg.OfflineDisconnectMessage) {
-			t.Errorf("expected: %v - got: %v", cfg.OfflineDisconnectMessage, worker.OfflineDisconnectMessage)
+		if !samePk(worker.DisconnectPacket, cfg.DisconnectPacket) {
+			t.Errorf("expected: %v - got: %v", cfg.DisconnectPacket, worker.DisconnectPacket)
 		}
-		if !samePk(worker.OfflineStatus, cfg.OfflineStatus) {
-			t.Errorf("expected: %v - got: %v", cfg.OfflineStatus, worker.OfflineStatus)
+		if !samePk(worker.OfflineStatusPacket, cfg.OfflineStatusPacket) {
+			t.Errorf("expected: %v - got: %v", cfg.OfflineStatusPacket, worker.OfflineStatusPacket)
 		}
 		if worker.HsModifier != cfg.HsModifier {
 			t.Errorf("expected: %v - got: %v", cfg.HsModifier, worker.HsModifier)
@@ -561,15 +561,15 @@ func TestBackendWorker_Update(t *testing.T) {
 		worker := ultraviolet.BackendWorker{
 			Name:                     "UV",
 			SendProxyProtocol:        true,
-			OfflineDisconnectMessage: mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
-			OfflineStatus:            mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
+			DisconnectPacket: mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
+			OfflineStatusPacket:            mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x14}},
 			HsModifier:               &testHandshakeModifier{},
 			ConnCreator:              &stateConnCreator{},
 			ConnLimiter:              &testConnectionLimiter{},
 			ServerState:              &testServerState{},
 			StatusCache:              &testStatusCache{},
 		}
-		cfg := ultraviolet.BackendWorkerConfig{}
+		cfg := ultraviolet.BackendConfig{}
 		worker.UpdateSameGoroutine(cfg)
 		if worker.Name == cfg.Name {
 			t.Errorf("didnt expect: %v", worker.Name)
@@ -577,11 +577,11 @@ func TestBackendWorker_Update(t *testing.T) {
 		if worker.SendProxyProtocol == cfg.SendProxyProtocol {
 			t.Errorf("didnt expect: %v", worker.SendProxyProtocol)
 		}
-		if samePk(worker.OfflineDisconnectMessage, cfg.OfflineDisconnectMessage) {
-			t.Errorf("didnt expect: %v", worker.OfflineDisconnectMessage)
+		if samePk(worker.DisconnectPacket, cfg.DisconnectPacket) {
+			t.Errorf("didnt expect: %v", worker.DisconnectPacket)
 		}
-		if samePk(worker.OfflineStatus, cfg.OfflineStatus) {
-			t.Errorf("didnt expect: %v", worker.OfflineStatus)
+		if samePk(worker.OfflineStatusPacket, cfg.OfflineStatusPacket) {
+			t.Errorf("didnt expect: %v", worker.OfflineStatusPacket)
 		}
 		if worker.HsModifier == cfg.HsModifier {
 			t.Errorf("didnt expect: %v", worker.HsModifier)
@@ -605,15 +605,12 @@ func TestBackendWorker_Update(t *testing.T) {
 		worker.ServerState = ultraviolet.AlwaysOfflineState{}
 		reqCh := worker.ReqCh()
 		worker.Run()
-		msg := "some text here"
-		cfg := config.ServerConfig{
-			DisconnectMessage: msg,
-			Domains:           []string{"uv"},
-			ProxyTo:           "1",
-		}
 		testPk := mc.ClientBoundDisconnect{
-			Reason: mc.String(msg),
+			Reason: mc.String("some text here"),
 		}.Marshal()
+		cfg := ultraviolet.BackendConfig{
+			DisconnectPacket: testPk,
+		}
 		err := worker.Update(cfg)
 		if err != nil {
 			t.Fatalf("got error: %v", err)
@@ -634,10 +631,7 @@ func TestBackendWorker_Update(t *testing.T) {
 
 func TestBackendFactory(t *testing.T) {
 	t.Run("lets the worker run", func(t *testing.T) {
-		cfg := config.ServerConfig{
-			Domains: []string{"uv"},
-			ProxyTo: "1",
-		}
+		cfg := config.BackendWorkerConfig{}
 		backend, err := ultraviolet.BackendFactory(cfg)
 		if err != nil {
 			t.Fatalf("got error: %v", err)
@@ -658,11 +652,9 @@ func TestBackendFactory(t *testing.T) {
 			Reason: mc.String(msg),
 		}.Marshal()
 
-		cfg := config.ServerConfig{
-			DisconnectMessage: msg,
-			CheckStateOption:  "offline",
-			Domains:           []string{"uv"},
-			ProxyTo:           "1",
+		cfg := config.BackendWorkerConfig{
+			DisconnectPacket: disconPk,
+			StateOption:      config.ALWAYS_OFFLINE,
 		}
 
 		backend, err := ultraviolet.BackendFactory(cfg)
@@ -674,8 +666,8 @@ func TestBackendFactory(t *testing.T) {
 		if !ok {
 			t.Fatalf("backend is different type then expected")
 		}
-		newCfg := ultraviolet.BackendWorkerConfig{
-			OfflineDisconnectMessage: mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+		newCfg := ultraviolet.BackendConfig{
+			DisconnectPacket: mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
 		}
 		worker.UpdateSameGoroutine(newCfg)
 

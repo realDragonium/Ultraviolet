@@ -20,12 +20,12 @@ var (
 	}, []string{"host"})
 )
 
-type BackendFactoryFunc func(config.ServerConfig) (Backend, error)
+type BackendFactoryFunc func(config.BackendWorkerConfig) (Backend, error)
 
 type Backend interface {
 	ReqCh() chan<- BackendRequest
 	HasActiveConn() bool
-	Update(cfg config.ServerConfig) error
+	Update(cfg BackendConfig) error
 	Close()
 }
 
@@ -171,7 +171,7 @@ func (ans ProcessAnswer) Action() BackendAction {
 	return ans.action
 }
 
-func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
+func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
 	var connCreator ConnectionCreator
 	var hsModifier HandshakeModifier
 	var rateLimiter ConnectionLimiter
@@ -213,13 +213,13 @@ func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
 		hsModifier = realIPv2_5{realIPKey: cfg.RealIPKey}
 	}
 
-	return BackendWorkerConfig{
+	return BackendConfig{
 		Name:                cfg.Name,
 		UpdateProxyProtocol: true,
 		SendProxyProtocol:   cfg.SendProxyProtocol,
 
-		OfflineDisconnectMessage: cfg.DisconnectPacket,
-		OfflineStatus:            cfg.OfflineStatus,
+		DisconnectPacket:    cfg.DisconnectPacket,
+		OfflineStatusPacket: cfg.OfflineStatus,
 
 		ConnCreator: connCreator,
 		HsModifier:  hsModifier,
@@ -229,12 +229,12 @@ func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
 	}
 }
 
-type BackendWorkerConfig struct {
-	Name                     string
-	UpdateProxyProtocol      bool
-	SendProxyProtocol        bool
-	OfflineDisconnectMessage mc.Packet
-	OfflineStatus            mc.Packet
+type BackendConfig struct {
+	Name                string
+	UpdateProxyProtocol bool
+	SendProxyProtocol   bool
+	DisconnectPacket    mc.Packet
+	OfflineStatusPacket mc.Packet
 
 	HsModifier  HandshakeModifier
 	ConnCreator ConnectionCreator
@@ -243,15 +243,14 @@ type BackendWorkerConfig struct {
 	StatusCache StatusCache
 }
 
-var BackendFactory BackendFactoryFunc = func(sc config.ServerConfig) (Backend, error) {
-	workerConfig, _ := config.FileToWorkerConfig(sc)
-	backendWorker := NewBackendWorker(workerConfig)
+var BackendFactory BackendFactoryFunc = func(cfg config.BackendWorkerConfig) (Backend, error) {
+	backendWorker := NewBackendWorker(cfg)
 	backendWorker.Run()
 	return &backendWorker, nil
 }
 
-func NewBackendWorker(cfgServer config.WorkerServerConfig) BackendWorker {
-	cfg := NewBackendWorkerConfig(cfgServer)
+func NewBackendWorker(cfgServer config.BackendWorkerConfig) BackendWorker {
+	cfg := NewBackendConfig(cfgServer)
 	cfg.UpdateProxyProtocol = true
 	worker := NewEmptyBackendWorker()
 	worker.UpdateSameGoroutine(cfg)
@@ -263,7 +262,7 @@ func NewEmptyBackendWorker() BackendWorker {
 		proxyCh:     make(chan ProxyAction, 10),
 		reqCh:       make(chan BackendRequest, 5),
 		connCheckCh: make(chan CheckOpenConns),
-		updateCh:    make(chan BackendWorkerConfig),
+		updateCh:    make(chan BackendConfig),
 		closeCh:     make(chan struct{}),
 	}
 }
@@ -273,13 +272,13 @@ type BackendWorker struct {
 	proxyCh     chan ProxyAction
 	reqCh       chan BackendRequest
 	connCheckCh chan CheckOpenConns
-	updateCh    chan BackendWorkerConfig
+	updateCh    chan BackendConfig
 	closeCh     chan struct{}
 
-	Name                     string
-	SendProxyProtocol        bool
-	OfflineStatus            mc.Packet
-	OfflineDisconnectMessage mc.Packet
+	Name                string
+	SendProxyProtocol   bool
+	OfflineStatusPacket mc.Packet
+	DisconnectPacket    mc.Packet
 
 	HsModifier  HandshakeModifier
 	ConnCreator ConnectionCreator
@@ -308,10 +307,8 @@ func (w *BackendWorker) HasActiveConn() bool {
 	return ans
 }
 
-func (w *BackendWorker) Update(cfg config.ServerConfig) error {
-	workerConfig, _ := config.FileToWorkerConfig(cfg)
-	newCfg := NewBackendWorkerConfig(workerConfig)
-	w.updateCh <- newCfg
+func (w *BackendWorker) Update(cfg BackendConfig) error {
+	w.updateCh <- cfg
 	return nil
 }
 
@@ -320,7 +317,7 @@ func (w *BackendWorker) Close() {
 }
 
 //TODO: Need different name for this
-func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendWorkerConfig) {
+func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendConfig) {
 	if wCfg.Name != "" {
 		playersConnected.Delete(prometheus.Labels{"host": w.Name})
 		w.Name = wCfg.Name
@@ -329,11 +326,11 @@ func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendWorkerConfig) {
 	if wCfg.UpdateProxyProtocol {
 		w.SendProxyProtocol = wCfg.SendProxyProtocol
 	}
-	if len(wCfg.OfflineDisconnectMessage.Data) > 0 {
-		w.OfflineDisconnectMessage = wCfg.OfflineDisconnectMessage
+	if len(wCfg.DisconnectPacket.Data) > 0 {
+		w.DisconnectPacket = wCfg.DisconnectPacket
 	}
-	if len(wCfg.OfflineStatus.Data) > 0 {
-		w.OfflineStatus = wCfg.OfflineStatus
+	if len(wCfg.OfflineStatusPacket.Data) > 0 {
+		w.OfflineStatusPacket = wCfg.OfflineStatusPacket
 	}
 	if wCfg.HsModifier != nil {
 		w.HsModifier = wCfg.HsModifier
@@ -385,15 +382,15 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 	if worker.ServerState != nil && worker.ServerState.State() == OFFLINE {
 		switch req.Type {
 		case mc.STATUS:
-			return NewStatusAnswer(worker.OfflineStatus)
+			return NewStatusAnswer(worker.OfflineStatusPacket)
 		case mc.LOGIN:
-			return NewDisconnectAnswer(worker.OfflineDisconnectMessage)
+			return NewDisconnectAnswer(worker.DisconnectPacket)
 		}
 	}
 	if worker.StatusCache != nil && req.Type == mc.STATUS {
 		ans, err := worker.StatusCache.Status()
 		if err != nil {
-			return NewStatusAnswer(worker.OfflineStatus)
+			return NewStatusAnswer(worker.OfflineStatusPacket)
 		}
 		return ans
 	}

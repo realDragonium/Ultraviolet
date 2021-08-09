@@ -21,7 +21,7 @@ const (
 )
 
 type UpdatableWorker interface {
-	UpdateCh() chan<- map[string]chan<- BackendRequest
+	Update(data map[string]chan<- BackendRequest)  
 }
 
 var (
@@ -69,8 +69,8 @@ func (w *BasicWorker) CloseCh() chan<- struct{} {
 	return w.closeCh
 }
 
-func (w *BasicWorker) UpdateCh() chan<- map[string]chan<- BackendRequest {
-	return w.updateCh
+func (w *BasicWorker) Update(data map[string]chan<- BackendRequest)  {
+	w.updateCh <- data
 }
 
 func (w *BasicWorker) SetServers(servers map[string]chan<- BackendRequest) {

@@ -8,14 +8,14 @@ type WorkerManager interface {
 
 func NewWorkerManager() workerManager {
 	return workerManager{
-		domains:   make(map[string]chan<- BackendRequest),
-		workerChs: []chan<- map[string]chan<- BackendRequest{},
+		domains: make(map[string]chan<- BackendRequest),
+		workers: []UpdatableWorker{},
 	}
 }
 
 type workerManager struct {
-	domains   map[string]chan<- BackendRequest
-	workerChs []chan<- map[string]chan<- BackendRequest
+	domains map[string]chan<- BackendRequest
+	workers []UpdatableWorker
 }
 
 func (manager *workerManager) AddBackend(domains []string, ch chan<- BackendRequest) {
@@ -33,15 +33,15 @@ func (manager *workerManager) RemoveBackend(domains []string) {
 }
 
 func (manager *workerManager) Register(worker UpdatableWorker, update bool) {
-	manager.workerChs = append(manager.workerChs, worker.UpdateCh())
+	manager.workers = append(manager.workers, worker)
 	if update {
-		worker.UpdateCh() <- manager.domains
+		worker.Update(manager.domains)
 	}
 }
 
 func (manager *workerManager) update() {
-	for _, ch := range manager.workerChs {
-		ch <- manager.domains
+	for _, worker := range manager.workers {
+		worker.Update(manager.domains)
 	}
 }
 

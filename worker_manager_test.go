@@ -2,23 +2,16 @@ package ultraviolet_test
 
 import (
 	"testing"
-	"time"
 
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 )
 
-func newTestUpdatableWorker() testUpdatableWorker {
-	return testUpdatableWorker{
-		ch: make(chan map[string]chan<- ultraviolet.BackendRequest),
-	}
+type testUpdatableWorkerCounter struct {
+	updatesReceived int
 }
 
-type testUpdatableWorker struct {
-	ch chan map[string]chan<- ultraviolet.BackendRequest
-}
-
-func (worker *testUpdatableWorker) UpdateCh() chan<- map[string]chan<- ultraviolet.BackendRequest {
-	return worker.ch
+func (worker *testUpdatableWorkerCounter) Update(data map[string]chan<- ultraviolet.BackendRequest) {
+	worker.updatesReceived++
 }
 
 func TestRegisterServerConfig(t *testing.T) {
@@ -51,63 +44,65 @@ func TestRegisterServerConfig(t *testing.T) {
 
 	t.Run("updates workers when registering", func(t *testing.T) {
 		manager := ultraviolet.NewWorkerManager()
-		worker := newTestUpdatableWorker()
-		go manager.Register(&worker, true)
+		worker := testUpdatableWorkerCounter{}
+		manager.Register(&worker, true)
 
-		select {
-		case <-worker.ch:
-			t.Log("received update")
-		case <-time.After(defaultChTimeout):
+		if worker.updatesReceived != 1 {
 			t.Fatal("expected to receive an update")
 		}
 	})
 
 	t.Run("doesnt update workers when registering", func(t *testing.T) {
 		manager := ultraviolet.NewWorkerManager()
-		worker := newTestUpdatableWorker()
-		go manager.Register(&worker, false)
+		worker := testUpdatableWorkerCounter{}
+		manager.Register(&worker, false)
 
-		select {
-		case <-worker.ch:
-			t.Fatal("received update")
-		case <-time.After(defaultChTimeout):
-			t.Log("as expected no update")
+		if worker.updatesReceived != 0 {
+			t.Fatal("should NOT have received an update")
 		}
 	})
 
-	t.Run("updates workers adding backend", func(t *testing.T) {
+	t.Run("does updates when adding backend", func(t *testing.T) {
 		manager := ultraviolet.NewWorkerManager()
-		worker := newTestUpdatableWorker()
+		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
 		domain := "uv2"
 		domains := []string{"uv", domain}
 		ch := make(chan ultraviolet.BackendRequest)
-		go manager.AddBackend(domains, ch)
+		manager.AddBackend(domains, ch)
 
-		select {
-		case <-worker.ch:
-			t.Log("received update")
-		case <-time.After(defaultChTimeout):
+		if worker.updatesReceived != 1 {
 			t.Fatal("expected to receive an update")
 		}
 	})
 
-	t.Run("updates workers removing backend", func(t *testing.T) {
+	t.Run("does updates when removing backend", func(t *testing.T) {
 		manager := ultraviolet.NewWorkerManager()
-		worker := newTestUpdatableWorker()
+		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
 		domain := "uv2"
 		domains := []string{"uv", domain}
-		go manager.RemoveBackend(domains)
-
-		select {
-		case <-worker.ch:
-			t.Log("received update")
-		case <-time.After(defaultChTimeout):
+		manager.RemoveBackend(domains)
+		if worker.updatesReceived != 1 {
 			t.Fatal("expected to receive an update")
 		}
 	})
+
+	// t.Run("updates workers", func(t *testing.T) {
+	// 	manager := ultraviolet.NewWorkerManager()
+	// 	worker := testUpdatableWorkerCounter{}
+	// 	manager.Register(&worker, false)
+
+	// 	domain := "uv2"
+	// 	domains := []string{"uv", domain}
+	// 	ch := make(chan ultraviolet.BackendRequest)
+	// 	manager.AddBackend(domains, ch)
+	// 	manager.Update()
+	// 	if worker.updatesReceived != 1 {
+	// 		t.Fatal("expected to receive an update")
+	// 	}
+	// })
 
 }
