@@ -2,6 +2,7 @@ package ultraviolet
 
 import (
 	"errors"
+	"log"
 	"net"
 	"time"
 
@@ -13,13 +14,21 @@ import (
 )
 
 var (
-	ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
 	ErrNotValidHandshake = errors.New("not a valid handshake state")
 	playersConnected     = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "ultraviolet_connected",
 		Help: "The total number of connected players",
 	}, []string{"host"})
 )
+
+type BackendFactoryFunc func(config.ServerConfig) (Backend, error)
+
+type Backend interface {
+	ReqCh() chan<- BackendRequest
+	HasActiveConn() bool
+	Update(cfg BackendWorkerConfig)
+	Close()
+}
 
 type BackendAction byte
 
@@ -168,25 +177,35 @@ func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
 	var hsModifier HandshakeModifier
 	var rateLimiter ConnectionLimiter
 	var statusCache StatusCache
+	var serverState StateAgent
+
 	dialer := net.Dialer{
 		Timeout: cfg.DialTimeout,
 		LocalAddr: &net.TCPAddr{
 			IP: net.ParseIP(cfg.ProxyBind),
 		},
 	}
-
 	connCreator = BasicConnCreator(cfg.ProxyTo, dialer)
+
 	if cfg.RateLimit > 0 {
 		rateLimiter = NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, cfg.RateBanListCooldown, cfg.RateDisconPk)
 	} else {
 		rateLimiter = AlwaysAllowConnection{}
 	}
+
 	if cfg.CacheStatus {
 		statusCache = NewStatusCache(cfg.ValidProtocol, cfg.CacheUpdateCooldown, connCreator)
 	}
-	serverState := McServerState{
-		cooldown:    cfg.StateUpdateCooldown,
-		connCreator: connCreator,
+
+	switch cfg.StateOption {
+	case config.ALWAYS_ONLINE:
+		serverState = AlwaysOnlineState{}
+	case config.ALWAYS_OFFLINE:
+		serverState = AlwaysOfflineState{}
+	case config.CACHE:
+		fallthrough
+	default:
+		serverState = NewMcServerState(cfg.StateUpdateCooldown, connCreator)
 	}
 
 	if cfg.OldRealIp {
@@ -206,7 +225,7 @@ func NewBackendWorkerConfig(cfg config.WorkerServerConfig) BackendWorkerConfig {
 		ConnCreator: connCreator,
 		HsModifier:  hsModifier,
 		ConnLimiter: rateLimiter,
-		ServerState: &serverState,
+		ServerState: serverState,
 		StatusCache: statusCache,
 	}
 }
@@ -225,43 +244,38 @@ type BackendWorkerConfig struct {
 	StatusCache StatusCache
 }
 
+var BackendFactory BackendFactoryFunc = func(sc config.ServerConfig) (Backend, error) {
+	workerConfig, _ := config.FileToWorkerConfig(sc)
+	backendWorker := NewBackendWorker(workerConfig)
+	go func(worker BackendWorker) {
+		worker.Work()
+	}(backendWorker)
+	return &backendWorker, nil
+}
+
 func NewBackendWorker(cfgServer config.WorkerServerConfig) BackendWorker {
 	cfg := NewBackendWorkerConfig(cfgServer)
-	return BackendWorker{
-		proxyCh:     make(chan ProxyAction, 10),
-		reqCh:       make(chan BackendRequest, 5),
-		connCheckCh: make(chan checkOpenConns),
-		updateCh:    make(chan BackendWorkerConfig),
-		closeCh:     make(chan struct{}),
-
-		Name:                     cfg.Name,
-		SendProxyProtocol:        cfg.SendProxyProtocol,
-		OfflineDisconnectMessage: cfg.OfflineDisconnectMessage,
-		OfflineStatus:            cfg.OfflineStatus,
-
-		ConnCreator: cfg.ConnCreator,
-		HsModifier:  cfg.HsModifier,
-		ConnLimiter: cfg.ConnLimiter,
-		ServerState: cfg.ServerState,
-		StatusCache: cfg.StatusCache,
-	}
+	cfg.UpdateProxyProtocol = true
+	worker := NewEmptyBackendWorker()
+	worker.UpdateSameGoroutine(cfg)
+	return worker
 }
 
 func NewEmptyBackendWorker() BackendWorker {
 	return BackendWorker{
 		proxyCh:     make(chan ProxyAction, 10),
 		reqCh:       make(chan BackendRequest, 5),
-		connCheckCh: make(chan checkOpenConns),
+		connCheckCh: make(chan CheckOpenConns),
 		updateCh:    make(chan BackendWorkerConfig),
 		closeCh:     make(chan struct{}),
 	}
 }
 
 type BackendWorker struct {
-	ActiveConns int
+	activeConns int
 	proxyCh     chan ProxyAction
 	reqCh       chan BackendRequest
-	connCheckCh chan checkOpenConns
+	connCheckCh chan CheckOpenConns
 	updateCh    chan BackendWorkerConfig
 	closeCh     chan struct{}
 
@@ -281,23 +295,34 @@ func (w *BackendWorker) ReqCh() chan<- BackendRequest {
 	return w.reqCh
 }
 
-func (w *BackendWorker) ActiveConnCh() chan<- checkOpenConns {
-	return w.connCheckCh
+func (w *BackendWorker) HasActiveConn() bool {
+	log.Println("going to check")
+	ch := make(chan bool)
+	checker := CheckOpenConns{
+		Ch: ch,
+	}
+	log.Println(w.connCheckCh)
+	w.connCheckCh <- checker
+	log.Println("sent request")
+	ans := <-ch
+	log.Println(ans)
+	return ans
 }
 
-func (w *BackendWorker) UpdateCh() chan<- BackendWorkerConfig {
-	return w.updateCh
+func (w *BackendWorker) Update(cfg BackendWorkerConfig) {
+	w.updateCh <- cfg
 }
 
-func (w *BackendWorker) CloseCh() chan<- struct{} {
-	return w.closeCh
+func (w *BackendWorker) Close() {
+	w.closeCh <- struct{}{}
 }
 
-func (w *BackendWorker) Update(wCfg BackendWorkerConfig) {
+//TODO: Need different name for this
+func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendWorkerConfig) {
 	if wCfg.Name != "" {
 		playersConnected.Delete(prometheus.Labels{"host": w.Name})
 		w.Name = wCfg.Name
-		playersConnected.WithLabelValues(w.Name).Add(float64(w.ActiveConns))
+		playersConnected.WithLabelValues(w.Name).Add(float64(w.activeConns))
 	}
 	if wCfg.UpdateProxyProtocol {
 		w.SendProxyProtocol = wCfg.SendProxyProtocol
@@ -332,11 +357,13 @@ func (worker *BackendWorker) Work() {
 			ans := worker.HandleRequest(req)
 			req.Ch <- ans
 		case proxyAction := <-worker.proxyCh:
+			log.Println("received proxy start notification")
 			worker.proxyRequest(proxyAction)
 		case connCheck := <-worker.connCheckCh:
-			connCheck.Ch <- worker.ActiveConns > 0
+			log.Println(worker.activeConns > 0)
+			connCheck.Ch <- worker.activeConns > 0
 		case cfg := <-worker.updateCh:
-			worker.Update(cfg)
+			worker.UpdateSameGoroutine(cfg)
 		case <-worker.closeCh:
 			return
 		}
@@ -346,10 +373,10 @@ func (worker *BackendWorker) Work() {
 func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case PROXY_OPEN:
-		worker.ActiveConns++
+		worker.activeConns++
 		playersConnected.WithLabelValues(worker.Name).Inc()
 	case PROXY_CLOSE:
-		worker.ActiveConns--
+		worker.activeConns--
 		playersConnected.WithLabelValues(worker.Name).Dec()
 	}
 }
@@ -360,6 +387,7 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 		case mc.STATUS:
 			return NewStatusAnswer(worker.OfflineStatus)
 		case mc.LOGIN:
+			log.Println(worker.OfflineDisconnectMessage)
 			return NewDisconnectAnswer(worker.OfflineDisconnectMessage)
 		}
 	}

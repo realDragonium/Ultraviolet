@@ -166,10 +166,18 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	return privkey
 }
 
+var ErrNoDomainInConfig = errors.New("there wasnt any domain in config")
+var ErrNoProxyToAddr = errors.New("there wasnt any domain in config")
+
 func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
+	if len(cfg.Domains) == 0 {
+		return WorkerServerConfig{}, ErrNoDomainInConfig
+	}
+	if cfg.ProxyTo == "" {
+		return WorkerServerConfig{}, ErrNoProxyToAddr
+	}
 	name := cfg.Name
 	if name == "" {
-		log.Println(cfg.FilePath)
 		name = cfg.Domains[0]
 	}
 	workerCfg := WorkerServerConfig{
@@ -177,11 +185,10 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 		ProxyTo:           cfg.ProxyTo,
 		ProxyBind:         cfg.ProxyBind,
 		SendProxyProtocol: cfg.SendProxyProtocol,
-		CacheStatus:       cfg.CacheStatus,
-		ValidProtocol:     cfg.ValidProtocol,
 		RateLimit:         cfg.RateLimit,
 		OldRealIp:         cfg.OldRealIP,
 		NewRealIP:         cfg.NewRealIP,
+		StateOption:       NewStateOption(cfg.CheckStateOption),
 	}
 
 	if cfg.NewRealIP {
@@ -205,6 +212,7 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 		Reason: mc.Chat(cfg.DisconnectMessage),
 	}.Marshal()
 	workerCfg.DisconnectPacket = disconPk
+
 	offlineStatusPk := cfg.OfflineStatus.Marshal()
 	workerCfg.OfflineStatus = offlineStatusPk
 
@@ -227,6 +235,7 @@ func FileToWorkerConfig(cfg ServerConfig) (WorkerServerConfig, error) {
 		}
 		workerCfg.CacheStatus = true
 		workerCfg.CacheUpdateCooldown = cacheCooldown
+		workerCfg.ValidProtocol = cfg.ValidProtocol
 	}
 
 	if cfg.RateLimit > 0 {

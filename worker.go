@@ -20,6 +20,10 @@ const (
 	// packetLength:2 + packet ID: 1 + protocol version:2 + max string length:255 + port:2 + state: 1 -> 2+1+2+255+2+1 = 263
 )
 
+type UpdatableWorker interface {
+	UpdateCh() chan<- map[string]chan<- BackendRequest
+}
+
 var (
 	ErrClientToSlow     = errors.New("client was to slow with sending its packets")
 	ErrClientClosedConn = errors.New("client closed the connection")
@@ -71,6 +75,11 @@ func (w *BasicWorker) UpdateCh() chan<- map[string]chan<- BackendRequest {
 
 func (w *BasicWorker) SetServers(servers map[string]chan<- BackendRequest) {
 	w.serverDict = servers
+}
+
+func (w *BasicWorker) KnowsDomain(domain string) bool {
+	_, ok := w.serverDict[domain]
+	return ok
 }
 
 // TODO:

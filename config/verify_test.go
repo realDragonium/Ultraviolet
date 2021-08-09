@@ -13,10 +13,12 @@ func TestVerifyConfigs(t *testing.T) {
 			{
 				FilePath: "uv1",
 				Domains:  []string{domain},
+				ProxyTo:  "1",
 			},
 			{
 				FilePath: "uv2",
 				Domains:  []string{domain},
+				ProxyTo:  "1",
 			},
 		}
 
@@ -37,14 +39,17 @@ func TestVerifyConfigs(t *testing.T) {
 			{
 				FilePath: "uv1",
 				Domains:  []string{domain},
+				ProxyTo:  "1",
 			},
 			{
 				FilePath: "uv2",
 				Domains:  []string{domain},
+				ProxyTo:  "1",
 			},
 			{
 				FilePath: "uv3",
 				Domains:  []string{domain},
+				ProxyTo:  "1",
 			},
 		}
 

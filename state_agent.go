@@ -6,8 +6,8 @@ type StateAgent interface {
 	State() ServerState
 }
 
-func NewMcServerState(cooldown time.Duration, connCreator ConnectionCreator) McServerState {
-	return McServerState{
+func NewMcServerState(cooldown time.Duration, connCreator ConnectionCreator) StateAgent {
+	return &McServerState{
 		state:       UNKNOWN,
 		cooldown:    cooldown,
 		connCreator: connCreator,

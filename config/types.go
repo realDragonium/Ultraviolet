@@ -33,7 +33,12 @@ type ServerConfig struct {
 	RateBanListCooldown string `json:"banListCooldown"`
 	RateDisconMsg       string `json:"reconnectMsg"`
 
+	CheckStateOption    string
 	StateUpdateCooldown string `json:"stateUpdateCooldown"`
+}
+
+func (cfg ServerConfig) ID() string {
+	return cfg.FilePath
 }
 
 func DefaultServerConfig() ServerConfig {
@@ -87,8 +92,29 @@ func DefaultUltravioletConfig() UltravioletConfig {
 	}
 }
 
+type StateOptions int
+
+const (
+	_ StateOptions = iota
+	CACHE
+	ALWAYS_ONLINE
+	ALWAYS_OFFLINE
+)
+
+func NewStateOption(option string) StateOptions {
+	o := CACHE
+	switch option {
+	case "online":
+		o = ALWAYS_ONLINE
+	case "offline":
+		o = ALWAYS_OFFLINE
+	}
+	return o
+}
+
 type WorkerServerConfig struct {
 	Name                string
+	StateOption         StateOptions
 	StateUpdateCooldown time.Duration
 	OldRealIp           bool
 	NewRealIP           bool

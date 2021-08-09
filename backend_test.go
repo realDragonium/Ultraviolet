@@ -164,6 +164,7 @@ func TestBackendWorker_OfflineServer(t *testing.T) {
 			}.Marshal()
 			serverCfg := config.ServerConfig{
 				Domains:           []string{serverAddr},
+				ProxyTo:           "1",
 				OfflineStatus:     defaultOfflineStatus(),
 				DisconnectMessage: disconnectMessage,
 			}
@@ -526,7 +527,7 @@ func TestBackendWorker_Update(t *testing.T) {
 			ServerState:              &testServerState{},
 			StatusCache:              &testStatusCache{},
 		}
-		worker.Update(cfg)
+		worker.UpdateSameGoroutine(cfg)
 		if worker.Name != cfg.Name {
 			t.Errorf("expected: %v - got: %v", cfg.Name, worker.Name)
 		}
@@ -569,7 +570,7 @@ func TestBackendWorker_Update(t *testing.T) {
 			StatusCache:              &testStatusCache{},
 		}
 		cfg := ultraviolet.BackendWorkerConfig{}
-		worker.Update(cfg)
+		worker.UpdateSameGoroutine(cfg)
 		if worker.Name == cfg.Name {
 			t.Errorf("didnt expect: %v", worker.Name)
 		}
@@ -602,16 +603,14 @@ func TestBackendWorker_Update(t *testing.T) {
 	t.Run("can update while running", func(t *testing.T) {
 		worker := ultraviolet.NewEmptyBackendWorker()
 		worker.ServerState = ultraviolet.AlwaysOfflineState{}
-		updateCh := worker.UpdateCh()
 		reqCh := worker.ReqCh()
-		closeCh := worker.CloseCh()
 		go worker.Work()
 		testPk := mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6}}
 		updateCfg := ultraviolet.BackendWorkerConfig{
 			OfflineDisconnectMessage: testPk,
 		}
 
-		updateCh <- updateCfg
+		worker.Update(updateCfg)
 		ansCh := make(chan ultraviolet.ProcessAnswer)
 		reqCh <- ultraviolet.BackendRequest{
 			Type: mc.LOGIN,
@@ -622,6 +621,70 @@ func TestBackendWorker_Update(t *testing.T) {
 		if !samePk(testPk, ans.Response()) {
 			t.Errorf("expected: %v - got: %v", testPk, ans.Response())
 		}
-		closeCh <- struct{}{}
+		worker.Close()
 	})
+}
+
+func TestBackendFactory(t *testing.T) {
+	t.Run("lets the worker run", func(t *testing.T) {
+		cfg := config.ServerConfig{
+			Domains: []string{"uv"},
+			ProxyTo: "1",
+		}
+		backend, err := ultraviolet.BackendFactory(cfg)
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
+		reqCh := backend.ReqCh()
+		req := ultraviolet.BackendRequest{}
+		select {
+		case reqCh <- req:
+			t.Log("backend is running in different goroutine")
+		case <-time.After(defaultChTimeout):
+			t.Error("backend isnt running in different goroutine...?")
+		}
+	})
+
+	t.Run("doesnt share data between goroutines", func(t *testing.T) {
+		msg := "some text here"
+		disconPk := mc.ClientBoundDisconnect{
+			Reason: mc.String(msg),
+		}.Marshal()
+
+		cfg := config.ServerConfig{
+			DisconnectMessage: msg,
+			CheckStateOption:  "offline",
+			Domains:           []string{"uv"},
+			ProxyTo:           "1",
+		}
+		
+		backend, err := ultraviolet.BackendFactory(cfg)
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
+
+		worker, ok := backend.(*ultraviolet.BackendWorker)
+		if !ok {
+			t.Fatalf("backend is different type then expected")
+		}
+		newCfg := ultraviolet.BackendWorkerConfig{
+			OfflineDisconnectMessage: mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
+		}
+		worker.UpdateSameGoroutine(newCfg)
+
+		reqCh := backend.ReqCh()
+		req := ultraviolet.BackendRequest{
+			Ch:   make(chan ultraviolet.ProcessAnswer),
+			Type: mc.LOGIN,
+		}
+		reqCh <- req
+		ans := <-req.Ch
+
+		if !samePK(disconPk, ans.Response()) {
+			t.Error("packets werent the same which might mean its sharing memory")
+			t.Logf("expected: %v", disconPk)
+			t.Logf("got: %v", ans.Response())
+		}
+	})
+
 }

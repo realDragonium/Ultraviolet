@@ -23,7 +23,7 @@ func testAddr() string {
 	defer portLock.Unlock()
 	if port == nil {
 		port = new(int16)
-		*port = 25000
+		*port = 26000
 	}
 	addr := fmt.Sprintf("127.0.0.1:%d", *port)
 	*port++
@@ -95,10 +95,10 @@ func TestProxyProtocol(t *testing.T) {
 				NumberOfListeners:   1,
 				AcceptProxyProtocol: tc.acceptProxyProtocol,
 				EnableHotSwap:       false,
-				IODeadline:          time.Millisecond,
+
+				IODeadline: time.Millisecond,
 			}
 			serverCfgs := []config.ServerConfig{}
-
 			serverAddr := StartProxy(cfg, serverCfgs)
 			conn, err := net.Dial("tcp", serverAddr)
 			if err != nil {
@@ -133,62 +133,10 @@ func TestProxyProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("received error: %v", err)
 			}
-
 			_, err = conn.Read([]byte{0})
 			if err != io.EOF {
 				t.Fatal(err)
 			}
 		})
 	}
-}
-
-func TestCheckActiveConnections(t *testing.T) {
-	t.Run("empty map", func(t *testing.T) {
-		active := ultraviolet.CheckActiveConnections()
-		if active {
-			t.Error("expected no active connections")
-		}
-	})
-
-	t.Run("no processed connections", func(t *testing.T) {
-		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-		ultraviolet.RegisterBackendWorker("path", backendWorker)
-		go backendWorker.Work()
-		active := ultraviolet.CheckActiveConnections()
-		if active {
-			t.Error("expected no active connections")
-		}
-		backendWorker.CloseCh() <- struct{}{}
-	})
-
-	t.Run("active connection", func(t *testing.T) {
-		backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-		backendWorker.ActiveConns++
-		ultraviolet.RegisterBackendWorker("path", backendWorker)
-		go backendWorker.Work()
-		active := ultraviolet.CheckActiveConnections()
-		if !active {
-			t.Error("expected there to be active connection")
-		}
-		backendWorker.CloseCh() <- struct{}{}
-	})
-
-	t.Run("multiple active connections", func(t *testing.T) {
-		closeChs := make([]chan<- struct{}, 3)
-		for i := 0; i < 3; i++ {
-			backendWorker := ultraviolet.NewBackendWorker(config.WorkerServerConfig{})
-			backendWorker.ActiveConns++
-			ultraviolet.RegisterBackendWorker("path", backendWorker)
-			go backendWorker.Work()
-			closeChs[i] = backendWorker.CloseCh()
-		}
-		active := ultraviolet.CheckActiveConnections()
-		if !active {
-			t.Error("expected there to be active connections")
-		}
-
-		for _, ch := range closeChs {
-			ch <- struct{}{}
-		}
-	})
 }

@@ -1,12 +1,21 @@
 package ultraviolet
 
 import (
+	"errors"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
 )
+
+var ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
+
+func FilterIpFromAddr(addr net.Addr) string {
+	s := addr.String()
+	parts := strings.Split(s, ":")
+	return parts[0]
+}
 
 type ConnectionLimiter interface {
 	// The process answer is empty and should be ignored when it does allow the connection to happen
@@ -103,10 +112,4 @@ func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (ProcessAnswer, b
 		}
 	}
 	return ProcessAnswer{}, true
-}
-
-func FilterIpFromAddr(addr net.Addr) string {
-	s := addr.String()
-	parts := strings.Split(s, ":")
-	return parts[0]
 }
