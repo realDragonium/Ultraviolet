@@ -43,8 +43,9 @@ func newTestBackend() testBackend {
 }
 
 type testBackend struct {
-	reqCh       chan ultraviolet.BackendRequest
-	calledClose bool
+	reqCh        chan ultraviolet.BackendRequest
+	calledClose  bool
+	calledUpdate bool
 }
 
 func (backend *testBackend) ReqCh() chan<- ultraviolet.BackendRequest {
@@ -53,8 +54,9 @@ func (backend *testBackend) ReqCh() chan<- ultraviolet.BackendRequest {
 func (backend *testBackend) HasActiveConn() bool {
 	return false
 }
-func (backend *testBackend) Update(cfg ultraviolet.BackendWorkerConfig) {
-
+func (backend *testBackend) Update(cfg config.ServerConfig) error {
+	backend.calledUpdate = true
+	return nil
 }
 func (backend *testBackend) Close() {
 	backend.calledClose = true
@@ -76,7 +78,7 @@ func newSimpleBackendManager() ultraviolet.BackendManager {
 	return ultraviolet.NewBackendManager(&workerManager, factory)
 }
 
-func TestBackendManager(t *testing.T) {
+func TestBackendManager_Add(t *testing.T) {
 	t.Run("adding config", func(t *testing.T) {
 		manager := newSimpleBackendManager()
 		domain := "uv"
@@ -144,6 +146,9 @@ func TestBackendManager(t *testing.T) {
 		}
 	})
 
+}
+
+func TestBackendManager_Remove(t *testing.T) {
 	t.Run("remove known config", func(t *testing.T) {
 		manager := newSimpleBackendManager()
 		domain := "uv"
@@ -201,7 +206,9 @@ func TestBackendManager(t *testing.T) {
 			t.Error("expected close to be called")
 		}
 	})
+}
 
+func TestBackendManager_Update(t *testing.T) {
 	t.Run("update config registers new domains and remove not used ones", func(t *testing.T) {
 		manager := newSimpleBackendManager()
 		filePath := "123"
@@ -266,7 +273,7 @@ func TestBackendManager(t *testing.T) {
 		}
 	})
 
-	t.Run("update config which removes domain should also affects worker ", func(t *testing.T) {
+	t.Run("update config which adds domain should also affects worker ", func(t *testing.T) {
 		manager, workerManager := newBackendManager(testBackendFactory)
 		domain := "uv"
 		domain2 := "uv3"
@@ -295,13 +302,35 @@ func TestBackendManager(t *testing.T) {
 			t.Logf("domain1: %v ", workerManager.something[domain])
 			t.Logf("domain2: %v", workerManager.something[domain2])
 		}
+	})
 
+	t.Run("updating config also changes backend", func(t *testing.T) {
+		backend := newTestBackend()
+		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+			return &backend, nil
+		}
+		manager, _ := newBackendManager(factory)
+		cfg := config.ServerConfig{
+			FilePath: "123",
+			Domains:  []string{"uv"},
+			ProxyTo:  "1",
+		}
+		manager.AddConfig(cfg)
+		newCfg := cfg
+		newCfg.ProxyTo = "2"
+		err := manager.UpdateConfig(newCfg)
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
+		if !backend.calledUpdate {
+			t.Error("expected update to be called")
+		}
 	})
 }
 
 func TestBackendManager_LoadAllConfigs(t *testing.T) {
 	t.Run("load all configs without any loaded before", func(t *testing.T) {
-		manager, _ := newBackendManager(testBackendFactory)
+		manager := newSimpleBackendManager()
 		domains := []string{"uv1", "uv2", "uv3", "uv4"}
 		cfgs := []config.ServerConfig{
 			{
@@ -328,38 +357,65 @@ func TestBackendManager_LoadAllConfigs(t *testing.T) {
 		}
 	})
 
-	t.Run("load all configs with configs loaded before, should removed domains which arent there anymore", func(t *testing.T) {
-		t.Skip() // Maybe later...?
-		manager, _ := newBackendManager(testBackendFactory)
-		domains := []string{"uv1", "uv2", "uv3", "uv4"}
+	t.Run("loading new configs will update if config file has changed", func(t *testing.T) {
+		backend := newTestBackend()
+		factory := func(cfg config.ServerConfig) (ultraviolet.Backend, error) {
+			return &backend, nil
+		}
+		manager, _ := newBackendManager(factory)
 		cfgs := []config.ServerConfig{
 			{
 				FilePath: "uv1",
-				Domains:  []string{domains[0], domains[1]},
-				ProxyTo:  "1",
-			},
-			{
-				FilePath: "uv2",
-				Domains:  []string{domains[2]},
-				ProxyTo:  "1",
-			},
-			{
-				FilePath: "uv3",
-				Domains:  []string{domains[3]},
+				Domains:  []string{"uv", "uv1"},
 				ProxyTo:  "1",
 			},
 		}
 		manager.LoadAllConfigs(cfgs)
-
-		manager.LoadAllConfigs(cfgs[:2])
-
-		for _, domain := range domains[:3] {
-			if !manager.KnowsDomain(domain) {
-				t.Error("manager should have known this domain")
-			}
+		cfgs[0].ProxyTo = "2"
+		manager.LoadAllConfigs(cfgs)
+		if !backend.calledUpdate {
+			t.Error("expected update to be called")
 		}
-		if manager.KnowsDomain(domains[3]) {
+	})
+
+	t.Run("remove domains of config files which werent included", func(t *testing.T) {
+		manager, _ := newBackendManager(testBackendFactory)
+		domain := "uv"
+		cfgs := []config.ServerConfig{
+			{
+				FilePath: "uv2",
+				Domains:  []string{domain},
+				ProxyTo:  "1",
+			},
+		}
+		manager.LoadAllConfigs(cfgs)
+		manager.LoadAllConfigs([]config.ServerConfig{})
+		if manager.KnowsDomain(domain) {
 			t.Error("manager should NOT have known this domain")
+		}
+	})
+
+	t.Run("make sure it doesnt remove a domain which also has been added by an other config", func(t *testing.T) {
+		manager, _ := newBackendManager(testBackendFactory)
+		domain := "uv"
+		cfgs := []config.ServerConfig{
+			{
+				FilePath: "uv2",
+				Domains:  []string{domain},
+				ProxyTo:  "1",
+			},
+		}
+		manager.LoadAllConfigs(cfgs)
+		newCfgs := []config.ServerConfig{
+			{
+				FilePath: "uv3",
+				Domains:  []string{domain},
+				ProxyTo:  "1",
+			},
+		}
+		manager.LoadAllConfigs(newCfgs)
+		if !manager.KnowsDomain(domain) {
+			t.Error("manager should have known this domain")
 		}
 	})
 }

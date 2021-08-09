@@ -2,7 +2,6 @@ package ultraviolet
 
 import (
 	"errors"
-	"log"
 	"net"
 	"time"
 
@@ -26,7 +25,7 @@ type BackendFactoryFunc func(config.ServerConfig) (Backend, error)
 type Backend interface {
 	ReqCh() chan<- BackendRequest
 	HasActiveConn() bool
-	Update(cfg BackendWorkerConfig)
+	Update(cfg config.ServerConfig) error
 	Close()
 }
 
@@ -247,9 +246,7 @@ type BackendWorkerConfig struct {
 var BackendFactory BackendFactoryFunc = func(sc config.ServerConfig) (Backend, error) {
 	workerConfig, _ := config.FileToWorkerConfig(sc)
 	backendWorker := NewBackendWorker(workerConfig)
-	go func(worker BackendWorker) {
-		worker.Work()
-	}(backendWorker)
+	backendWorker.Run()
 	return &backendWorker, nil
 }
 
@@ -291,26 +288,31 @@ type BackendWorker struct {
 	StatusCache StatusCache
 }
 
+func (w *BackendWorker) Run() {
+	go func(worker BackendWorker) {
+		worker.Work()
+	}(*w)
+}
+
 func (w *BackendWorker) ReqCh() chan<- BackendRequest {
 	return w.reqCh
 }
 
 func (w *BackendWorker) HasActiveConn() bool {
-	log.Println("going to check")
 	ch := make(chan bool)
 	checker := CheckOpenConns{
 		Ch: ch,
 	}
-	log.Println(w.connCheckCh)
 	w.connCheckCh <- checker
-	log.Println("sent request")
 	ans := <-ch
-	log.Println(ans)
 	return ans
 }
 
-func (w *BackendWorker) Update(cfg BackendWorkerConfig) {
-	w.updateCh <- cfg
+func (w *BackendWorker) Update(cfg config.ServerConfig) error {
+	workerConfig, _ := config.FileToWorkerConfig(cfg)
+	newCfg := NewBackendWorkerConfig(workerConfig)
+	w.updateCh <- newCfg
+	return nil
 }
 
 func (w *BackendWorker) Close() {
@@ -357,10 +359,8 @@ func (worker *BackendWorker) Work() {
 			ans := worker.HandleRequest(req)
 			req.Ch <- ans
 		case proxyAction := <-worker.proxyCh:
-			log.Println("received proxy start notification")
 			worker.proxyRequest(proxyAction)
 		case connCheck := <-worker.connCheckCh:
-			log.Println(worker.activeConns > 0)
 			connCheck.Ch <- worker.activeConns > 0
 		case cfg := <-worker.updateCh:
 			worker.UpdateSameGoroutine(cfg)
@@ -387,7 +387,6 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 		case mc.STATUS:
 			return NewStatusAnswer(worker.OfflineStatus)
 		case mc.LOGIN:
-			log.Println(worker.OfflineDisconnectMessage)
 			return NewDisconnectAnswer(worker.OfflineDisconnectMessage)
 		}
 	}

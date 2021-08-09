@@ -604,13 +604,20 @@ func TestBackendWorker_Update(t *testing.T) {
 		worker := ultraviolet.NewEmptyBackendWorker()
 		worker.ServerState = ultraviolet.AlwaysOfflineState{}
 		reqCh := worker.ReqCh()
-		go worker.Work()
-		testPk := mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6}}
-		updateCfg := ultraviolet.BackendWorkerConfig{
-			OfflineDisconnectMessage: testPk,
+		worker.Run()
+		msg := "some text here"
+		cfg := config.ServerConfig{
+			DisconnectMessage: msg,
+			Domains:           []string{"uv"},
+			ProxyTo:           "1",
 		}
-
-		worker.Update(updateCfg)
+		testPk := mc.ClientBoundDisconnect{
+			Reason: mc.String(msg),
+		}.Marshal()
+		err := worker.Update(cfg)
+		if err != nil {
+			t.Fatalf("got error: %v", err)
+		}
 		ansCh := make(chan ultraviolet.ProcessAnswer)
 		reqCh <- ultraviolet.BackendRequest{
 			Type: mc.LOGIN,
@@ -657,7 +664,7 @@ func TestBackendFactory(t *testing.T) {
 			Domains:           []string{"uv"},
 			ProxyTo:           "1",
 		}
-		
+
 		backend, err := ultraviolet.BackendFactory(cfg)
 		if err != nil {
 			t.Fatalf("got error: %v", err)

@@ -2,6 +2,7 @@ package ultraviolet
 
 import (
 	"errors"
+	"log"
 	"reflect"
 
 	"github.com/realDragonium/Ultraviolet/config"
@@ -92,6 +93,7 @@ func (manager *BackendManager) UpdateConfig(cfg config.ServerConfig) error {
 	manager.workerManager.AddBackend(addedDomains, backend.ReqCh())
 	manager.workerManager.RemoveBackend(removedDomains)
 
+	backend.Update(cfg)
 	return nil
 }
 
@@ -105,8 +107,27 @@ func (manager *BackendManager) backendByID(id string) Backend {
 }
 
 func (manager *BackendManager) LoadAllConfigs(cfgs []config.ServerConfig) {
+	newCfgs := make(map[string]config.ServerConfig)
 	for _, cfg := range cfgs {
-		manager.AddConfig(cfg)
+		newCfgs[cfg.ID()] = cfg
+	}
+
+	for id, oldCfg := range manager.cfgs {
+		if _, ok := newCfgs[id]; !ok {
+			manager.RemoveConfig(oldCfg)
+		}
+	}
+
+	for id, newCfg := range newCfgs {
+		if _, ok := manager.cfgs[id]; !ok {
+			manager.AddConfig(newCfg)
+			continue
+		}
+		err := manager.UpdateConfig(newCfg)
+		if errors.Is(err, ErrSameConfig) {
+			continue
+		}
+		log.Printf("while updating %v got error: %v", id, err)
 	}
 }
 
