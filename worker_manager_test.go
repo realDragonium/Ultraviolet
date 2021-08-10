@@ -90,19 +90,4 @@ func TestRegisterServerConfig(t *testing.T) {
 		}
 	})
 
-	// t.Run("updates workers", func(t *testing.T) {
-	// 	manager := ultraviolet.NewWorkerManager()
-	// 	worker := testUpdatableWorkerCounter{}
-	// 	manager.Register(&worker, false)
-
-	// 	domain := "uv2"
-	// 	domains := []string{"uv", domain}
-	// 	ch := make(chan ultraviolet.BackendRequest)
-	// 	manager.AddBackend(domains, ch)
-	// 	manager.Update()
-	// 	if worker.updatesReceived != 1 {
-	// 		t.Fatal("expected to receive an update")
-	// 	}
-	// })
-
 }

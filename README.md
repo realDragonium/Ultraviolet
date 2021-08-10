@@ -1,8 +1,27 @@
-# Ultraviolet - Alpha v0.11.2
+# Ultraviolet - Alpha v0.12
 
 ## What is Ultraviolet?
-[infrared](https://github.com/haveachin/infrared) but different.
+Its a reverse minecraft proxy, capable of serving as a placeholder when the server is offline for status response to clients.   
 
+one could also say [infrared](https://github.com/haveachin/infrared) but different.
+
+Everything which ultraviolet has or does right now is not final its possible that it will change how it currently works therefore the reason its still in Alpha. If wanna complain that something has been changed and/or it broke something thats your own fault, its in Alpha version after all. 
+
+Thinks likely to change: 
+- Run command
+- Prometheus support
+- config file(s) (structure of the files themselves)
+- config flag
+
+
+## Features
+[x] Proxy Protocol(v2) support  
+[x] RealIP (v2.4&v2.5)  
+[x] Rate limiting -> Login verification  
+[x] Status caching (online status only)  
+[x] Offline status placeholder  
+[x] Prometheus Support  
+... More coming later?
 
 ## Some notes
 ### Limited connections when running binary
@@ -15,27 +34,22 @@ $ cd cmd/Ultraviolet/
 $ go build
 ```  
 
-### Features
-[x] Proxy Protocol(v2) support  
-[x] RealIP (v2.4&v2.5)  
-[x] Rate limiting -> Login verification
-[x] Status caching (online status only)  
-[x] Offline status placeholder  
-[x] Prometheus Support (unstable, likely to change) 
-... More coming later?
-
-
 ### Tableflip
 This has implemented [tableflip](https://github.com/cloudflare/tableflip) which should make it able to reload/hotswap Ultraviolet without closing existing connections on Linux and macOS. Ultraviolet should still be usable on windows (testing purposes only pls). 
 Check their [documentation](https://pkg.go.dev/github.com/cloudflare/tableflip) to know what or how. 
 
 IMPORTANT: There is a limit of one 'parent' process. So when you reload Ultraviolet once you need to wait until the parent process is closed (all previous connections have been closed) before you can reload it again.
 
-## Command-Line Flags
+## Command-Line 
+The follows commands can be used with ultraviolet, all flags (if related) should work for every command and be used by every command if you used it for one command.
+
+So far it only can use:
+- run
+- reload
+
+### Flags
 `-configs` specifies the path to the config directory [default: `"/etc/ultraviolet/"`]  
 
-The main config file needs have the name `ultraviolet.json`.  
-Every server config needs to end with `.json`. Server config files will be searched for recursively.
 
 ## How does some stuff work
 ### rate limiting
@@ -60,7 +74,8 @@ jar -uf path/to/jarfile -C path/to/dir/in/jar path/to/file
 - All config values left blank will result into their default value. For example if you dont have `"rateLimit": 5` inside your json, it will automatically put it on 0 which will also disable ratelimiting.  
 - Inside the `examples` folder there is example of a server config file and the ultraviolet config file. 
 - If its a place where you can use an ipv4, ipv6 should also work as well. Not specifying an ip and only using `:25565` will/might end up using either or both. 
-
+- The main config file needs to have the name `ultraviolet.json`.  
+- Every server config needs to end with `.json`. Server config files will be searched for recursively.
 
 ### Ultraviolet Config
 |Field name|Default | Description| 
@@ -72,6 +87,7 @@ jar -uf path/to/jarfile -C path/to/dir/in/jar path/to/file
 |acceptProxyProtocol|false|If set to through all connections will be viewed as proxy protocol connections if it doesnt receive the header the connections will be closed. |
 |enablePrometheus|true|This will enable the prometheus endpoint.|
 |prometheusBind|":9100"|Here you can let it know to which address it should listen.|
+|apiBind|"127.0.0.1:9099"|The address the website will listen for its api usage.|
 
 ### Server Config
 |Field name|Default | Description| 

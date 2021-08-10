@@ -66,6 +66,7 @@ type UltravioletConfig struct {
 	AcceptProxyProtocol bool            `json:"acceptProxyProtocol"`
 	UsePrometheus       bool            `json:"enablePrometheus"`
 	PrometheusBind      string          `json:"prometheusBind"`
+	APIBind             string          `json:"apiBind"`
 
 	EnableHotSwap bool
 	PidFile       string
@@ -85,6 +86,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		AcceptProxyProtocol: false,
 		UsePrometheus:       true,
 		PrometheusBind:      ":9100",
+		APIBind:             "127.0.0.1:9099",
 
 		PidFile:       "/var/run/ultraviolet.pid",
 		EnableHotSwap: true,

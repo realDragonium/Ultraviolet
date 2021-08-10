@@ -2,7 +2,6 @@ package ultraviolet
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -21,9 +20,8 @@ import (
 )
 
 var (
-	upg            tableflip.Upgrader
-	defaultCfgPath = "/etc/ultraviolet"
-	configPath     = defaultCfgPath
+	upg                  tableflip.Upgrader
+	registeredConfigPath string
 
 	bWorkerManager workerManager
 	backendManager BackendManager
@@ -35,21 +33,15 @@ type CheckOpenConns struct {
 	Ch chan bool
 }
 
-func RunProxy() {
-	log.Println("Starting up Alpha-v0.11.2")
-	var (
-		cfgDir = flag.String("configs", defaultCfgPath, "`Path` to config directory")
-	)
-	flag.Parse()
-	configPath = *cfgDir
-
-	mainCfgPath := filepath.Join(*cfgDir, "ultraviolet.json")
+func RunProxy(configPath string) {
+	registeredConfigPath = configPath
+	mainCfgPath := filepath.Join(configPath, "ultraviolet.json")
 	mainCfg, err := config.ReadUltravioletConfig(mainCfgPath)
 	if err != nil {
 		log.Fatalf("Read main config file at '%s' - error: %v", mainCfgPath, err)
 	}
 
-	serverCfgs, err := config.ReadServerConfigs(*cfgDir)
+	serverCfgs, err := config.ReadServerConfigs(configPath)
 	if err != nil {
 		log.Fatalf("Something went wrong while reading config files: %v", err)
 	}
@@ -58,14 +50,25 @@ func RunProxy() {
 	log.Println("Finished starting up proxy")
 
 	log.Println("Now starting api endpoint")
+	var promeServer *http.Server
 	if mainCfg.UsePrometheus {
-		log.Println("while at it, also adding prometheus to it")
-		http.Handle("/metrics", promhttp.Handler())
+		log.Println("Starting prometheus...")
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		promeServer = &http.Server{Addr: mainCfg.PrometheusBind, Handler: mux}
+		go func() {
+			fmt.Println(promeServer.ListenAndServe())
+		}()
 	}
-	http.HandleFunc("/reload", reloadHandler)
-	server := &http.Server{Addr: mainCfg.PrometheusBind, Handler: nil}
-	go server.ListenAndServe()
-	// go http.ListenAndServe(mainCfg.PrometheusBind, nil)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/reload", reloadHandler)
+	apiServer := &http.Server{Addr: mainCfg.APIBind, Handler: mux}
+	go func() {
+		fmt.Println(apiServer.ListenAndServe())
+	}()
+
+	fmt.Println("Finished starting up")
 
 	if runtime.GOOS == "windows" {
 		select {}
@@ -75,7 +78,11 @@ func RunProxy() {
 	}
 	<-upg.Exit()
 
-	server.Close()
+	if mainCfg.UsePrometheus {
+		promeServer.Close()
+	}
+	apiServer.Close()
+
 	log.Println("Waiting for all connections to be closed before shutting down")
 	for {
 		active := backendManager.CheckActiveConnections()
@@ -169,15 +176,15 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 		bWorkerManager.Register(&worker, true)
 	}
 	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
-
 }
 
 func reloadHandler(w http.ResponseWriter, r *http.Request) {
-	newCfgs, err := config.ReadServerConfigs(configPath)
+	newCfgs, err := config.ReadServerConfigs(registeredConfigPath)
 	if err != nil {
 		fmt.Fprintf(w, "failed: %v", err)
 		return
 	}
 	backendManager.LoadAllConfigs(newCfgs)
-	fmt.Fprintf(w, "config: %v", configPath)
+	log.Printf("%d config files detected and loaded", len(newCfgs))
+	fmt.Fprintln(w, "maybe a success, maybe not...")
 }

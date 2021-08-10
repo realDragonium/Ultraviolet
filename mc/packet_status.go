@@ -144,7 +144,7 @@ type ServerBoundPing struct {
 
 func (pk ServerBoundPing) Marshal() Packet {
 	return MarshalPacket(
-		ClientBoundResponsePacketID,
+		ServerBoundPingPacketID,
 		pk.Time,
 	)
 }

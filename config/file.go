@@ -58,7 +58,6 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		}
 		cfgs = append(cfgs, cfg)
 	}
-
 	return cfgs, nil
 }
 
