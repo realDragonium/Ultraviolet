@@ -87,7 +87,7 @@ func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 		if err != nil {
 			return UltravioletConfig{}, err
 		}
-		os.WriteFile(filePath, bb, 0o744)
+		os.WriteFile(filePath, bb, 0o777)
 		return cfg, nil
 	}
 
