@@ -126,40 +126,73 @@ func TestReadServerConfigs(t *testing.T) {
 }
 
 func TestReadUltravioletConfigFile(t *testing.T) {
-	cfg := config.UltravioletConfig{
-		ListenTo: ":25565",
-		DefaultStatus: mc.SimpleStatus{
-			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "One dangerous proxy",
-		},
-		NumberOfWorkers: 5,
-	}
-	file, _ := json.MarshalIndent(cfg, "", " ")
-	tmpfile, err := ioutil.TempFile("", "example*.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-	if _, err := tmpfile.Write(file); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	loadedCfg, err := config.ReadUltravioletConfig(tmpfile.Name())
-	if err != nil {
-		t.Error(err)
-	}
+	t.Run("normal config", func(t *testing.T) {
+		cfg := config.UltravioletConfig{
+			ListenTo: ":25565",
+			DefaultStatus: mc.SimpleStatus{
+				Name:        "Ultraviolet",
+				Protocol:    755,
+				Description: "One dangerous proxy",
+			},
+			NumberOfWorkers: 5,
+		}
 
-	expectedCfg, err := config.CombineUltravioletConfigs(config.DefaultUltravioletConfig(), cfg)
-	if err != nil {
-		t.Fatalf("didnt expect error but got: %v", err)
-	}
+		file, _ := json.MarshalIndent(cfg, "", " ")
+		tmpDir, err := ioutil.TempDir("", "uv-normal*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		filename := filepath.Join(tmpDir, "ultraviolet.json")
+		os.WriteFile(filename, file, os.ModeAppend)
+		loadedCfg, err := config.ReadUltravioletConfig(tmpDir)
+		if err != nil {
+			t.Error(err)
+		}
 
-	if !reflect.DeepEqual(expectedCfg, loadedCfg) {
-		t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
-	}
+		expectedCfg, err := config.CombineUltravioletConfigs(config.DefaultUltravioletConfig(), cfg)
+		if err != nil {
+			t.Fatalf("didnt expect error but got: %v", err)
+		}
+
+		if !reflect.DeepEqual(expectedCfg, loadedCfg) {
+			t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
+		}
+	})
+
+	t.Run("creates folder if it does not exist", func(t *testing.T) {
+		tmpDir, err := ioutil.TempDir("", "uv-normal*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirPath := filepath.Join(tmpDir, "uv-dir")
+		config.ReadUltravioletConfig(dirPath)
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			t.Errorf("there was no dir created at %s", dirPath)
+		}
+	})
+
+	t.Run("creates file if it does not exist", func(t *testing.T) {
+		tmpDir, err := ioutil.TempDir("", "uv-normal*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		dirPath := filepath.Join(tmpDir, "uv-dir")
+		cfg, err := config.ReadUltravioletConfig(dirPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
+			t.Errorf("there was no dir created at %s", dirPath)
+		}
+
+		expectedCfg := config.DefaultUltravioletConfig()
+		if !reflect.DeepEqual(cfg, expectedCfg) {
+			t.Error("expected config to be the same")
+			t.Logf("expected: %v", expectedCfg)
+			t.Logf("got: %v", cfg)
+		}
+	})
+
 }
 
 func TestReadRealIPPrivateKeyFile(t *testing.T) {

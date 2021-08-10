@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -35,10 +34,9 @@ type CheckOpenConns struct {
 
 func RunProxy(configPath string) {
 	registeredConfigPath = configPath
-	mainCfgPath := filepath.Join(configPath, "ultraviolet.json")
-	mainCfg, err := config.ReadUltravioletConfig(mainCfgPath)
+	mainCfg, err := config.ReadUltravioletConfig(configPath)
 	if err != nil {
-		log.Fatalf("Read main config file at '%s' - error: %v", mainCfgPath, err)
+		log.Fatalf("Error while reading main config file: %v", err)
 	}
 
 	serverCfgs, err := config.ReadServerConfigs(configPath)

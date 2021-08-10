@@ -12,6 +12,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -39,7 +40,7 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 		if filepath.Ext(path) != ".json" {
 			return nil
 		}
-		if info.Name() == "ultraviolet.json" {
+		if strings.HasPrefix(info.Name(), "ultraviolet") {
 			return nil
 		}
 		filePaths = append(filePaths, path)
@@ -76,9 +77,21 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 	cfg := DefaultUltravioletConfig()
+	filePath := filepath.Join(path, "ultraviolet.json")
 
-	// TODO: Check or file exists and if not write default config file to it
-	bb, err := ioutil.ReadFile(path)
+	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+			os.MkdirAll(path, os.ModeDir)
+		}
+		bb, err := json.Marshal(cfg)
+		if err != nil {
+			return UltravioletConfig{}, err
+		}
+		os.WriteFile(filePath, bb, 0o660)
+		return cfg, nil
+	}
+
+	bb, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return UltravioletConfig{}, err
 	}

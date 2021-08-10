@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.12
+# Ultraviolet - Alpha v0.12.1
 
 ## What is Ultraviolet?
 Its a reverse minecraft proxy, capable of serving as a placeholder when the server is offline for status response to clients.   
@@ -32,6 +32,13 @@ Ultraviolet can be ran by using docker or you can also build a binary yourself b
 ```
 $ cd cmd/Ultraviolet/
 $ go build
+```  
+
+### How to run
+
+Ultraviolet will when no config is specified by the command use `/etc/ultraviolet` as work dir and create here an `ultraviolet.json` file for you.
+```
+$ ./ultraviolet run
 ```  
 
 ### Tableflip
