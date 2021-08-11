@@ -99,7 +99,9 @@ func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (ProcessAnswer, b
 	} else if ok {
 		return NewCloseAnswer(), false
 	}
-
+	
+	// TODO: if connections are above rate limit, the next cooldown is probably still is
+	//  Find something to improve it
 	if limiter.rateCounter > limiter.rateLimit {
 		username, ok := limiter.namesList[ip]
 		if !ok {

@@ -29,14 +29,25 @@ var (
 	ErrClientToSlow     = errors.New("client was to slow with sending its packets")
 	ErrClientClosedConn = errors.New("client closed the connection")
 
+	ns             = "ultraviolet"
 	newConnections = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ultraviolet_new_connections",
-		Help: "The number of new connections created since started running",
+		Namespace: ns,
+		Name:      "request_total",
+		Help:      "The number of new connections created since started running",
 	}, []string{"type"}) // which can be "unknown", "login" or "status"
 	processedConnections = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "ultraviolet_processed_connections",
-		Help: "The number actions taken for 'valid' connections",
-	}, []string{"action"}) // which can be "proxy", "disconnect", "send_status", "close" or "error"
+		Namespace: ns,
+		Name:      "processed_connections",
+		Help:      "The number actions taken for 'valid' connections",
+	}, []string{"action", "server", "type"})
+
+	requestBuckets  = []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5}
+	processRequests = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: ns,
+		Name:      "request_duration_seconds",
+		Help:      "Histogram request processing durations.",
+		Buckets:   requestBuckets,
+	}, []string{"action", "server", "type"})
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
@@ -86,6 +97,8 @@ func (w *BasicWorker) KnowsDomain(domain string) bool {
 // TODO:
 // - add more tests with this method
 func (bw *BasicWorker) Work() {
+	unknownServer := "unknown"
+
 	var err error
 	var conn net.Conn
 	var req BackendRequest
@@ -93,11 +106,16 @@ func (bw *BasicWorker) Work() {
 	for {
 		select {
 		case conn = <-bw.reqCh:
+			start := time.Now()
 			req, err = bw.ProcessConnection(conn)
 			if err != nil {
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				}
+				dur := time.Since(start).Seconds()
+				labels := prometheus.Labels{"server": unknownServer, "type": req.Type.String(), "action": CLOSE.String()}
+				processRequests.With(labels).Observe(dur)
+				processedConnections.With(labels).Inc()
 				conn.Close()
 				continue
 			}
@@ -105,6 +123,10 @@ func (bw *BasicWorker) Work() {
 			ans = bw.ProcessRequest(req)
 			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 			bw.ProcessAnswer(conn, ans)
+			dur := time.Since(start).Seconds()
+			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
+			processRequests.With(labels).Observe(dur)
+			processedConnections.With(labels).Inc()
 		case <-bw.closeCh:
 			return
 		case serverChs := <-bw.updateCh:
@@ -148,7 +170,8 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
 	} else if err != nil {
-		log.Printf("error while reading handshake: %v", err)
+		// log.Printf("error while reading handshake: %v", err)
+		return BackendRequest{}, err
 	}
 
 	conn.SetDeadline(bw.IODeadline())
@@ -156,7 +179,7 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
 	} else if err != nil {
-		log.Printf("error while reading second packet: %v", err)
+		// log.Printf("error while reading second packet: %v", err)
 		return BackendRequest{}, err
 	}
 	conn.SetDeadline(time.Time{})
@@ -212,7 +235,6 @@ func (bw *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 // TODO:
 // - figure out or this need more deadlines
 func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
-	processedConnections.WithLabelValues(ans.Action().String()).Inc()
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.action {
 	case PROXY:

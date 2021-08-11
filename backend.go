@@ -2,6 +2,7 @@ package ultraviolet
 
 import (
 	"errors"
+	"log"
 	"net"
 	"time"
 
@@ -15,8 +16,9 @@ import (
 var (
 	ErrNotValidHandshake = errors.New("not a valid handshake state")
 	playersConnected     = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "ultraviolet_connected",
-		Help: "The total number of connected players",
+		Namespace: "ultraviolet",
+		Name:      "player_connected",
+		Help:      "The total number of connected players",
 	}, []string{"host"})
 )
 
@@ -105,6 +107,7 @@ type BackendRequest struct {
 }
 
 type ProcessAnswer struct {
+	ServerName     string
 	serverConnFunc func() (net.Conn, error)
 	action         BackendAction
 	proxyCh        chan ProxyAction
@@ -354,6 +357,7 @@ func (worker *BackendWorker) Work() {
 		select {
 		case req := <-worker.reqCh:
 			ans := worker.HandleRequest(req)
+			ans.ServerName = worker.Name
 			req.Ch <- ans
 		case proxyAction := <-worker.proxyCh:
 			worker.proxyRequest(proxyAction)
@@ -380,6 +384,7 @@ func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 
 func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 	if worker.ServerState != nil && worker.ServerState.State() == OFFLINE {
+		log.Println("server is offline")
 		switch req.Type {
 		case mc.STATUS:
 			return NewStatusAnswer(worker.OfflineStatusPacket)
@@ -387,6 +392,7 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 			return NewDisconnectAnswer(worker.DisconnectPacket)
 		}
 	}
+	log.Println("server is online")
 	if worker.StatusCache != nil && req.Type == mc.STATUS {
 		ans, err := worker.StatusCache.Status()
 		if err != nil {
@@ -400,6 +406,7 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 			return ans
 		}
 	}
+	log.Println("Isnt rate limited")
 	connFunc := worker.ConnCreator.Conn()
 	if worker.SendProxyProtocol {
 		connFunc = func() (net.Conn, error) {
