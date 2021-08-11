@@ -214,7 +214,7 @@ func FileToWorkerConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
 			if key, ok := existingGeneratedKey(cfg); ok {
 				privateKey = key
 			} else {
-				log.Printf("No existing key for %s has been found, generating one...", cfg.Domains[0])
+				log.Printf("No existing key for %s has been found, generating one...", cfg.ID())
 				privateKey = generateKeys(cfg)
 			}
 		} else if err != nil {

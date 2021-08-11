@@ -27,7 +27,6 @@ type ServerConfig struct {
 	ValidProtocol       int             `json:"validProtocol"`
 	OfflineStatus       mc.SimpleStatus `json:"offlineStatus"`
 
-	// RateLimitStatus     bool   `json:"rateLimitStatus"`
 	RateLimit           int    `json:"rateLimit"`
 	RateDuration        string `json:"rateCooldown"`
 	RateBanListCooldown string `json:"banListCooldown"`
@@ -78,8 +77,8 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		ListenTo: ":25565",
 		DefaultStatus: mc.SimpleStatus{
 			Name:        "Ultraviolet",
-			Protocol:    755,
-			Description: "Some broken proxy",
+			Protocol:    0,
+			Description: "Some proxy didnt proxy",
 		},
 		NumberOfWorkers:     10,
 		NumberOfListeners:   1,

@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -21,7 +22,7 @@ const (
 )
 
 type UpdatableWorker interface {
-	Update(data map[string]chan<- BackendRequest)  
+	Update(data map[string]chan<- BackendRequest)
 }
 
 var (
@@ -69,7 +70,7 @@ func (w *BasicWorker) CloseCh() chan<- struct{} {
 	return w.closeCh
 }
 
-func (w *BasicWorker) Update(data map[string]chan<- BackendRequest)  {
+func (w *BasicWorker) Update(data map[string]chan<- BackendRequest) {
 	w.updateCh <- data
 }
 
@@ -149,22 +150,6 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 	} else if err != nil {
 		log.Printf("error while reading handshake: %v", err)
 	}
-	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
-	if err != nil {
-		log.Printf("error while parsing handshake: %v", err)
-	}
-
-	reqType := mc.RequestState(handshake.NextState)
-	newConnections.WithLabelValues(reqType.String()).Inc()
-	if reqType == mc.UNKNOWN_STATE {
-		return BackendRequest{}, ErrNotValidHandshake
-	}
-	request := BackendRequest{
-		Type:       reqType,
-		ServerAddr: handshake.ParseServerAddress(),
-		Addr:       conn.RemoteAddr(),
-		Handshake:  handshake,
-	}
 
 	conn.SetDeadline(bw.IODeadline())
 	packet, err := mcConn.ReadPacket()
@@ -174,8 +159,26 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		log.Printf("error while reading second packet: %v", err)
 		return BackendRequest{}, err
 	}
-
 	conn.SetDeadline(time.Time{})
+
+	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
+	if err != nil {
+		log.Printf("error while parsing handshake: %v", err)
+	}
+	reqType := mc.RequestState(handshake.NextState)
+	newConnections.WithLabelValues(reqType.String()).Inc()
+	if reqType == mc.UNKNOWN_STATE {
+		return BackendRequest{}, ErrNotValidHandshake
+	}
+
+	serverAddr := strings.ToLower(handshake.ParseServerAddress())
+	request := BackendRequest{
+		Type:       reqType,
+		ServerAddr: serverAddr,
+		Addr:       conn.RemoteAddr(),
+		Handshake:  handshake,
+	}
+
 	if reqType == mc.LOGIN {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {

@@ -370,7 +370,7 @@ func TestProcessConnection_LoginRequest(t *testing.T) {
 
 	t.Log("test has successfully written data to server")
 	t.Log(ans)
-	if ans.ServerAddr != "Ultraviolet" {
+	if ans.ServerAddr != "ultraviolet" {
 		t.Errorf("Expected: Ultraviolet got:%v", ans.ServerAddr)
 	}
 	if ans.Username != "Ultraviolet" {
