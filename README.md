@@ -21,7 +21,7 @@ Thinks likely to change:
 [x] Status caching (online status only)  
 [x] Offline status placeholder  
 [x] Prometheus Support  
-[x] API (Reload server config files, more later)
+[x] API (Reload server config files, more later)  
 ... More coming later?
 
 ## Some notes

@@ -143,10 +143,10 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 			t.Fatal(err)
 		}
 		filename := filepath.Join(tmpDir, "ultraviolet.json")
-		os.WriteFile(filename, file, os.ModeAppend)
+		os.WriteFile(filename, file, os.ModePerm)
 		loadedCfg, err := config.ReadUltravioletConfig(tmpDir)
 		if err != nil {
-			t.Error(err)
+			t.Fatal(err)
 		}
 
 		expectedCfg, err := config.CombineUltravioletConfigs(config.DefaultUltravioletConfig(), cfg)
@@ -155,8 +155,11 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 		}
 
 		if !reflect.DeepEqual(expectedCfg, loadedCfg) {
-			t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
+			t.Fatalf("Wanted:%v \n got: %v", cfg, loadedCfg)
 		}
+
+		os.Remove(tmpDir)
+
 	})
 
 	t.Run("creates folder if it does not exist", func(t *testing.T) {
@@ -169,6 +172,7 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 		if _, err := os.Stat(dirPath); os.IsNotExist(err) {
 			t.Errorf("there was no dir created at %s", dirPath)
 		}
+		os.Remove(tmpDir)
 	})
 
 	t.Run("creates file if it does not exist", func(t *testing.T) {
@@ -187,10 +191,11 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 
 		expectedCfg := config.DefaultUltravioletConfig()
 		if !reflect.DeepEqual(cfg, expectedCfg) {
-			t.Error("expected config to be the same")
+			t.Log("expected config to be the same")
 			t.Logf("expected: %v", expectedCfg)
-			t.Logf("got: %v", cfg)
+			t.Fatalf("got: %v", cfg)
 		}
+		os.Remove(tmpDir)
 	})
 
 }
@@ -236,6 +241,7 @@ func TestReadRealIPPrivateKey_NonExistingFile_ReturnsError(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("error during key reading: %v", err)
 	}
+	os.Remove(tmpDir)
 }
 
 func TestFileToWorkerConfig(t *testing.T) {
@@ -435,4 +441,6 @@ func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 		t.Logf("readKey: %v", pubkey)
 		t.Fatal("Public keys arent the same!")
 	}
+
+	os.Remove(tmpDir)
 }
