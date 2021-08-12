@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.12.1
+# Ultraviolet - Alpha v0.12.2
 
 ## What is Ultraviolet?
 Its a reverse minecraft proxy, capable of serving as a placeholder when the server is offline for status response to clients.   
@@ -9,9 +9,7 @@ Everything which ultraviolet has or does right now is not final its possible tha
 
 Thinks likely to change: 
 - Run command
-- Prometheus support
 - config file(s) (structure of the files themselves)
-- config flag
 
 
 ## Features

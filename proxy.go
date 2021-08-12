@@ -60,7 +60,7 @@ func RunProxy(configPath string) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/reload", reloadHandler)
+	mux.HandleFunc("/reload", ReloadHandler)
 	apiServer := &http.Server{Addr: mainCfg.APIBind, Handler: mux}
 	go func() {
 		fmt.Println(apiServer.ListenAndServe())
@@ -176,7 +176,7 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
 }
 
-func reloadHandler(w http.ResponseWriter, r *http.Request) {
+func ReloadHandler(w http.ResponseWriter, r *http.Request) {
 	newCfgs, err := config.ReadServerConfigs(registeredConfigPath)
 	if err != nil {
 		fmt.Fprintf(w, "failed: %v", err)
@@ -184,5 +184,5 @@ func reloadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	backendManager.LoadAllConfigs(newCfgs)
 	log.Printf("%d config files detected and loaded", len(newCfgs))
-	fmt.Fprintln(w, "maybe a success, maybe not...")
+	fmt.Fprintln(w, "success, maybe not... unsure yet")
 }

@@ -28,22 +28,11 @@ type UpdatableWorker interface {
 var (
 	ErrClientToSlow     = errors.New("client was to slow with sending its packets")
 	ErrClientClosedConn = errors.New("client closed the connection")
-
-	ns             = "ultraviolet"
-	newConnections = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: ns,
-		Name:      "request_total",
-		Help:      "The number of new connections created since started running",
-	}, []string{"type"}) // which can be "unknown", "login" or "status"
-	processedConnections = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: ns,
-		Name:      "processed_connections",
-		Help:      "The number actions taken for 'valid' connections",
-	}, []string{"action", "server", "type"})
+	unknownServerAddr   = "unknown"
 
 	requestBuckets  = []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5}
 	processRequests = promauto.NewHistogramVec(prometheus.HistogramOpts{
-		Namespace: ns,
+		Namespace: "ultraviolet",
 		Name:      "request_duration_seconds",
 		Help:      "Histogram request processing durations.",
 		Buckets:   requestBuckets,
@@ -53,13 +42,23 @@ var (
 func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
+	statusAnswer := ProcessAnswer{
+		ServerName:  unknownServerAddr,
+		action:      SEND_STATUS,
+		firstPacket: defaultStatusPk,
+	}
+	closeAnswer := ProcessAnswer{
+		ServerName: unknownServerAddr,
+		action:     CLOSE,
+	}
 	return BasicWorker{
-		reqCh:         reqCh,
-		defaultStatus: defaultStatusPk,
-		serverDict:    dict,
-		ioTimeout:     cfg.IOTimeout,
-		closeCh:       make(chan struct{}),
-		updateCh:      make(chan map[string]chan<- BackendRequest),
+		reqCh:               reqCh,
+		defaultStatusAnswer: statusAnswer,
+		closeAnswer:         closeAnswer,
+		serverDict:          dict,
+		ioTimeout:           cfg.IOTimeout,
+		closeCh:             make(chan struct{}),
+		updateCh:            make(chan map[string]chan<- BackendRequest),
 	}
 }
 
@@ -68,9 +67,11 @@ type BasicWorker struct {
 	closeCh  chan struct{}
 	updateCh chan map[string]chan<- BackendRequest
 
-	defaultStatus mc.Packet
-	ioTimeout     time.Duration
-	serverDict    map[string]chan<- BackendRequest
+	defaultStatusAnswer ProcessAnswer
+	closeAnswer         ProcessAnswer
+
+	ioTimeout  time.Duration
+	serverDict map[string]chan<- BackendRequest
 }
 
 func (w *BasicWorker) IODeadline() time.Time {
@@ -97,7 +98,6 @@ func (w *BasicWorker) KnowsDomain(domain string) bool {
 // TODO:
 // - add more tests with this method
 func (bw *BasicWorker) Work() {
-	unknownServer := "unknown"
 
 	var err error
 	var conn net.Conn
@@ -109,24 +109,23 @@ func (bw *BasicWorker) Work() {
 			start := time.Now()
 			req, err = bw.ProcessConnection(conn)
 			if err != nil {
+				log.Println("error while trying to read")
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				}
 				dur := time.Since(start).Seconds()
-				labels := prometheus.Labels{"server": unknownServer, "type": req.Type.String(), "action": CLOSE.String()}
+				labels := prometheus.Labels{"server": unknownServerAddr, "type": req.Type.String(), "action": CLOSE.String()}
 				processRequests.With(labels).Observe(dur)
-				processedConnections.With(labels).Inc()
 				conn.Close()
 				continue
 			}
-			log.Printf("received connection from %v", conn.RemoteAddr())
+			log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
 			ans = bw.ProcessRequest(req)
 			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
 			bw.ProcessAnswer(conn, ans)
 			dur := time.Since(start).Seconds()
 			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
 			processRequests.With(labels).Observe(dur)
-			processedConnections.With(labels).Inc()
 		case <-bw.closeCh:
 			return
 		case serverChs := <-bw.updateCh:
@@ -189,7 +188,6 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		log.Printf("error while parsing handshake: %v", err)
 	}
 	reqType := mc.RequestState(handshake.NextState)
-	newConnections.WithLabelValues(reqType.String()).Inc()
 	if reqType == mc.UNKNOWN_STATE {
 		return BackendRequest{}, ErrNotValidHandshake
 	}
@@ -218,14 +216,9 @@ func (bw *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
 	ch, ok := bw.serverDict[req.ServerAddr]
 	if !ok {
 		if req.Type == mc.STATUS {
-			return ProcessAnswer{
-				action:      SEND_STATUS,
-				firstPacket: bw.defaultStatus,
-			}
+			return bw.defaultStatusAnswer
 		}
-		return ProcessAnswer{
-			action: CLOSE,
-		}
+		return bw.closeAnswer
 	}
 	req.Ch = make(chan ProcessAnswer)
 	ch <- req
