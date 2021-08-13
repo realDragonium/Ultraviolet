@@ -162,6 +162,11 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 
 	bWorkerManager = NewWorkerManager()
 	backendManager = NewBackendManager(&bWorkerManager, BackendFactory)
+	verifyError := config.VerifyConfigs(serverCfgs)
+	if verifyError.HasErrors() {
+		log.Fatal(verifyError.Error())
+		return
+	}
 	backendManager.LoadAllConfigs(serverCfgs)
 	log.Printf("Registered %v backend(s)", len(serverCfgs))
 
@@ -179,10 +184,16 @@ func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig
 func ReloadHandler(w http.ResponseWriter, r *http.Request) {
 	newCfgs, err := config.ReadServerConfigs(registeredConfigPath)
 	if err != nil {
-		fmt.Fprintf(w, "failed: %v", err)
+		http.Error(w, err.Error(), 500)
+		return
+	}
+	verifyError := config.VerifyConfigs(newCfgs)
+	if verifyError.HasErrors() {
+		http.Error(w, verifyError.Error(), 500)
 		return
 	}
 	backendManager.LoadAllConfigs(newCfgs)
 	log.Printf("%d config files detected and loaded", len(newCfgs))
-	fmt.Fprintln(w, "success, maybe not... unsure yet")
+	w.WriteHeader(200)
+	fmt.Fprintln(w, "success")
 }

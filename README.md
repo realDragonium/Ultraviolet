@@ -1,4 +1,4 @@
-# Ultraviolet - Alpha v0.12.2
+# Ultraviolet - Alpha v0.13
 
 ## What is Ultraviolet?
 Its a reverse minecraft proxy, capable of serving as a placeholder when the server is offline for status response to clients.   

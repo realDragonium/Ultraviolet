@@ -100,11 +100,6 @@ func (manager *BackendManager) UpdateConfig(cfg config.ServerConfig) error {
 	return nil
 }
 
-func (manager *BackendManager) backendByDomain(domain string) Backend {
-	id := manager.domains[domain]
-	return manager.backends[id]
-}
-
 func (manager *BackendManager) backendByID(id string) Backend {
 	return manager.backends[id]
 }

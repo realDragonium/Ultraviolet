@@ -30,7 +30,7 @@ func Main() {
 
 	switch os.Args[1] {
 	case "run":
-		log.Println("Starting up Alpha-v0.12.2")
+		log.Println("Starting up Alpha-v0.13")
 		ultraviolet.RunProxy(configPath)
 	case "reload":
 		err := callReloadAPI(configPath)

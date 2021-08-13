@@ -336,25 +336,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		}
 	})
 
-	t.Run("returns error when there are no domains", func(t *testing.T) {
-		serverCfg := config.ServerConfig{
-			ProxyTo: ":9284",
-		}
-		_, err := config.FileToWorkerConfig(serverCfg)
-		if !errors.Is(err, config.ErrNoDomainInConfig) {
-			t.Errorf("expected no domain error but instead got: %v", err)
-		}
-	})
 
-	t.Run("returns error when there is no target", func(t *testing.T) {
-		serverCfg := config.ServerConfig{
-			Domains: []string{"uv"},
-		}
-		_, err := config.FileToWorkerConfig(serverCfg)
-		if !errors.Is(err, config.ErrNoProxyToAddr) {
-			t.Errorf("expected no proxy target error but instead got: %v", err)
-		}
-	})
 }
 
 func TestFileToWorkerConfig_NewRealIP_ReadsKeyCorrectly(t *testing.T) {

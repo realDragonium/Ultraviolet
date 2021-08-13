@@ -22,9 +22,6 @@ var (
 	ErrPrivateKey            = errors.New("could not load private key")
 	ErrCantCombineConfigs    = errors.New("failed to combine config structs")
 	ErrFailedToConvertConfig = errors.New("failed to convert server config to a more usable config")
-
-	ErrNoDomainInConfig = errors.New("'Domains' is not allowed to be empty")
-	ErrNoProxyToAddr    = errors.New("'ProxyTo' is not allowed to be empty")
 )
 
 func ReadServerConfigs(path string) ([]ServerConfig, error) {
@@ -58,6 +55,10 @@ func ReadServerConfigs(path string) ([]ServerConfig, error) {
 			return nil, err
 		}
 		cfgs = append(cfgs, cfg)
+	}
+	errs := VerifyConfigs(cfgs)
+	if errs.HasErrors() {
+		return cfgs, &errs
 	}
 	return cfgs, nil
 }
@@ -185,12 +186,6 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 }
 
 func FileToWorkerConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
-	if len(cfg.Domains) == 0 {
-		return BackendWorkerConfig{}, ErrNoDomainInConfig
-	}
-	if cfg.ProxyTo == "" {
-		return BackendWorkerConfig{}, ErrNoProxyToAddr
-	}
 	name := cfg.Name
 	if name == "" {
 		name = cfg.Domains[0]
