@@ -54,7 +54,7 @@ So far it only can use:
 - reload
 
 ### Flags
-`-configs` specifies the path to the config directory [default: `"/etc/ultraviolet/"`]  
+`-config` specifies the path to the config directory [default: `"/etc/ultraviolet/"`]  (if you want to use this directory you dont have to use this flag.)
 
 
 # Config
