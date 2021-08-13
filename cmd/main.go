@@ -3,10 +3,10 @@ package ultravioletcmd
 import (
 	"flag"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
@@ -42,17 +42,20 @@ func Main() {
 }
 
 func callReloadAPI(configPath string) error {
-	mainCfgPath := filepath.Join(configPath, "ultraviolet.json")
-	mainCfg, err := config.ReadUltravioletConfig(mainCfgPath)
+	mainCfg, err := config.ReadUltravioletConfig(configPath)
 	if err != nil {
-		log.Fatalf("Read main config file at '%s' - error: %v", mainCfgPath, err)
+		log.Fatalf("Read main config file error: %v", err)
 	}
-
 	url := fmt.Sprintf("http://%s/reload", mainCfg.APIBind)
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
 	}
+	bb, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s", bb)
 	resp.Body.Close()
 	return nil
 }
