@@ -17,13 +17,13 @@ builds:
       - -X ultravioletcmd.version={{.Version}}
 release:
   draft: true
-  name_template: "{{.ProjectName}}-v{{.Version}}"
+  name_template: '{{.ProjectName}}-v{{.Version}}'
 checksum:
   name_template: 'checksums.txt'
 snapshot:
-  name_template: "{{ incpatch .Tag }}-next"
+  name_template: '{{ incpatch .Tag }}-next'
 archives:
-  name_template: "{{.ProjectName}}-{{.Os}}-{{.Arch}}-{{.Version}}"
+  - name_template: '{{.ProjectName}}-{{.Os}}-{{.Arch}}-{{.Version}}'
 changelog:
   sort: asc
   filters:
