@@ -49,14 +49,14 @@ func DefaultServerConfig() ServerConfig {
 		OldRealIP:           false,
 		NewRealIP:           false,
 		SendProxyProtocol:   false,
-		DisconnectMessage:   "Server  is offline",
+		DisconnectMessage:   "Server is offline",
 		CacheStatus:         true,
-		CacheUpdateCooldown: "1s",
+		CacheUpdateCooldown: "1m",
 		RateLimit:           5,
 		RateDuration:        "1s",
 		RateBanListCooldown: "5m",
 		RateDisconMsg:       "Please reconnect to verify yourself",
-		StateUpdateCooldown: "1s",
+		StateUpdateCooldown: "5s",
 	}
 }
 

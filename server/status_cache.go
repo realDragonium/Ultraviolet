@@ -68,7 +68,6 @@ func (cache *statusCache) newStatus() (BackendAnswer, error) {
 	if err != nil {
 		return answer, err
 	}
-	answer = NewStatusAnswer(pk)
 	conn.Close()
 	return NewStatusAnswer(pk), nil
 }

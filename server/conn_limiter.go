@@ -19,6 +19,7 @@ func FilterIpFromAddr(addr net.Addr) string {
 
 type ConnectionLimiter interface {
 	// The process answer is empty and should be ignored when it does allow the connection to happen
+	// Returns true if the connection is allowed to happen
 	Allow(req BackendRequest) (BackendAnswer, bool)
 }
 
@@ -59,12 +60,15 @@ func (limiter AlwaysAllowConnection) Allow(req BackendRequest) (BackendAnswer, b
 	return BackendAnswer{}, true
 }
 
-func NewBotFilterConnLimiter(ratelimit int, cooldown, clearTime time.Duration, disconnPk mc.Packet) ConnectionLimiter {
+func NewBotFilterConnLimiter(ratelimit int, cooldown, clearTime, unverify time.Duration, disconnPk mc.Packet) ConnectionLimiter {
+
 	return &botFilterConnLimiter{
-		rateLimit:     ratelimit,
-		rateCooldown:  cooldown,
-		disconnPacket: disconnPk,
-		listClearTime: clearTime,
+		lastTimeAboveLimit: time.Now(),
+		unverifyCooldown:   unverify,
+		rateLimit:          ratelimit,
+		rateCooldown:       cooldown,
+		disconnPacket:      disconnPk,
+		listClearTime:      clearTime,
 
 		namesList: make(map[string]string),
 		blackList: make(map[string]time.Time),
@@ -72,44 +76,54 @@ func NewBotFilterConnLimiter(ratelimit int, cooldown, clearTime time.Duration, d
 }
 
 type botFilterConnLimiter struct {
-	rateCounter   int
-	rateStartTime time.Time
-	rateLimit     int
-	rateCooldown  time.Duration
-	disconnPacket mc.Packet
-	listClearTime time.Duration
+	limiting         bool
+	unverifyCooldown time.Duration
+
+	rateCounter        int
+	rateStartTime      time.Time
+	lastTimeAboveLimit time.Time
+	rateLimit          int
+	rateCooldown       time.Duration
+	disconnPacket      mc.Packet
+	listClearTime      time.Duration
 
 	blackList map[string]time.Time
 	namesList map[string]string
 }
 
-func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (BackendAnswer, bool) {
+func (l *botFilterConnLimiter) Allow(req BackendRequest) (BackendAnswer, bool) {
 	if req.Type == mc.Status {
 		return BackendAnswer{}, true
 	}
-	if time.Since(limiter.rateStartTime) >= limiter.rateCooldown {
-		limiter.rateCounter = 0
-		limiter.rateStartTime = time.Now()
+	if time.Since(l.rateStartTime) >= l.rateCooldown {
+		if l.rateCounter > l.rateLimit {
+			l.lastTimeAboveLimit = l.rateStartTime
+		}
+		if l.limiting && time.Since(l.lastTimeAboveLimit) >= l.unverifyCooldown {
+			l.limiting = false
+		}
+		l.rateCounter = 0
+		l.rateStartTime = time.Now()
 	}
-	limiter.rateCounter++
+
+	l.rateCounter++
 	ip := FilterIpFromAddr(req.Addr)
-	blockTime, ok := limiter.blackList[ip]
-	if time.Since(blockTime) >= limiter.listClearTime {
-		delete(limiter.blackList, ip)
+	blockTime, ok := l.blackList[ip]
+	if time.Since(blockTime) >= l.listClearTime {
+		delete(l.blackList, ip)
 	} else if ok {
 		return NewCloseAnswer(), false
 	}
 
-	// TODO: if connections are above rate limit, the next cooldown is probably still is
-	//  Find something to improve it
-	if limiter.rateCounter > limiter.rateLimit {
-		username, ok := limiter.namesList[ip]
+	l.limiting = l.limiting || l.rateCounter > l.rateLimit
+	if l.limiting {
+		username, ok := l.namesList[ip]
 		if !ok {
-			limiter.namesList[ip] = req.Username
-			return NewDisconnectAnswer(limiter.disconnPacket), false
+			l.namesList[ip] = req.Username
+			return NewDisconnectAnswer(l.disconnPacket), false
 		}
 		if username != req.Username {
-			limiter.blackList[ip] = time.Now()
+			l.blackList[ip] = time.Now()
 			return NewCloseAnswer(), false
 		}
 	}

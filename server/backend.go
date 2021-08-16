@@ -47,7 +47,8 @@ func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
 	connCreator = BasicConnCreator(cfg.ProxyTo, dialer)
 
 	if cfg.RateLimit > 0 {
-		rateLimiter = NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, cfg.RateBanListCooldown, cfg.RateDisconPk)
+		unverifyCooldown := 10 * cfg.RateLimitDuration
+		rateLimiter = NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, unverifyCooldown, cfg.RateBanListCooldown, cfg.RateDisconPk)
 	} else {
 		rateLimiter = AlwaysAllowConnection{}
 	}
