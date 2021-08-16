@@ -25,11 +25,10 @@ jobs:
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
-        env: 
-          VERSION: $INPUT_VERSioN
         with:
           version: latest
           args: release --rm-dist
           workdir: ./cmd/Ultraviolet/.
         env:
+          VERSION: $INPUT_VERSioN
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
