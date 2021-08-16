@@ -235,7 +235,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 	})
 
 	t.Run("when over ratelimit allow unverified connections again after cooldown", func(t *testing.T) {
-		unverifyCooldown := 10 * time.Microsecond
+		unverifyCooldown := time.Millisecond
 		ratelimit := 1
 		cooldown := time.Millisecond
 		disconPk := mc.ClientBoundDisconnect{

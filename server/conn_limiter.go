@@ -91,6 +91,7 @@ type botFilterConnLimiter struct {
 	namesList map[string]string
 }
 
+// TODO: Fix hidden race condition (something with the timing of the lastTimeAboveLimit time) 
 func (l *botFilterConnLimiter) Allow(req BackendRequest) (BackendAnswer, bool) {
 	if req.Type == mc.Status {
 		return BackendAnswer{}, true
