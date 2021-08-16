@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import "net"
 

@@ -1,24 +1,26 @@
-package ultraviolet_test
+package server_test
 
 import (
 	"testing"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/server"
 )
 
 type testUpdatableWorkerCounter struct {
 	updatesReceived int
 }
 
-func (worker *testUpdatableWorkerCounter) Update(data map[string]chan<- ultraviolet.BackendRequest) {
+func (worker *testUpdatableWorkerCounter) Update(data map[string]chan<- server.BackendRequest) {
 	worker.updatesReceived++
 }
 
 func TestRegisterServerConfig(t *testing.T) {
+	cfg := config.UltravioletConfig{}
 	t.Run("add backend", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		domains := []string{"uv", "uv2"}
-		ch := make(chan ultraviolet.BackendRequest)
+		ch := make(chan server.BackendRequest)
 		manager.AddBackend(domains, ch)
 		for _, domain := range domains {
 			if !manager.KnowsDomain(domain) {
@@ -28,10 +30,10 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("remove backend", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		domain := "uv2"
 		domains := []string{"uv", domain}
-		ch := make(chan ultraviolet.BackendRequest)
+		ch := make(chan server.BackendRequest)
 		manager.AddBackend(domains, ch)
 
 		removeDomains := []string{domain}
@@ -43,7 +45,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("updates workers when registering", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, true)
 
@@ -53,7 +55,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("doesnt update workers when registering", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
@@ -63,13 +65,13 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("does updates when adding backend", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
 		domain := "uv2"
 		domains := []string{"uv", domain}
-		ch := make(chan ultraviolet.BackendRequest)
+		ch := make(chan server.BackendRequest)
 		manager.AddBackend(domains, ch)
 
 		if worker.updatesReceived != 1 {
@@ -78,7 +80,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("does updates when removing backend", func(t *testing.T) {
-		manager := ultraviolet.NewWorkerManager()
+		manager := server.NewWorkerManager(cfg, nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 

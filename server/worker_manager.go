@@ -1,16 +1,34 @@
-package ultraviolet
+package server
+
+import (
+	"log"
+	"net"
+
+	"github.com/realDragonium/Ultraviolet/config"
+)
 
 type WorkerManager interface {
 	AddBackend(domains []string, ch chan<- BackendRequest)
 	RemoveBackend(domains []string)
 	KnowsDomain(domain string) bool
+	Register(worker UpdatableWorker, update bool)
 }
 
-func NewWorkerManager() workerManager {
-	return workerManager{
+func NewWorkerManager(cfg config.UltravioletConfig, reqCh <-chan net.Conn) WorkerManager {
+	manager := workerManager{
 		domains: make(map[string]chan<- BackendRequest),
 		workers: []UpdatableWorker{},
 	}
+	workerCfg := config.NewWorkerConfig(cfg)
+	for i := 0; i < cfg.NumberOfWorkers; i++ {
+		worker := NewWorker(workerCfg, reqCh)
+		go func(bw BasicWorker) {
+			bw.Work()
+		}(worker)
+		manager.Register(&worker, true)
+	}
+	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
+	return &manager
 }
 
 type workerManager struct {

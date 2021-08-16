@@ -1,0 +1,443 @@
+package server_test
+
+import (
+	"io/ioutil"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/server"
+)
+
+type testConfigReader struct {
+	cfgs []config.ServerConfig
+}
+
+func (reader testConfigReader) Read() ([]config.ServerConfig, error) {
+	return reader.cfgs, nil
+}
+
+func newTestWorkerManager() testWorkerManager {
+	return testWorkerManager{
+		something: make(map[string]chan<- server.BackendRequest),
+	}
+}
+
+type testWorkerManager struct {
+	timesAddCalled    int
+	timesRemoveCalled int
+	something         map[string]chan<- server.BackendRequest
+}
+
+func (man *testWorkerManager) AddBackend(domains []string, ch chan<- server.BackendRequest) {
+	man.timesAddCalled++
+	for _, domain := range domains {
+		man.something[domain] = ch
+	}
+}
+func (man *testWorkerManager) RemoveBackend(domains []string) {
+	man.timesRemoveCalled++
+	for _, domain := range domains {
+		delete(man.something, domain)
+	}
+}
+func (man *testWorkerManager) KnowsDomain(domain string) bool {
+	_, knows := man.something[domain]
+	return knows
+}
+func (man *testWorkerManager) Register(worker server.UpdatableWorker, update bool) {
+}
+
+func newTestBackend() testBackend {
+	return testBackend{
+		reqCh: make(chan server.BackendRequest),
+	}
+}
+
+type testBackend struct {
+	reqCh        chan server.BackendRequest
+	calledClose  bool
+	calledUpdate bool
+	timesClosed  int
+	timesUpdated int
+}
+
+func (backend *testBackend) ReqCh() chan<- server.BackendRequest {
+	return backend.reqCh
+}
+func (backend *testBackend) HasActiveConn() bool {
+	return false
+}
+func (backend *testBackend) Update(cfg server.BackendConfig) error {
+	backend.calledUpdate = true
+	backend.timesUpdated++
+	return nil
+}
+func (backend *testBackend) Close() {
+	backend.calledClose = true
+	backend.timesClosed++
+}
+
+func newSimpleBackendManager() server.BackendManager {
+	workerManager := newTestWorkerManager()
+	factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		backend := newTestBackend()
+		return &backend
+	}
+	reader := newReaderWithDefaultConfig()
+	return server.NewBackendManager(&workerManager, factory, reader)
+}
+
+func newBackendManagerWithReader(reader config.ServerConfigReader) server.BackendManager {
+	factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		backend := newTestBackend()
+		return &backend
+	}
+	workerManager := newTestWorkerManager()
+	return server.NewBackendManager(&workerManager, factory, reader)
+}
+
+func newReaderWithConfig(cfg config.ServerConfig) *testConfigReader {
+	return &testConfigReader{
+		cfgs: []config.ServerConfig{
+			cfg,
+		},
+	}
+}
+
+func newReaderWithDefaultConfig() *testConfigReader {
+	cfg := config.ServerConfig{
+		FilePath: "123",
+		Domains:  []string{"uv"},
+		ProxyTo:  "1",
+	}
+	return newReaderWithConfig(cfg)
+}
+
+func TestBackendManager(t *testing.T) {
+	t.Run("adding new config calls factory to create new backend", func(t *testing.T) {
+		ch := make(chan struct{})
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			ch <- struct{}{}
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		go manager.Update()
+		select {
+		case <-ch:
+			t.Log("factory has been called")
+		case <-time.After(defaultChTimeout):
+			t.Error("expected factory to be called but wasnt")
+		}
+	})
+
+	t.Run("fault config cause and error without any update", func(t *testing.T) {
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		tmpDir, _ := ioutil.TempDir("", "backend-manager")
+		defer os.Remove(tmpDir)
+		filePath := filepath.Join(tmpDir, "keyFile")
+		os.WriteFile(filePath, []byte{}, os.ModePerm)
+		reader := &testConfigReader{
+			cfgs: []config.ServerConfig{
+				{
+					FilePath: "123",
+					Domains:  []string{"uv"},
+					ProxyTo:  "1",
+				},
+				{
+					FilePath:  "123",
+					Domains:   []string{"uv"},
+					ProxyTo:   "1",
+					NewRealIP: true,
+					RealIPKey: filePath,
+				},
+			},
+		}
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		err := manager.Update()
+		if !strings.HasPrefix(err.Error(), "x509") {
+			t.Errorf("expected an privat key error but got: %v", err)
+		}
+		if workerManager.timesAddCalled != 0 {
+			t.Errorf("expected to be called zero times but was called %d", workerManager.timesAddCalled)
+		}
+		if workerManager.timesRemoveCalled != 0 {
+			t.Errorf("expected to be called zero times but was called %d", workerManager.timesRemoveCalled)
+		}
+	})
+
+	t.Run("adding new config calls worker manager to update", func(t *testing.T) {
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		if workerManager.timesAddCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
+		}
+	})
+
+	t.Run("adding already registered configs doesnt register them again", func(t *testing.T) {
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		manager.Update()
+		if workerManager.timesAddCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
+		}
+	})
+
+	t.Run("removing a config should update worker manager", func(t *testing.T) {
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		reader.cfgs = []config.ServerConfig{}
+		manager.Update()
+		if workerManager.timesRemoveCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesRemoveCalled)
+		}
+	})
+
+	t.Run("removing a config should update backend", func(t *testing.T) {
+		b := newTestBackend()
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			return &b
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		reader.cfgs = []config.ServerConfig{}
+		manager.Update()
+		if !b.calledClose {
+			t.Error("expected close to be called")
+		}
+	})
+
+	t.Run("updates backend if values have changed", func(t *testing.T) {
+		b := newTestBackend()
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			return &b
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		reader.cfgs[0].ProxyTo = "2"
+		manager.Update()
+		if !b.calledUpdate {
+			t.Error("expected to be updated")
+		}
+	})
+
+	t.Run("does NOT update backend if values have NOT changed", func(t *testing.T) {
+		b := newTestBackend()
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			return &b
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		manager.Update()
+		if b.calledUpdate {
+			t.Error("should not have been updated")
+		}
+	})
+
+	t.Run("adding new config calls worker manager to register new domains", func(t *testing.T) {
+		newDomain := "uv1"
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithDefaultConfig()
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		workerManager.timesAddCalled = 0
+		reader.cfgs[0].Domains = append(reader.cfgs[0].Domains, newDomain)
+		manager.Update()
+		if workerManager.timesAddCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
+		}
+	})
+
+	t.Run("removing new config calls worker manager to remove domain", func(t *testing.T) {
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		cfg := config.ServerConfig{
+			FilePath: "123",
+			Domains:  []string{"uv", "uv1"},
+			ProxyTo:  "1",
+		}
+		reader := newReaderWithConfig(cfg)
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		reader.cfgs[0].Domains = []string{"uv"}
+		manager.Update()
+		if workerManager.timesRemoveCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
+		}
+	})
+
+	t.Run("update domain by worker when old config is removed and new config is added with same domain", func(t *testing.T) {
+		domain := "uv"
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := newTestBackend()
+			return &backend
+		}
+		workerManager := newTestWorkerManager()
+		cfg := config.ServerConfig{
+			FilePath: "123",
+			Domains:  []string{domain},
+			ProxyTo:  "1",
+		}
+		reader := newReaderWithConfig(cfg)
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+		backendCh1 := workerManager.something[domain]
+		reader.cfgs = []config.ServerConfig{
+			{
+				FilePath: "124",
+				Domains:  []string{domain},
+				ProxyTo:  "1",
+			},
+		}
+		manager.Update()
+		backendCh2, ok := workerManager.something[domain]
+		if !ok {
+			t.Error("expected worker manager to have channel to backend")
+		}
+		if workerManager.timesRemoveCalled != 1 {
+			t.Errorf("expected to be called once but was called %d", workerManager.timesRemoveCalled)
+		}
+		if workerManager.timesAddCalled != 2 {
+			t.Errorf("expected to be called twice but was called %d", workerManager.timesAddCalled)
+		}
+		if backendCh1 == backendCh2 {
+			t.Error("backend channels shouldnt be the same")
+		}
+	})
+
+}
+
+func TestCheckActiveConnections(t *testing.T) {
+	t.Run("empty map", func(t *testing.T) {
+		manager := newSimpleBackendManager()
+		active := manager.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+	})
+
+	t.Run("no processed connections", func(t *testing.T) {
+		reader := newReaderWithDefaultConfig()
+		manager := newBackendManagerWithReader(reader)
+		manager.Update()
+		active := manager.CheckActiveConnections()
+		if active {
+			t.Error("expected no active connections")
+		}
+	})
+
+	t.Run("active connection", func(t *testing.T) {
+		domain := "uv"
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := server.BackendFactory(cfg)
+			return backend
+		}
+		workerManager := newTestWorkerManager()
+		cfg := config.ServerConfig{
+			FilePath:         "123",
+			Domains:          []string{domain},
+			ProxyTo:          "1",
+			CheckStateOption: "online",
+		}
+		reader := newReaderWithConfig(cfg)
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+
+		ch := workerManager.something[domain]
+		ansCh := make(chan server.BackendAnswer)
+		req := server.BackendRequest{
+			Type: mc.Login,
+			Ch:   ansCh,
+		}
+		ch <- req
+		ans := <-ansCh
+		ans.ProxyCh() <- server.ProxyOpen
+		time.Sleep(defaultChTimeout)
+
+		active := manager.CheckActiveConnections()
+		if !active {
+			t.Error("expected there to be active connection")
+		}
+	})
+
+	t.Run("multiple active connections", func(t *testing.T) {
+		domain := "uv"
+		cfg := config.ServerConfig{
+			FilePath:         "123",
+			Domains:          []string{domain},
+			ProxyTo:          "1",
+			CheckStateOption: "online",
+		}
+		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+			backend := server.BackendFactory(cfg)
+			return backend
+		}
+		workerManager := newTestWorkerManager()
+		reader := newReaderWithConfig(cfg)
+		manager := server.NewBackendManager(&workerManager, factory, reader)
+		manager.Update()
+
+		for _, ch := range workerManager.something {
+			count := rand.Intn(3)
+			for i := 0; i < count; i++ {
+				ansCh := make(chan server.BackendAnswer)
+				req := server.BackendRequest{
+					Type: mc.Login,
+					Ch:   ansCh,
+				}
+				ch <- req
+				ans := <-ansCh
+				ans.ProxyCh() <- server.ProxyOpen
+			}
+		}
+		time.Sleep(defaultChTimeout)
+
+		active := manager.CheckActiveConnections()
+		if !active {
+			t.Error("expected there to be active connection")
+		}
+	})
+}

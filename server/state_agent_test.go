@@ -1,4 +1,4 @@
-package ultraviolet_test
+package server_test
 
 import (
 	"fmt"
@@ -6,21 +6,21 @@ import (
 	"testing"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/server"
 )
 
 func TestAlwaysOnlineState(t *testing.T) {
-	stateAgent := ultraviolet.AlwaysOnlineState{}
+	stateAgent := server.AlwaysOnlineState{}
 
-	if stateAgent.State() != ultraviolet.ONLINE {
+	if stateAgent.State() != server.Online {
 		t.Errorf("expected to be online but got %v instead", stateAgent.State())
 	}
 }
 
 func TestAlwaysOfflineState(t *testing.T) {
-	stateAgent := ultraviolet.AlwaysOfflineState{}
+	stateAgent := server.AlwaysOfflineState{}
 
-	if stateAgent.State() != ultraviolet.OFFLINE {
+	if stateAgent.State() != server.Offline {
 		t.Errorf("expected to be offline but got %v instead", stateAgent.State())
 	}
 }
@@ -45,14 +45,14 @@ func (creator *stateConnCreator) Conn() func() (net.Conn, error) {
 func TestMcServerState(t *testing.T) {
 	tt := []struct {
 		returnError   bool
-		expectedState ultraviolet.ServerState
+		expectedState server.ServerState
 	}{
 		{
-			expectedState: ultraviolet.OFFLINE,
+			expectedState: server.Offline,
 			returnError:   true,
 		},
 		{
-			expectedState: ultraviolet.ONLINE,
+			expectedState: server.Online,
 			returnError:   false,
 		},
 	}
@@ -64,7 +64,7 @@ func TestMcServerState(t *testing.T) {
 				connCreator := stateConnCreator{
 					returnError: tc.returnError,
 				}
-				stateAgent := ultraviolet.NewMcServerState(cooldown, &connCreator)
+				stateAgent := server.NewMcServerState(cooldown, &connCreator)
 				state := stateAgent.State()
 				if state != tc.expectedState {
 					t.Errorf("expected to be %v but got %v instead", tc.expectedState, state)
@@ -84,7 +84,7 @@ func TestMcServerState(t *testing.T) {
 				connCreator := stateConnCreator{
 					returnError: tc.returnError,
 				}
-				stateAgent := ultraviolet.NewMcServerState(cooldown, &connCreator)
+				stateAgent := server.NewMcServerState(cooldown, &connCreator)
 				stateAgent.State()
 				state := stateAgent.State()
 				if state != tc.expectedState {
@@ -105,7 +105,7 @@ func TestMcServerState(t *testing.T) {
 				connCreator := stateConnCreator{
 					returnError: tc.returnError,
 				}
-				stateAgent := ultraviolet.NewMcServerState(cooldown, &connCreator)
+				stateAgent := server.NewMcServerState(cooldown, &connCreator)
 				stateAgent.State()
 				time.Sleep(cooldown)
 				state := stateAgent.State()

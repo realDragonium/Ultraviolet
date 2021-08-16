@@ -12,7 +12,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -22,63 +21,13 @@ var (
 	ErrPrivateKey            = errors.New("could not load private key")
 	ErrCantCombineConfigs    = errors.New("failed to combine config structs")
 	ErrFailedToConvertConfig = errors.New("failed to convert server config to a more usable config")
+
+	MainConfigFileName = "ultraviolet.json"
 )
-
-func ReadServerConfigs(path string) ([]ServerConfig, error) {
-	var cfgs []ServerConfig
-	var filePaths []string
-	err := filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-		if filepath.Ext(path) != ".json" {
-			return nil
-		}
-		if strings.HasPrefix(info.Name(), "ultraviolet") {
-			return nil
-		}
-		filePaths = append(filePaths, path)
-		return nil
-	})
-	if err != nil {
-		return cfgs, err
-	}
-	for _, filePath := range filePaths {
-		cfg, err := LoadServerCfgFromPath(filePath)
-		if err != nil {
-			return nil, err
-		}
-		if err != nil {
-			return nil, err
-		}
-		cfgs = append(cfgs, cfg)
-	}
-	errs := VerifyConfigs(cfgs)
-	if errs.HasErrors() {
-		return cfgs, &errs
-	}
-	return cfgs, nil
-}
-
-func LoadServerCfgFromPath(path string) (ServerConfig, error) {
-	bb, err := ioutil.ReadFile(path)
-	if err != nil {
-		return ServerConfig{}, err
-	}
-	cfg := DefaultServerConfig()
-	if err := json.Unmarshal(bb, &cfg); err != nil {
-		return cfg, err
-	}
-	cfg.FilePath = path
-	return cfg, nil
-}
 
 func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 	cfg := DefaultUltravioletConfig()
-	filePath := filepath.Join(path, "ultraviolet.json")
+	filePath := filepath.Join(path, MainConfigFileName)
 
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
@@ -126,7 +75,7 @@ func ReadPrivateKey(path string) (*ecdsa.PrivateKey, error) {
 	return x509.ParseECPrivateKey(bb)
 }
 
-func existingGeneratedKey(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
+func CheckExistingGeneratedKey(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
 	dir := filepath.Dir(cfg.FilePath)
 	privkeyFileName := filepath.Join(dir, fmt.Sprintf("%s-%s", cfg.Domains[0], "private.key"))
 	if _, err := os.Stat(privkeyFileName); err != nil {
@@ -142,7 +91,7 @@ func existingGeneratedKey(cfg ServerConfig) (*ecdsa.PrivateKey, bool) {
 	return privateKey, true
 }
 
-func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
+func GenerateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	privkey, err := ecdsa.GenerateKey(elliptic.P384(), rand.Reader)
 	if err != nil {
 		log.Printf("error during creating privatekey: %v", err)
@@ -185,7 +134,7 @@ func generateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	return privkey
 }
 
-func FileToWorkerConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
+func ServerToBackendConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
 	name := cfg.Name
 	if name == "" {
 		name = cfg.Domains[0]
@@ -206,11 +155,11 @@ func FileToWorkerConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
 		var err error
 		privateKey, err = ReadPrivateKey(cfg.RealIPKey)
 		if errors.Is(err, os.ErrNotExist) {
-			if key, ok := existingGeneratedKey(cfg); ok {
+			if key, ok := CheckExistingGeneratedKey(cfg); ok {
 				privateKey = key
 			} else {
 				log.Printf("No existing key for %s has been found, generating one...", cfg.ID())
-				privateKey = generateKeys(cfg)
+				privateKey = GenerateKeys(cfg)
 			}
 		} else if err != nil {
 			return BackendWorkerConfig{}, err

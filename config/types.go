@@ -2,6 +2,8 @@ package config
 
 import (
 	"crypto/ecdsa"
+	"io"
+	"os"
 	"time"
 
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -71,6 +73,11 @@ type UltravioletConfig struct {
 	EnableHotSwap bool
 	PidFile       string
 	IODeadline    time.Duration
+	LogOutput     io.Writer
+}
+
+type UVConfigReader interface {
+	Read() (UltravioletConfig, error)
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
@@ -91,6 +98,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		PidFile:       "/var/run/ultraviolet.pid",
 		EnableHotSwap: true,
 		IODeadline:    time.Second,
+		LogOutput:     os.Stdout,
 	}
 }
 
@@ -156,4 +164,11 @@ func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
 		DefaultStatus: uvCfg.DefaultStatus,
 		IOTimeout:     uvCfg.IODeadline,
 	}
+}
+
+type ServerConfigReader interface {
+	// Will only return the configs if they are deemed usable
+	// If they contain conflicts of something goes wrong while reading
+	//  it will return a error
+	Read() ([]ServerConfig, error)
 }

@@ -26,104 +26,6 @@ func samePK(expected, received mc.Packet) bool {
 	return sameID && sameData
 }
 
-func TestReadServerConfig(t *testing.T) {
-	cfg := config.ServerConfig{
-		Domains: []string{"ultraviolet"},
-		ProxyTo: ":25566",
-	}
-	tmpfile, err := ioutil.TempFile("", "example*.json")
-	cfg.FilePath = tmpfile.Name()
-	file, _ := json.MarshalIndent(cfg, "", " ")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer os.Remove(tmpfile.Name())
-	if _, err := tmpfile.Write(file); err != nil {
-		t.Fatal(err)
-	}
-	if err := tmpfile.Close(); err != nil {
-		t.Fatal(err)
-	}
-	loadedCfg, err := config.LoadServerCfgFromPath(tmpfile.Name())
-	if err != nil {
-		t.Error(err)
-	}
-
-	if !reflect.DeepEqual(cfg, loadedCfg) {
-		t.Errorf("Wanted:%v \n got: %v", cfg, loadedCfg)
-	}
-}
-
-func TestReadServerConfigs(t *testing.T) {
-	generateNumberOfFile := 3
-	cfg := config.ServerConfig{
-		Domains: []string{"ultraviolet"},
-		ProxyTo: ":25566",
-	}
-	tt := []struct {
-		testName         string
-		hasDifferentFile bool
-		specialName      string
-		expectedReadFile int
-	}{
-		{
-			testName:         "normal configs",
-			hasDifferentFile: false,
-			expectedReadFile: generateNumberOfFile,
-		},
-		{
-			testName:         "doesnt read file with no extension",
-			hasDifferentFile: true,
-			specialName:      "example*",
-			expectedReadFile: generateNumberOfFile - 1,
-		},
-		{
-			testName:         "doesnt read file with different extension",
-			hasDifferentFile: true,
-			specialName:      "example*.yml",
-			expectedReadFile: generateNumberOfFile - 1,
-		},
-		{
-			testName:         "doesnt read ultraviolet config file",
-			hasDifferentFile: true,
-			specialName:      "ultraviolet.json",
-			expectedReadFile: generateNumberOfFile - 1,
-		},
-	}
-
-	for _, tc := range tt {
-		t.Run(tc.testName, func(t *testing.T) {
-			tmpDir, _ := ioutil.TempDir("", "configs")
-			bb, _ := json.MarshalIndent(cfg, "", " ")
-			for i := 0; i < generateNumberOfFile; i++ {
-				fileName := "example*.json"
-				if tc.hasDifferentFile && i == 0 {
-					fileName = tc.specialName
-				}
-				tmpfile, err := ioutil.TempFile(tmpDir, fileName)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if _, err := tmpfile.Write(bb); err != nil {
-					t.Fatal(err)
-				}
-				if err := tmpfile.Close(); err != nil {
-					t.Fatal(err)
-				}
-			}
-			loadedCfgs, _ := config.ReadServerConfigs(tmpDir)
-			for i, loadedCfg := range loadedCfgs {
-				loadedCfg.FilePath = ""
-				if !reflect.DeepEqual(cfg, loadedCfg) {
-					t.Errorf("index: %d \nWanted:%v \n got: %v", i, cfg, loadedCfg)
-				}
-			}
-			if len(loadedCfgs) != tc.expectedReadFile {
-				t.Errorf("Expected %v configs to be read but there are %d configs read", tc.expectedReadFile, len(loadedCfgs))
-			}
-		})
-	}
-}
 
 func TestReadUltravioletConfigFile(t *testing.T) {
 	t.Run("normal config", func(t *testing.T) {
@@ -142,7 +44,7 @@ func TestReadUltravioletConfigFile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		filename := filepath.Join(tmpDir, "ultraviolet.json")
+		filename := filepath.Join(tmpDir, config.MainConfigFileName)
 		os.WriteFile(filename, file, os.ModePerm)
 		loadedCfg, err := config.ReadUltravioletConfig(tmpDir)
 		if err != nil {
@@ -277,7 +179,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 		expectedUpdateCooldown := 1 * time.Minute
 		expectedDialTimeout := 1 * time.Second
 
-		workerCfg, err := config.FileToWorkerConfig(serverCfg)
+		workerCfg, err := config.ServerToBackendConfig(serverCfg)
 		if err != nil {
 			t.Fatalf("received unexpected error: %v", err)
 		}
@@ -327,7 +229,7 @@ func TestFileToWorkerConfig(t *testing.T) {
 			Domains: []string{"Ultraviolet", "UV"},
 			ProxyTo: "1",
 		}
-		workerCfg, err := config.FileToWorkerConfig(serverCfg)
+		workerCfg, err := config.ServerToBackendConfig(serverCfg)
 		if err != nil {
 			t.Fatalf("received unexpected error: %v", err)
 		}
@@ -335,7 +237,6 @@ func TestFileToWorkerConfig(t *testing.T) {
 			t.Errorf("expected: %v - got: %v", serverCfg.Domains[0], workerCfg.Name)
 		}
 	})
-
 
 }
 
@@ -368,7 +269,7 @@ func TestFileToWorkerConfig_NewRealIP_ReadsKeyCorrectly(t *testing.T) {
 		ProxyTo:   "1",
 	}
 
-	workerCfg, err := config.FileToWorkerConfig(serverCfg)
+	workerCfg, err := config.ServerToBackendConfig(serverCfg)
 	if err != nil {
 		t.Fatalf("received unexpected error: %v", err)
 	}
@@ -382,6 +283,7 @@ func TestFileToWorkerConfig_NewRealIP_ReadsKeyCorrectly(t *testing.T) {
 
 func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 	tmpDir, _ := ioutil.TempDir("", "configs")
+	defer os.Remove(tmpDir)
 	cfgPath := filepath.Join(tmpDir, "config")
 	firstDomainName := "Ultraviolet"
 	keyPrivatePath := filepath.Join(tmpDir, fmt.Sprintf("%s-%s", firstDomainName, "private.key"))
@@ -393,7 +295,7 @@ func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 		ProxyTo:   "1",
 	}
 
-	workerCfg, err := config.FileToWorkerConfig(serverCfg)
+	workerCfg, err := config.ServerToBackendConfig(serverCfg)
 	if err != nil {
 		t.Fatalf("received unexpected error: %v", err)
 	}
@@ -424,5 +326,4 @@ func TestFileToWorkerConfig_NewRealIP_GenerateKeyCorrect(t *testing.T) {
 		t.Fatal("Public keys arent the same!")
 	}
 
-	os.Remove(tmpDir)
 }

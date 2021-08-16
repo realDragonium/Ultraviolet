@@ -12,38 +12,26 @@ import (
 	"time"
 )
 
+//go:generate stringer -type=HandshakeState
 type HandshakeState byte
 
 const (
-	UNKNOWN_STATE HandshakeState = iota
-	STATUS
-	LOGIN
+	UnknownState HandshakeState = iota
+	Status
+	Login
 )
 
-func RequestState(n int) HandshakeState {
+func RequestState(n byte) HandshakeState {
 	var t HandshakeState
 	switch n {
 	case 1:
-		t = STATUS
+		t = Status
 	case 2:
-		t = LOGIN
+		t = Login
 	default:
-		t = UNKNOWN_STATE
+		t = UnknownState
 	}
 	return t
-}
-
-func (t HandshakeState) String() string {
-	var text string
-	switch t {
-	case UNKNOWN_STATE:
-		text = "unknown"
-	case STATUS:
-		text = "status"
-	case LOGIN:
-		text = "login"
-	}
-	return text
 }
 
 type McTypesHandshake struct {
@@ -57,7 +45,7 @@ type ServerBoundHandshake struct {
 	ProtocolVersion int
 	ServerAddress   string
 	ServerPort      int16
-	NextState       int
+	NextState       byte
 }
 
 func (pk ServerBoundHandshake) Marshal() Packet {
@@ -95,7 +83,7 @@ func UnmarshalServerBoundHandshake(packet Packet) (ServerBoundHandshake, error) 
 		ProtocolVersion: int(pk.ProtocolVersion),
 		ServerAddress:   string(pk.ServerAddress),
 		ServerPort:      int16(pk.ServerPort),
-		NextState:       int(pk.NextState),
+		NextState:       byte(pk.NextState),
 	}
 	return hs, nil
 }
@@ -121,10 +109,11 @@ func UnmarshalServerBoundHandshake2(packet Packet) (ServerBoundHandshake, error)
 	if err != nil {
 		return hs, err
 	}
-	hs.NextState, err = ReadVarInt_ByteReader(buf)
+	state, err := ReadVarInt_ByteReader(buf)
 	if err != nil {
 		return hs, err
 	}
+	hs.NextState = byte(state)
 	return hs, nil
 }
 
@@ -150,10 +139,11 @@ func UnmarshalServerBoundHandshake_ByteReader(r io.ByteReader) (ServerBoundHands
 	if err != nil {
 		return hs, err
 	}
-	hs.NextState, err = ReadVarInt_ByteReader(r)
+	state, err := ReadVarInt_ByteReader(r)
 	if err != nil {
 		return hs, err
 	}
+	hs.NextState = byte(state)
 	return hs, nil
 }
 
@@ -161,11 +151,11 @@ func (hs ServerBoundHandshake) State() HandshakeState {
 	var state HandshakeState
 	switch hs.NextState {
 	case 1:
-		state = STATUS
+		state = Status
 	case 2:
-		state = LOGIN
+		state = Login
 	default:
-		state = UNKNOWN_STATE
+		state = UnknownState
 	}
 	return state
 }

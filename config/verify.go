@@ -5,17 +5,17 @@ import (
 	"strings"
 )
 
-func NewVerifyError() verfiyError {
-	return verfiyError{
+func NewVerifyError() verifyError {
+	return verifyError{
 		errors: []error{},
 	}
 }
 
-type verfiyError struct {
+type verifyError struct {
 	errors []error
 }
 
-func (vErr *verfiyError) Error() string {
+func (vErr *verifyError) Error() string {
 	var sb strings.Builder
 	sb.WriteString("The following errors have been found: ")
 	for _, err := range vErr.errors {
@@ -25,11 +25,11 @@ func (vErr *verfiyError) Error() string {
 	return sb.String()
 }
 
-func (err *verfiyError) HasErrors() bool {
+func (err *verifyError) HasErrors() bool {
 	return len(err.errors) > 0
 }
 
-func (vErr *verfiyError) Add(err error) {
+func (vErr *verifyError) Add(err error) {
 	vErr.errors = append(vErr.errors, err)
 }
 
@@ -43,7 +43,9 @@ func (err *DuplicateDomain) Error() string {
 	return fmt.Sprintf("'%s' has been found in %s and %s", err.Domain, err.Cfg1Path, err.Cfg2Path)
 }
 
-func VerifyConfigs(cfgs []ServerConfig) verfiyError {
+type VerifyFunc func(cfgs []ServerConfig) error
+
+func VerifyConfigs(cfgs []ServerConfig) error {
 	vErrors := NewVerifyError()
 	domains := make(map[string]int)
 	for index, cfg := range cfgs {
@@ -69,5 +71,8 @@ func VerifyConfigs(cfgs []ServerConfig) verfiyError {
 			domains[domain] = index
 		}
 	}
-	return vErrors
+	if vErrors.HasErrors() {
+		return &vErrors
+	}
+	return nil
 }
