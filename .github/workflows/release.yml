@@ -1,7 +1,6 @@
 name: goreleaser
 
 on:
-  workflow_dispatch:
   push:
     tags:
       - v*
@@ -23,7 +22,7 @@ jobs:
         uses: goreleaser/goreleaser-action@v2
         with:
           version: latest
-          args: release --rm-dist --snapshot
+          args: release --rm-dist --snapshot --release-notes < "testing releasing"
           workdir: ./cmd/Ultraviolet
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

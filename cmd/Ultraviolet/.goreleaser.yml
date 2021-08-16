@@ -2,9 +2,7 @@
 # Make sure to check the documentation at http://goreleaser.com
 before:
   hooks:
-    # You may remove this if you don't use go modules.
     - go mod tidy
-    # you may remove this if you don't need go generate
     - go generate ./...
 builds:
   - env:
@@ -24,9 +22,9 @@ checksum:
   name_template: 'checksums.txt'
 snapshot:
   name_template: "{{ incpatch .Tag }}-next"
-changelog:
-  sort: asc
-  filters:
-    exclude:
-      - '^docs:'
-      - '^test:'
+# changelog:
+#   sort: asc
+#   filters:
+#     exclude:
+#       - '^docs:'
+#       - '^test:'
