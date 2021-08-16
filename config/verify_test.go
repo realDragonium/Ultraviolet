@@ -22,8 +22,8 @@ func TestVerifyConfigs(t *testing.T) {
 			},
 		}
 
-		errs := config.VerifyConfigs(cfgs)
-		if !errs.HasErrors() {
+		err := config.VerifyConfigs(cfgs)
+		if err == nil {
 			t.Fatal("expected it to have errors")
 		}
 		// _, ok := errs[0].(*config.DuplicateDomain)
@@ -52,8 +52,8 @@ func TestVerifyConfigs(t *testing.T) {
 			},
 		}
 
-		errs := config.VerifyConfigs(cfgs)
-		if !errs.HasErrors() {
+		err := config.VerifyConfigs(cfgs)
+		if err == nil {
 			t.Fatal("expected it to have errors")
 			// t.Fatalf("expected 2 errors but got %d", len(errs))
 		}
@@ -65,8 +65,8 @@ func TestVerifyConfigs(t *testing.T) {
 				ProxyTo: ":9284",
 			},
 		}
-		verifyError := config.VerifyConfigs(cfgs)
-		if !verifyError.HasErrors() {
+		err := config.VerifyConfigs(cfgs)
+		if err == nil {
 			t.Log("expect it to have an error")
 			// t.Errorf("expected no domain error but instead got: %v", err)
 		}
@@ -78,8 +78,8 @@ func TestVerifyConfigs(t *testing.T) {
 				Domains: []string{"uv"},
 			},
 		}
-		verifyError := config.VerifyConfigs(cfgs)
-		if !verifyError.HasErrors() {
+		err := config.VerifyConfigs(cfgs)
+		if err == nil {
 			t.Log("expect it to have an error")
 			// t.Errorf("expected no domain error but instead got: %v", err)
 		}

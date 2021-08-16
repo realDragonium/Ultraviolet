@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import "time"
 
@@ -8,7 +8,7 @@ type StateAgent interface {
 
 func NewMcServerState(cooldown time.Duration, connCreator ConnectionCreator) StateAgent {
 	return &McServerState{
-		state:       UNKNOWN,
+		state:       Unknown,
 		cooldown:    cooldown,
 		connCreator: connCreator,
 		startTime:   time.Time{},
@@ -30,9 +30,9 @@ func (server *McServerState) State() ServerState {
 	connFunc := server.connCreator.Conn()
 	conn, err := connFunc()
 	if err != nil {
-		server.state = OFFLINE
+		server.state = Offline
 	} else {
-		server.state = ONLINE
+		server.state = Online
 		conn.Close()
 	}
 	return server.state
@@ -41,11 +41,11 @@ func (server *McServerState) State() ServerState {
 type AlwaysOnlineState struct{}
 
 func (agent AlwaysOnlineState) State() ServerState {
-	return ONLINE
+	return Online
 }
 
 type AlwaysOfflineState struct{}
 
 func (agent AlwaysOfflineState) State() ServerState {
-	return OFFLINE
+	return Offline
 }

@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import (
 	"errors"
@@ -19,7 +19,7 @@ func FilterIpFromAddr(addr net.Addr) string {
 
 type ConnectionLimiter interface {
 	// The process answer is empty and should be ignored when it does allow the connection to happen
-	Allow(req BackendRequest) (ProcessAnswer, bool)
+	Allow(req BackendRequest) (BackendAnswer, bool)
 }
 
 func NewAbsConnLimiter(ratelimit int, cooldown time.Duration, limitStatus bool) ConnectionLimiter {
@@ -38,25 +38,25 @@ type absoluteConnlimiter struct {
 	limitStatus   bool
 }
 
-func (r *absoluteConnlimiter) Allow(req BackendRequest) (ProcessAnswer, bool) {
+func (r *absoluteConnlimiter) Allow(req BackendRequest) (BackendAnswer, bool) {
 	if time.Since(r.rateStartTime) >= r.rateCooldown {
 		r.rateCounter = 0
 		r.rateStartTime = time.Now()
 	}
 	if !r.limitStatus {
-		return ProcessAnswer{}, true
+		return BackendAnswer{}, true
 	}
 	if r.rateCounter < r.rateLimit {
 		r.rateCounter++
-		return ProcessAnswer{}, true
+		return BackendAnswer{}, true
 	}
 	return NewCloseAnswer(), false
 }
 
 type AlwaysAllowConnection struct{}
 
-func (limiter AlwaysAllowConnection) Allow(req BackendRequest) (ProcessAnswer, bool) {
-	return ProcessAnswer{}, true
+func (limiter AlwaysAllowConnection) Allow(req BackendRequest) (BackendAnswer, bool) {
+	return BackendAnswer{}, true
 }
 
 func NewBotFilterConnLimiter(ratelimit int, cooldown, clearTime time.Duration, disconnPk mc.Packet) ConnectionLimiter {
@@ -83,9 +83,9 @@ type botFilterConnLimiter struct {
 	namesList map[string]string
 }
 
-func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (ProcessAnswer, bool) {
-	if req.Type == mc.STATUS {
-		return ProcessAnswer{}, true
+func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (BackendAnswer, bool) {
+	if req.Type == mc.Status {
+		return BackendAnswer{}, true
 	}
 	if time.Since(limiter.rateStartTime) >= limiter.rateCooldown {
 		limiter.rateCounter = 0
@@ -99,7 +99,7 @@ func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (ProcessAnswer, b
 	} else if ok {
 		return NewCloseAnswer(), false
 	}
-	
+
 	// TODO: if connections are above rate limit, the next cooldown is probably still is
 	//  Find something to improve it
 	if limiter.rateCounter > limiter.rateLimit {
@@ -113,5 +113,5 @@ func (limiter *botFilterConnLimiter) Allow(req BackendRequest) (ProcessAnswer, b
 			return NewCloseAnswer(), false
 		}
 	}
-	return ProcessAnswer{}, true
+	return BackendAnswer{}, true
 }

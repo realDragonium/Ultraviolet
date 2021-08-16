@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import (
 	"bufio"
@@ -26,9 +26,10 @@ type UpdatableWorker interface {
 }
 
 var (
-	ErrClientToSlow     = errors.New("client was to slow with sending its packets")
-	ErrClientClosedConn = errors.New("client closed the connection")
-	unknownServerAddr   = "unknown"
+	ErrNotValidHandshake = errors.New("not a valid handshake state")
+	ErrClientToSlow      = errors.New("client was to slow with sending its packets")
+	ErrClientClosedConn  = errors.New("client closed the connection")
+	unknownServerAddr    = "unknown"
 
 	requestBuckets  = []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5}
 	processRequests = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -39,18 +40,11 @@ var (
 	}, []string{"action", "server", "type"})
 )
 
-func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
+func NewWorker(cfg config.WorkerConfig, reqCh <-chan net.Conn) BasicWorker {
 	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
-	statusAnswer := ProcessAnswer{
-		ServerName:  unknownServerAddr,
-		action:      SEND_STATUS,
-		firstPacket: defaultStatusPk,
-	}
-	closeAnswer := ProcessAnswer{
-		ServerName: unknownServerAddr,
-		action:     CLOSE,
-	}
+	statusAnswer := NewStatusAnswer(defaultStatusPk)
+	closeAnswer := NewCloseAnswer()
 	return BasicWorker{
 		reqCh:               reqCh,
 		defaultStatusAnswer: statusAnswer,
@@ -63,12 +57,12 @@ func NewWorker(cfg config.WorkerConfig, reqCh chan net.Conn) BasicWorker {
 }
 
 type BasicWorker struct {
-	reqCh    chan net.Conn
+	reqCh    <-chan net.Conn
 	closeCh  chan struct{}
 	updateCh chan map[string]chan<- BackendRequest
 
-	defaultStatusAnswer ProcessAnswer
-	closeAnswer         ProcessAnswer
+	defaultStatusAnswer BackendAnswer
+	closeAnswer         BackendAnswer
 
 	ioTimeout  time.Duration
 	serverDict map[string]chan<- BackendRequest
@@ -98,30 +92,30 @@ func (w *BasicWorker) KnowsDomain(domain string) bool {
 // TODO:
 // - add more tests with this method
 func (bw *BasicWorker) Work() {
-
 	var err error
 	var conn net.Conn
 	var req BackendRequest
-	var ans ProcessAnswer
+	var ans BackendAnswer
 	for {
 		select {
 		case conn = <-bw.reqCh:
 			start := time.Now()
 			req, err = bw.ProcessConnection(conn)
 			if err != nil {
-				log.Println("error while trying to read")
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
+				} else {
+					log.Printf("error while trying to read: %v", err)
 				}
 				dur := time.Since(start).Seconds()
-				labels := prometheus.Labels{"server": unknownServerAddr, "type": req.Type.String(), "action": CLOSE.String()}
+				labels := prometheus.Labels{"server": unknownServerAddr, "type": req.Type.String(), "action": Close.String()}
 				processRequests.With(labels).Observe(dur)
 				conn.Close()
 				continue
 			}
-			log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
+			// log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
 			ans = bw.ProcessRequest(req)
-			log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.action)
+			// log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.Action())
 			bw.ProcessAnswer(conn, ans)
 			dur := time.Since(start).Seconds()
 			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
@@ -142,7 +136,7 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 		log.Printf("error parsing handshake from %v - error: %v", conn.RemoteAddr(), err)
 	}
 	t := mc.RequestState(handshake.NextState)
-	if t == mc.UNKNOWN_STATE {
+	if t == mc.UnknownState {
 		return BackendRequest{}, ErrNotValidHandshake
 	}
 	request := BackendRequest{
@@ -153,7 +147,7 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	}
 
 	packet, _ := mc.ReadPacket3(b)
-	if t == mc.LOGIN {
+	if t == mc.Login {
 		loginStart, _ := mc.UnmarshalServerBoundLoginStart(packet)
 		request.Username = string(loginStart.Name)
 	}
@@ -165,12 +159,23 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
 	mcConn := mc.NewMcConn(conn)
 	conn.SetDeadline(bw.IODeadline())
+
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
 	} else if err != nil {
 		// log.Printf("error while reading handshake: %v", err)
 		return BackendRequest{}, err
+	}
+	// log.Println("received handshake")
+
+	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
+	if err != nil {
+		log.Printf("error while parsing handshake: %v", err)
+	}
+	reqType := mc.RequestState(handshake.NextState)
+	if reqType == mc.UnknownState {
+		return BackendRequest{}, ErrNotValidHandshake
 	}
 
 	conn.SetDeadline(bw.IODeadline())
@@ -182,15 +187,7 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		return BackendRequest{}, err
 	}
 	conn.SetDeadline(time.Time{})
-
-	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
-	if err != nil {
-		log.Printf("error while parsing handshake: %v", err)
-	}
-	reqType := mc.RequestState(handshake.NextState)
-	if reqType == mc.UNKNOWN_STATE {
-		return BackendRequest{}, ErrNotValidHandshake
-	}
+	// log.Println("received second packet")
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
 	request := BackendRequest{
@@ -200,7 +197,7 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		Handshake:  handshake,
 	}
 
-	if reqType == mc.LOGIN {
+	if reqType == mc.Login {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {
 			log.Printf("error while parsing login packet: %v", err)
@@ -212,26 +209,27 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 	return request, nil
 }
 
-func (bw *BasicWorker) ProcessRequest(req BackendRequest) ProcessAnswer {
+func (bw *BasicWorker) ProcessRequest(req BackendRequest) BackendAnswer {
 	ch, ok := bw.serverDict[req.ServerAddr]
 	if !ok {
-		if req.Type == mc.STATUS {
+		if req.Type == mc.Status {
 			return bw.defaultStatusAnswer
 		}
 		return bw.closeAnswer
 	}
-	req.Ch = make(chan ProcessAnswer)
+	rCh := make(chan BackendAnswer)
+	req.Ch = rCh
 	ch <- req
-	return <-req.Ch
+	return <-rCh
 }
 
 // TODO:
 // - figure out or this need more deadlines
-func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
+func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans BackendAnswer) {
 	clientMcConn := mc.NewMcConn(conn)
-	switch ans.action {
-	case PROXY:
-		sConn, err := ans.serverConnFunc()
+	switch ans.Action() {
+	case Proxy:
+		sConn, err := ans.ServerConn()
 		if err != nil {
 			log.Printf("Err when creating server connection: %v", err)
 			conn.Close()
@@ -240,15 +238,15 @@ func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 		mcServerConn := mc.NewMcConn(sConn)
 		mcServerConn.WritePacket(ans.Response())
 		mcServerConn.WritePacket(ans.Response2())
-		go func(client, server net.Conn, proxyCh chan ProxyAction) {
-			proxyCh <- PROXY_OPEN
-			ProxyConnection(client, server)
-			proxyCh <- PROXY_CLOSE
+		go func(client, serverConn net.Conn, proxyCh chan ProxyAction) {
+			proxyCh <- ProxyOpen
+			ProxyConnection(client, serverConn)
+			proxyCh <- ProxyClose
 		}(conn, sConn, ans.ProxyCh())
-	case DISCONNECT:
+	case Disconnect:
 		clientMcConn.WritePacket(ans.Response())
 		conn.Close()
-	case SEND_STATUS:
+	case SendStatus:
 		clientMcConn.WritePacket(ans.Response())
 		conn.SetDeadline(bw.IODeadline())
 		pingPacket, err := clientMcConn.ReadPacket()
@@ -256,12 +254,9 @@ func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans ProcessAnswer) {
 			conn.Close()
 			return
 		}
-		if ans.Latency() != 0 {
-			time.Sleep(ans.Latency())
-		}
 		clientMcConn.WritePacket(pingPacket)
 		conn.Close()
-	case CLOSE:
+	case Close:
 		conn.Close()
 	}
 

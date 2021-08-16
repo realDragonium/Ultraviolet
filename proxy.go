@@ -2,7 +2,6 @@ package ultraviolet
 
 import (
 	"errors"
-	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -15,58 +14,26 @@ import (
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/realDragonium/Ultraviolet/api"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/server"
 )
 
 var (
-	upg                  tableflip.Upgrader
-	registeredConfigPath string
-
-	bWorkerManager workerManager
-	backendManager BackendManager
-
+	upg   tableflip.Upgrader
 	ReqCh chan net.Conn
+
+	bWorkerManager server.WorkerManager
+	backendManager server.BackendManager
+
+	promeServer *http.Server
+	API         api.API
 )
 
-type CheckOpenConns struct {
-	Ch chan bool
-}
-
 func RunProxy(configPath string) {
-	registeredConfigPath = configPath
-	mainCfg, err := config.ReadUltravioletConfig(configPath)
-	if err != nil {
-		log.Fatalf("Error while reading main config file: %v", err)
-	}
-
-	serverCfgs, err := config.ReadServerConfigs(configPath)
-	if err != nil {
-		log.Fatalf("Something went wrong while reading config files: %v", err)
-	}
-
-	StartWorkers(mainCfg, serverCfgs)
-	log.Println("Finished starting up proxy")
-
-	log.Println("Now starting api endpoint")
-	var promeServer *http.Server
-	if mainCfg.UsePrometheus {
-		log.Println("Starting prometheus...")
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
-		promeServer = &http.Server{Addr: mainCfg.PrometheusBind, Handler: mux}
-		go func() {
-			fmt.Println(promeServer.ListenAndServe())
-		}()
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/reload", ReloadHandler)
-	apiServer := &http.Server{Addr: mainCfg.APIBind, Handler: mux}
-	go func() {
-		fmt.Println(apiServer.ListenAndServe())
-	}()
-
-	fmt.Println("Finished starting up")
+	uvReader := config.NewUVConfigFileReader(configPath)
+	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
+	StartProxy(uvReader, serverCfgReader)
 
 	if runtime.GOOS == "windows" {
 		select {}
@@ -76,10 +43,8 @@ func RunProxy(configPath string) {
 	}
 	<-upg.Exit()
 
-	if mainCfg.UsePrometheus {
-		promeServer.Close()
-	}
-	apiServer.Close()
+	promeServer.Close()
+	API.Close()
 
 	log.Println("Waiting for all connections to be closed before shutting down")
 	for {
@@ -124,8 +89,13 @@ func createListener(cfg config.UltravioletConfig) net.Listener {
 	}
 
 	if cfg.AcceptProxyProtocol {
+		policyFunc := func(upstream net.Addr) (proxyproto.Policy, error) {
+			return proxyproto.REQUIRE, nil
+		}
 		proxyListener := &proxyproto.Listener{
-			Listener: ln,
+			Listener:          ln,
+			ReadHeaderTimeout: cfg.IODeadline,
+			Policy:            policyFunc,
 		}
 		return proxyListener
 	}
@@ -147,53 +117,44 @@ func serveListener(listener net.Listener, reqCh chan net.Conn) {
 	}
 }
 
-func StartWorkers(cfg config.UltravioletConfig, serverCfgs []config.ServerConfig) {
+func StartProxy(uvReader config.UVConfigReader, serverCfgsReader config.ServerConfigReader) error {
+	mainCfg, err := uvReader.Read()
+	if err != nil {
+		log.Fatalf("Error while reading main config file: %v", err)
+	}
+
+	log.SetOutput(mainCfg.LogOutput)
+
 	if ReqCh == nil {
 		ReqCh = make(chan net.Conn, 50)
 	}
 
-	listener := createListener(cfg)
-	for i := 0; i < cfg.NumberOfListeners; i++ {
+	listener := createListener(mainCfg)
+	for i := 0; i < mainCfg.NumberOfListeners; i++ {
 		go func(listener net.Listener, reqCh chan net.Conn) {
 			serveListener(listener, reqCh)
 		}(listener, ReqCh)
 	}
-	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
+	log.Printf("Running %v listener(s)", mainCfg.NumberOfListeners)
 
-	bWorkerManager = NewWorkerManager()
-	backendManager = NewBackendManager(&bWorkerManager, BackendFactory)
-	verifyError := config.VerifyConfigs(serverCfgs)
-	if verifyError.HasErrors() {
-		log.Fatal(verifyError.Error())
-		return
-	}
-	backendManager.LoadAllConfigs(serverCfgs)
-	log.Printf("Registered %v backend(s)", len(serverCfgs))
+	bWorkerManager = server.NewWorkerManager(mainCfg, ReqCh)
 
-	workerCfg := config.NewWorkerConfig(cfg)
-	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		worker := NewWorker(workerCfg, ReqCh)
-		go func(bw BasicWorker) {
-			bw.Work()
-		}(worker)
-		bWorkerManager.Register(&worker, true)
-	}
-	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
-}
+	backendManager = server.NewBackendManager(bWorkerManager, server.BackendFactory, serverCfgsReader)
+	backendManager.Update()
 
-func ReloadHandler(w http.ResponseWriter, r *http.Request) {
-	newCfgs, err := config.ReadServerConfigs(registeredConfigPath)
-	if err != nil {
-		http.Error(w, err.Error(), 500)
-		return
+	if mainCfg.UsePrometheus {
+		log.Println("Starting prometheus...")
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		promeServer = &http.Server{Addr: mainCfg.PrometheusBind, Handler: mux}
+		go func() {
+			log.Println(promeServer.ListenAndServe())
+		}()
 	}
-	verifyError := config.VerifyConfigs(newCfgs)
-	if verifyError.HasErrors() {
-		http.Error(w, verifyError.Error(), 500)
-		return
-	}
-	backendManager.LoadAllConfigs(newCfgs)
-	log.Printf("%d config files detected and loaded", len(newCfgs))
-	w.WriteHeader(200)
-	fmt.Fprintln(w, "success")
+
+	log.Println("Now starting api endpoint")
+	API = api.NewAPI(backendManager)
+	go API.Run(mainCfg.APIBind)
+	log.Println("Finished starting up")
+	return nil
 }

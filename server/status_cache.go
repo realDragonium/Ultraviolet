@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 )
 
 type StatusCache interface {
-	Status() (ProcessAnswer, error)
+	Status() (BackendAnswer, error)
 }
 
 func NewStatusCache(protocol int, cooldown time.Duration, connCreator ConnectionCreator) StatusCache {
@@ -29,7 +29,7 @@ func NewStatusCache(protocol int, cooldown time.Duration, connCreator Connection
 type statusCache struct {
 	connCreator ConnectionCreator
 
-	status    ProcessAnswer
+	status    BackendAnswer
 	cooldown  time.Duration
 	cacheTime time.Time
 	handshake mc.ServerBoundHandshake
@@ -37,7 +37,7 @@ type statusCache struct {
 
 var ErrStatusPing = errors.New("something went wrong while pinging")
 
-func (cache *statusCache) Status() (ProcessAnswer, error) {
+func (cache *statusCache) Status() (BackendAnswer, error) {
 	if time.Since(cache.cacheTime) < cache.cooldown {
 		return cache.status, nil
 	}
@@ -50,8 +50,8 @@ func (cache *statusCache) Status() (ProcessAnswer, error) {
 	return cache.status, nil
 }
 
-func (cache *statusCache) newStatus() (ProcessAnswer, error) {
-	var answer ProcessAnswer
+func (cache *statusCache) newStatus() (BackendAnswer, error) {
+	var answer BackendAnswer
 	connFunc := cache.connCreator.Conn()
 	conn, err := connFunc()
 	if err != nil {
@@ -68,16 +68,7 @@ func (cache *statusCache) newStatus() (ProcessAnswer, error) {
 	if err != nil {
 		return answer, err
 	}
-	var latency time.Duration = 0
-	answer = NewStatusLatencyAnswer(pk, latency)
-	beginTime := time.Now()
-	if err := mcConn.WritePacket(mc.NewServerBoundPing().Marshal()); err != nil {
-		return answer, ErrStatusPing
-	}
-	if _, err := mcConn.ReadPacket(); err != nil {
-		return answer, ErrStatusPing
-	}
+	answer = NewStatusAnswer(pk)
 	conn.Close()
-	latency = time.Since(beginTime) / 2
-	return NewStatusLatencyAnswer(pk, latency), nil
+	return NewStatusAnswer(pk), nil
 }

@@ -21,6 +21,10 @@ type SimpleStatus struct {
 }
 
 func (pk SimpleStatus) Marshal() Packet {
+	var favicon string
+	if pk.Favicon != "" {
+		favicon = fmt.Sprintf("data:image/png;base64,%s", pk.Favicon)
+	}
 	jsonResponse := ResponseJSON{
 		Version: VersionJSON{
 			Name:     pk.Name,
@@ -29,7 +33,7 @@ func (pk SimpleStatus) Marshal() Packet {
 		Description: DescriptionJSON{
 			Text: pk.Description,
 		},
-		Favicon: fmt.Sprintf("data:image/png;base64,%s", pk.Favicon),
+		Favicon: favicon,
 	}
 	text, _ := json.Marshal(jsonResponse)
 	response := ClientBoundResponse{

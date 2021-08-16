@@ -187,10 +187,11 @@ func ReadPacket3_Handshake(r *bufio.Reader) (ServerBoundHandshake, error) {
 	if err != nil {
 		return hs, err
 	}
-	hs.NextState, err = ReadVarInt_ByteReader(r)
+	state, err := ReadVarInt_ByteReader(r)
 	if err != nil {
 		return hs, err
 	}
+	hs.NextState = byte(state)
 
 	return hs, nil
 }

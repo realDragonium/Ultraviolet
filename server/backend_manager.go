@@ -1,4 +1,4 @@
-package ultraviolet
+package server
 
 import (
 	"errors"
@@ -8,17 +8,16 @@ import (
 	"github.com/realDragonium/Ultraviolet/config"
 )
 
-var (
-	ErrSameConfig = errors.New("old and new config are the same")
-)
+var ErrSameConfig = errors.New("old and new config are the same")
 
-func NewBackendManager(manager WorkerManager, factory BackendFactoryFunc) BackendManager {
+func NewBackendManager(manager WorkerManager, factory BackendFactoryFunc, cfgReader config.ServerConfigReader) BackendManager {
 	return BackendManager{
 		backends:       make(map[string]Backend),
 		domains:        make(map[string]string),
 		cfgs:           make(map[string]config.ServerConfig),
 		workerManager:  manager,
 		backendFactory: factory,
+		configReader:   cfgReader,
 	}
 }
 
@@ -29,24 +28,50 @@ type BackendManager struct {
 
 	backendFactory BackendFactoryFunc
 	workerManager  WorkerManager
+	configReader   config.ServerConfigReader
 }
 
-func (manager *BackendManager) AddConfig(cfg config.ServerConfig) {
-	if _, ok := manager.cfgs[cfg.ID()]; ok {
-		return
+func (manager *BackendManager) Update() error {
+	newCfgs, err := manager.configReader.Read()
+	if err != nil {
+		return err
 	}
+	for _, newCfg := range newCfgs {
+		_, err := config.ServerToBackendConfig(newCfg)
+		if err != nil {
+			return err
+		}
+	}
+
+	//From here on forward its not possible anymore to get an error...?
+
+	if len(manager.cfgs) == 0 {
+		for _, cfg := range newCfgs {
+			manager.addConfig(cfg)
+		}
+		return nil
+	}
+	manager.loadAllConfigs(newCfgs)
+	log.Printf("Registered %v backend(s)", len(newCfgs))
+	return nil
+}
+
+// convert error should be checked before calling this method
+func (manager *BackendManager) addConfig(cfg config.ServerConfig) {
 	manager.cfgs[cfg.ID()] = cfg
 	for _, domain := range cfg.Domains {
 		manager.domains[domain] = cfg.ID()
 	}
-	bwCfg, _ := config.FileToWorkerConfig(cfg)
-	backend, _ := manager.backendFactory(bwCfg)
+	// Error has already been changed before calling
+	bwCfg, _ := config.ServerToBackendConfig(cfg)
+	backend := manager.backendFactory(bwCfg)
 	manager.backends[cfg.ID()] = backend
 	manager.workerManager.AddBackend(cfg.Domains, backend.ReqCh())
 }
 
-func (manager *BackendManager) RemoveConfig(cfg config.ServerConfig) {
-	backend, ok := manager.backends[cfg.ID()]
+func (manager *BackendManager) removeConfig(cfg config.ServerConfig) {
+	server, ok := manager.backends[cfg.ID()]
+	log.Println(ok)
 	if !ok {
 		return
 	}
@@ -58,14 +83,14 @@ func (manager *BackendManager) RemoveConfig(cfg config.ServerConfig) {
 	manager.workerManager.RemoveBackend(cfg.Domains)
 
 	//so a worker doesnt send a request to a closed backend
-	backend.Close()
+	server.Close()
 	delete(manager.backends, cfg.ID())
 }
 
-func (manager *BackendManager) UpdateConfig(cfg config.ServerConfig) error {
+func (manager *BackendManager) updateConfig(cfg config.ServerConfig) {
 	oldCfg := manager.cfgs[cfg.ID()]
 	if reflect.DeepEqual(cfg, oldCfg) {
-		return ErrSameConfig
+		return
 	}
 
 	domainStatus := make(map[string]int)
@@ -90,21 +115,20 @@ func (manager *BackendManager) UpdateConfig(cfg config.ServerConfig) error {
 		case 3: // both have it, so keep
 		}
 	}
-	backend := manager.backendByID(cfg.ID())
-	manager.workerManager.AddBackend(addedDomains, backend.ReqCh())
+	b := manager.backendByID(cfg.ID())
+	manager.workerManager.AddBackend(addedDomains, b.ReqCh())
 	manager.workerManager.RemoveBackend(removedDomains)
 
-	backendWorkerCfg, _ := config.FileToWorkerConfig(cfg)
+	backendWorkerCfg, _ := config.ServerToBackendConfig(cfg)
 	backendConfig := NewBackendConfig(backendWorkerCfg)
-	backend.Update(backendConfig)
-	return nil
+	b.Update(backendConfig)
 }
 
 func (manager *BackendManager) backendByID(id string) Backend {
 	return manager.backends[id]
 }
 
-func (manager *BackendManager) LoadAllConfigs(cfgs []config.ServerConfig) {
+func (manager *BackendManager) loadAllConfigs(cfgs []config.ServerConfig) {
 	newCfgs := make(map[string]config.ServerConfig)
 	for _, cfg := range cfgs {
 		newCfgs[cfg.ID()] = cfg
@@ -112,21 +136,16 @@ func (manager *BackendManager) LoadAllConfigs(cfgs []config.ServerConfig) {
 
 	for id, oldCfg := range manager.cfgs {
 		if _, ok := newCfgs[id]; !ok {
-			manager.RemoveConfig(oldCfg)
-
+			manager.removeConfig(oldCfg)
 		}
 	}
 
 	for id, newCfg := range newCfgs {
 		if _, ok := manager.cfgs[id]; !ok {
-			manager.AddConfig(newCfg)
+			manager.addConfig(newCfg)
 			continue
 		}
-		err := manager.UpdateConfig(newCfg)
-		if errors.Is(err, ErrSameConfig) {
-			continue
-		}
-		log.Printf("while updating %v got error: %v", id, err)
+		manager.updateConfig(newCfg)
 	}
 }
 
@@ -140,9 +159,4 @@ func (manager *BackendManager) CheckActiveConnections() bool {
 		}
 	}
 	return activeConns
-}
-
-func (manager *BackendManager) KnowsDomain(domain string) bool {
-	_, ok := manager.domains[domain]
-	return ok
 }

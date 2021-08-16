@@ -1,9 +1,7 @@
-package ultraviolet
+package server
 
 import (
-	"errors"
 	"net"
-	"time"
 
 	"github.com/pires/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus"
@@ -12,165 +10,25 @@ import (
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
+type CheckOpenConns struct {
+	Ch chan bool
+}
+
 var (
-	ErrNotValidHandshake = errors.New("not a valid handshake state")
-	playersConnected     = promauto.NewGaugeVec(prometheus.GaugeOpts{
+	playersConnected = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "ultraviolet",
 		Name:      "player_connected",
 		Help:      "The total number of connected players",
 	}, []string{"host"})
 )
 
-type BackendFactoryFunc func(config.BackendWorkerConfig) (Backend, error)
+type BackendFactoryFunc func(config.BackendWorkerConfig) Backend
 
 type Backend interface {
 	ReqCh() chan<- BackendRequest
 	HasActiveConn() bool
 	Update(cfg BackendConfig) error
 	Close()
-}
-
-type BackendAction byte
-
-const (
-	ERROR BackendAction = iota
-	PROXY
-	DISCONNECT
-	SEND_STATUS
-	CLOSE
-)
-
-func (state BackendAction) String() string {
-	var text string
-	switch state {
-	case PROXY:
-		text = "proxy"
-	case DISCONNECT:
-		text = "disconnect"
-	case SEND_STATUS:
-		text = "send_status"
-	case CLOSE:
-		text = "close"
-	case ERROR:
-		text = "error"
-	}
-	return text
-}
-
-type ProxyAction int8
-
-const (
-	PROXY_OPEN ProxyAction = iota
-	PROXY_CLOSE
-)
-
-func (action ProxyAction) String() string {
-	var text string
-	switch action {
-	case PROXY_CLOSE:
-		text = "Proxy Close"
-	case PROXY_OPEN:
-		text = "Proxy Open"
-	}
-	return text
-}
-
-type ServerState byte
-
-const (
-	UNKNOWN ServerState = iota
-	ONLINE
-	OFFLINE
-)
-
-func (state ServerState) String() string {
-	var text string
-	switch state {
-	case UNKNOWN:
-		text = "Unknown"
-	case ONLINE:
-		text = "Online"
-	case OFFLINE:
-		text = "Offline"
-	}
-	return text
-}
-
-type BackendRequest struct {
-	Type       mc.HandshakeState
-	Handshake  mc.ServerBoundHandshake
-	ServerAddr string
-	Addr       net.Addr
-	Username   string
-	Ch         chan ProcessAnswer
-}
-
-type ProcessAnswer struct {
-	ServerName     string
-	serverConnFunc func() (net.Conn, error)
-	action         BackendAction
-	proxyCh        chan ProxyAction
-	latency        time.Duration
-
-	firstPacket  mc.Packet
-	secondPacket mc.Packet
-}
-
-func NewDisconnectAnswer(p mc.Packet) ProcessAnswer {
-	return ProcessAnswer{
-		action:      DISCONNECT,
-		firstPacket: p,
-	}
-}
-
-func NewStatusAnswer(p mc.Packet) ProcessAnswer {
-	return ProcessAnswer{
-		action:      SEND_STATUS,
-		firstPacket: p,
-	}
-}
-
-func NewStatusLatencyAnswer(p mc.Packet, latency time.Duration) ProcessAnswer {
-	return ProcessAnswer{
-		action:      SEND_STATUS,
-		firstPacket: p,
-		latency:     latency,
-	}
-}
-
-func NewProxyAnswer(p1, p2 mc.Packet, proxyCh chan ProxyAction, connFunc func() (net.Conn, error)) ProcessAnswer {
-	return ProcessAnswer{
-		action:         PROXY,
-		serverConnFunc: connFunc,
-		firstPacket:    p1,
-		secondPacket:   p2,
-		proxyCh:        proxyCh,
-	}
-}
-
-func NewCloseAnswer() ProcessAnswer {
-	return ProcessAnswer{
-		action: CLOSE,
-	}
-}
-
-func (ans ProcessAnswer) ServerConn() (net.Conn, error) {
-	return ans.serverConnFunc()
-}
-func (ans ProcessAnswer) Response() mc.Packet {
-	return ans.firstPacket
-}
-func (ans ProcessAnswer) Response2() mc.Packet {
-	return ans.secondPacket
-}
-func (ans ProcessAnswer) ProxyCh() chan ProxyAction {
-	return ans.proxyCh
-}
-func (ans ProcessAnswer) Latency() time.Duration {
-	return ans.latency
-}
-func (ans ProcessAnswer) Action() BackendAction {
-	return ans.action
 }
 
 func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
@@ -245,10 +103,10 @@ type BackendConfig struct {
 	StatusCache StatusCache
 }
 
-var BackendFactory BackendFactoryFunc = func(cfg config.BackendWorkerConfig) (Backend, error) {
+var BackendFactory BackendFactoryFunc = func(cfg config.BackendWorkerConfig) Backend {
 	backendWorker := NewBackendWorker(cfg)
 	backendWorker.Run()
-	return &backendWorker, nil
+	return &backendWorker
 }
 
 func NewBackendWorker(cfgServer config.BackendWorkerConfig) BackendWorker {
@@ -318,7 +176,7 @@ func (w *BackendWorker) Close() {
 	w.closeCh <- struct{}{}
 }
 
-//TODO: Need different name for this
+//TODO: Need different name for this...?
 func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendConfig) {
 	if wCfg.Name != "" {
 		playersConnected.Delete(prometheus.Labels{"host": w.Name})
@@ -365,6 +223,7 @@ func (worker *BackendWorker) Work() {
 		case cfg := <-worker.updateCh:
 			worker.UpdateSameGoroutine(cfg)
 		case <-worker.closeCh:
+			close(worker.reqCh)
 			return
 		}
 	}
@@ -372,26 +231,26 @@ func (worker *BackendWorker) Work() {
 
 func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
-	case PROXY_OPEN:
+	case ProxyOpen:
 		worker.activeConns++
 		playersConnected.WithLabelValues(worker.Name).Inc()
-	case PROXY_CLOSE:
+	case ProxyClose:
 		worker.activeConns--
 		playersConnected.WithLabelValues(worker.Name).Dec()
 	}
 }
 
-func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
-	if worker.ServerState != nil && worker.ServerState.State() == OFFLINE {
+func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
+	if worker.ServerState != nil && worker.ServerState.State() == Offline {
 		switch req.Type {
-		case mc.STATUS:
+		case mc.Status:
 			return NewStatusAnswer(worker.OfflineStatusPacket)
-		case mc.LOGIN:
+		case mc.Login:
 			return NewDisconnectAnswer(worker.DisconnectPacket)
 		}
 	}
 
-	if worker.StatusCache != nil && req.Type == mc.STATUS {
+	if worker.StatusCache != nil && req.Type == mc.Status {
 		ans, err := worker.StatusCache.Status()
 		if err != nil {
 			return NewStatusAnswer(worker.OfflineStatusPacket)
@@ -434,9 +293,9 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) ProcessAnswer {
 	hsPk := req.Handshake.Marshal()
 	var secondPacket mc.Packet
 	switch req.Type {
-	case mc.STATUS:
+	case mc.Status:
 		secondPacket = mc.ServerBoundRequest{}.Marshal()
-	case mc.LOGIN:
+	case mc.Login:
 		secondPacket = mc.ServerLoginStart{Name: mc.String(req.Username)}.Marshal()
 	}
 	return NewProxyAnswer(hsPk, secondPacket, worker.proxyCh, connFunc)
