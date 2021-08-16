@@ -22,7 +22,7 @@ checksum:
   name_template: 'checksums.txt'
 snapshot:
   name_template: "{{ incpatch .Tag }}-next"
-archive:
+archives:
   name_template: "{{.ProjectName}}-{{.Os}}-{{.Arch}}-{{.Version}}"
 changelog:
   sort: asc
