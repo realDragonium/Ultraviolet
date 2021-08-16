@@ -28,7 +28,6 @@ jobs:
         with:
           version: latest
           args: release --rm-dist
-          workdir: ./cmd/Ultraviolet/.
         env:
           VERSION: $INPUT_VERSioN
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
