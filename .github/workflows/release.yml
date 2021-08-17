@@ -49,6 +49,6 @@ jobs:
           tags: |
             realdragonium/ultraviolet:latest
             realdragonium/ultraviolet:${{ env.RELEASE_VERSION }}
-            ghcr.io/realDragonium/ultraviolet:latest
-            ghcr.io/realDragonium/ultraviolet:${{ env.RELEASE_VERSION }}
+            ghcr.io/realdragonium/ultraviolet:latest
+            ghcr.io/realdragonium/ultraviolet:${{ env.RELEASE_VERSION }}
             
