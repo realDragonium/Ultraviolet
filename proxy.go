@@ -20,22 +20,26 @@ import (
 )
 
 var (
-	upg   tableflip.Upgrader
-	ReqCh chan net.Conn
+	upg       tableflip.Upgrader
+	ReqCh     chan net.Conn
+	uvVersion string = "(unknown version)"
 
 	bWorkerManager server.WorkerManager
 	backendManager server.BackendManager
 
 	promeServer *http.Server
 	API         api.API
+
+	notUseHotSwap = false
 )
 
 func RunProxy(configPath string) {
+	log.Printf("Starting up Ultraviolet %s", uvVersion)
 	uvReader := config.NewUVConfigFileReader(configPath)
 	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
 	StartProxy(uvReader, serverCfgReader)
 
-	if runtime.GOOS == "windows" {
+	if notUseHotSwap {
 		select {}
 	}
 	if err := upg.Ready(); err != nil {
@@ -60,7 +64,7 @@ func RunProxy(configPath string) {
 func createListener(cfg config.UltravioletConfig) net.Listener {
 	var ln net.Listener
 	var err error
-	if runtime.GOOS == "windows" || !cfg.EnableHotSwap {
+	if notUseHotSwap {
 		ln, err = net.Listen("tcp", cfg.ListenTo)
 		if err != nil {
 			log.Fatalf("Can't listen: %v", err)
@@ -122,7 +126,7 @@ func StartProxy(uvReader config.UVConfigReader, serverCfgsReader config.ServerCo
 	if err != nil {
 		log.Fatalf("Error while reading main config file: %v", err)
 	}
-
+	notUseHotSwap = !mainCfg.EnableHotSwap || runtime.GOOS == "windows" || uvVersion == "docker"
 	log.SetOutput(mainCfg.LogOutput)
 
 	if ReqCh == nil {

@@ -6,9 +6,9 @@ ENV GO111MODULE=on
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOARCH=amd64
-RUN go build -ldflags '-X "ultravioletcmd.version=docker"' ./cmd/Ultraviolet/ 
+RUN go build -ldflags '-X "ultraviolet.uvVersion=docker"' ./cmd/Ultraviolet/ 
 
 FROM scratch
 WORKDIR /
-COPY --from=builder /build/Ultraviolet ./Ultraviolet
-ENTRYPOINT [ "./Ultraviolet run" ]
+COPY --from=builder /build/Ultraviolet ./ultraviolet
+ENTRYPOINT [ "./ultraviolet", "run" ]

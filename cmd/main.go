@@ -15,7 +15,6 @@ import (
 var (
 	defaultCfgPath = "/etc/ultraviolet"
 	configPath     string
-	version        string = "(unknown version)"
 )
 
 func Main() {
@@ -31,7 +30,6 @@ func Main() {
 
 	switch os.Args[1] {
 	case "run":
-		log.Printf("Starting up Ultraviolet %s", version)
 		ultraviolet.RunProxy(configPath)
 	case "reload":
 		err := callReloadAPI(configPath)
