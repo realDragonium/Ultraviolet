@@ -17,13 +17,13 @@ builds:
       - -X ultravioletcmd.version={{.Version}}
 release:
   draft: true
-  name_template: '{{.ProjectName}}-v{{.Version}}'
+  name_template: '{{.Version}}'
 checksum:
   name_template: 'checksums.txt'
 snapshot:
   name_template: '{{ incpatch .Tag }}-next'
 archives:
-  - name_template: '{{.ProjectName}}-{{.Os}}-{{.Arch}}-{{.Version}}'
+  - name_template: 'ultraviolet-{{.Os}}-{{.Arch}}-{{.Version}}'
 changelog:
   sort: asc
   filters:
@@ -31,3 +31,12 @@ changelog:
       - '^docs:'
       - '^test:'
       - '^ignore:'
+dockers:
+  -
+    goos: linux
+    goarch: amd64
+    dockerfile: Dockerfile
+    image_templates:
+    - "realdragonium/ultraviolet:latest"
+    - "realdragonium/ultraviolet:{{ .Tag }}"
+    - "ghcr.io/realdragonium/ultraviolet:{{ .Tag }}"
