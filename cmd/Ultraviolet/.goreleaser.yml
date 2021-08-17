@@ -35,7 +35,7 @@ dockers:
   -
     goos: linux
     goarch: amd64
-    dockerfile: Dockerfile
+    dockerfile: ./../../Dockerfile
     image_templates:
     - "realdragonium/ultraviolet:latest"
     - "realdragonium/ultraviolet:{{ .Tag }}"
