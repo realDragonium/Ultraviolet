@@ -9,14 +9,17 @@ jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
         with:
           fetch-depth: 0
-      - name: Set up Go
+      - 
+        name: Set up Go
         uses: actions/setup-go@v2
         with:
           go-version: 1.16
-      - name: Run GoReleaser
+      - 
+        name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v2
         with:
           version: latest
@@ -27,20 +30,33 @@ jobs:
   docker-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - 
+        name: Checkout
         uses: actions/checkout@v2
-      - name: Set env
+      - 
+        name: Set env
         run: echo "RELEASE_VERSION=${GITHUB_REF#refs/*/}" >> $GITHUB_ENV
-      - name: Set up QEMU
+      - 
+        name: Set up QEMU
         uses: docker/setup-qemu-action@v1
-      - name: Set up Docker Buildx
+      - 
+        name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v1
-      - name: Log in to Docker Hub
+      - 
+        name: Log in to Docker Hub
         uses: docker/login-action@v1
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
-      - name: Build and push
+      -
+        name: Login to GitHub Container Registry
+        uses: docker/login-action@v1 
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - 
+        name: Build and push
         uses: docker/build-push-action@v2
         with:
           context: .
