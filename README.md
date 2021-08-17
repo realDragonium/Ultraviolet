@@ -13,23 +13,32 @@ Its a reverse minecraft proxy, capable of serving as a placeholder when the serv
 [x] Prometheus Support  
 [x] API (Reload server config files, more later)  
 
-## Some notes
-### How to run
+
+## How to run
 Ultraviolet will, when no config is specified by the command, use `/etc/ultraviolet` as work dir and create here an `ultraviolet.json` file for you.
 ```
 $ ./ultraviolet run
 ```  
 
-### How to build
+## How to build
 Ultraviolet can be ran by using docker or you can also build a binary yourself by running:
 ```
 $ cd cmd/Ultraviolet/
 $ go build
 ```  
 
-### How to run with docker
-Currently there is no docker hub image avaiable which can be used (but there should be one soon). You can run Ultraviolet with the `Dockerfile` in the root folder of the project.
+## How to run with docker
+You can run ultraviolet in docker by executing the follow command:
+```
+docker run -d -p 25565:25565 -v /etc/ultraviolet:/etc/ultraviolet --restart=unless-stopped realdragonium/ultraviolet:latest
+```
+You could also pull it from github packages with
+```
+docker pull ghcr.io/realdragonium/ultraviolet:latest
+``` 
+Or you can make one yourself with the `Dockerfile` in the root folder of the project.
 
+## Some notes
 ### Limited connections when running binary
 Because linux the default settings for fd is 1024, this means that you can by default Ultraviolet can have 1024 open connections before it starts refusing connections because it cant open anymore fds. Because of some internal queues you should consider increasing the limit if you expect to proxy over 900 open connections at the same time. 
 
@@ -57,3 +66,5 @@ So far it only can use:
 
 # Config
 Check the [wiki](https://github.com/realDragonium/Ultraviolet/wiki/Config) for more information about the config.  
+
+There are also actual file which can be used as examples in the example folder.
