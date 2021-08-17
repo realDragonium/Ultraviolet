@@ -6,7 +6,7 @@ ENV GO111MODULE=on
 ENV CGO_ENABLED=0
 ENV GOOS=linux
 ENV GOARCH=amd64
-RUN go build -ldflags '-X "ultraviolet.uvVersion=docker"' ./cmd/Ultraviolet/ 
+RUN go build -ldflags '-X "github.com/realDragonium/Ultraviolet.uvVersion=docker"' ./cmd/Ultraviolet/ 
 
 FROM scratch
 WORKDIR /

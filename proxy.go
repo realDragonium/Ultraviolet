@@ -22,7 +22,7 @@ import (
 var (
 	upg       tableflip.Upgrader
 	ReqCh     chan net.Conn
-	uvVersion string = "(unknown version)"
+	uvVersion = "(unknown version)"
 
 	bWorkerManager server.WorkerManager
 	backendManager server.BackendManager
