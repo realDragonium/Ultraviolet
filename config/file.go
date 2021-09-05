@@ -31,7 +31,7 @@ func ReadUltravioletConfig(path string) (UltravioletConfig, error) {
 
 	if _, err := os.Stat(filePath); errors.Is(err, os.ErrNotExist) {
 		if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-			err := os.MkdirAll(path, os.ModeDir)
+			err := os.MkdirAll(path, os.ModePerm)
 			if err != nil {
 				log.Fatal(err)
 			}
