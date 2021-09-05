@@ -90,7 +90,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		UsePrometheus:       true,
 		PrometheusBind:      ":9100",
 		APIBind:             "127.0.0.1:9099",
-		PidFile:             "/etc/ultraviolet/uv.pid",
+		PidFile:             "",
 		UseTableflip:        true,
 
 		IODeadline: time.Second,

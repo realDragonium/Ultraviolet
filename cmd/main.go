@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -27,6 +28,7 @@ var (
 	configPath     string
 	uvVersion      = "(unknown version)"
 	upg            *tableflip.Upgrader
+	pidFileName    = "uv.pid"
 )
 
 func Main() {
@@ -121,6 +123,9 @@ func createListener(cfg config.UltravioletConfig, notUseHotSwap bool) (net.Liste
 	if notUseHotSwap {
 		ln, err = net.Listen("tcp", cfg.ListenTo)
 	} else {
+		if cfg.PidFile == "" {
+			cfg.PidFile = filepath.Join(configPath, pidFileName)
+		}
 		if _, err := os.Stat(cfg.PidFile); errors.Is(err, os.ErrNotExist) {
 			pid := fmt.Sprint(os.Getpid())
 			bb := []byte(pid)
