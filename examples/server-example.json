@@ -4,7 +4,7 @@
     "proxyBind": "127.0.0.1",
     "dialTimeout": "1s",
     "sendProxyProtocol": false,
-    "disconnectMessage": "Sorry, but the server is offline.",
+    "disconnectMessage": "{\"text\":\"Sorry, but the server is offline.\"}",
     "cacheStatus": true,
     "validProtocol": 755,
     "cacheUpdateCooldown": "5s",
@@ -13,7 +13,7 @@
         "protocol": 755,
         "text": "Some offline server"
     },
-    "rateLimit": 5,
+    "rateLimit": 10,
     "rateCooldown": "4s",
     "stateUpdateCooldown": "10s"
 }

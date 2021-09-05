@@ -18,7 +18,7 @@ func (worker *testUpdatableWorkerCounter) Update(data map[string]chan<- server.B
 func TestRegisterServerConfig(t *testing.T) {
 	cfg := config.UltravioletConfig{}
 	t.Run("add backend", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		domains := []string{"uv", "uv2"}
 		ch := make(chan server.BackendRequest)
 		manager.AddBackend(domains, ch)
@@ -30,7 +30,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("remove backend", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		domain := "uv2"
 		domains := []string{"uv", domain}
 		ch := make(chan server.BackendRequest)
@@ -45,7 +45,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("updates workers when registering", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, true)
 
@@ -55,7 +55,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("doesnt update workers when registering", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
@@ -65,7 +65,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("does updates when adding backend", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 
@@ -80,7 +80,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	})
 
 	t.Run("does updates when removing backend", func(t *testing.T) {
-		manager := server.NewWorkerManager(cfg, nil)
+		manager := server.NewWorkerManager(config.NewUVReader(cfg), nil)
 		worker := testUpdatableWorkerCounter{}
 		manager.Register(&worker, false)
 

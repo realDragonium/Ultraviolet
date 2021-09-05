@@ -2,8 +2,9 @@
 Description=Ultraviolet - A Minecraft reverse proxy
 
 [Service]
-ExecStart=/usr/bin/ultraviolet
+ExecStart=/usr/bin/ultraviolet run
 ExecReload=/bin/kill -HUP $MAINPID
+PIDFile=/etc/ultraviolet/uv.pid
 
 [Install]
 WantedBy=multi-user.target

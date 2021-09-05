@@ -49,13 +49,13 @@ func DefaultServerConfig() ServerConfig {
 		OldRealIP:           false,
 		NewRealIP:           false,
 		SendProxyProtocol:   false,
-		DisconnectMessage:   "Server is offline",
+		DisconnectMessage:   "{\"text\": \"Server is offline\"}",
 		CacheStatus:         true,
 		CacheUpdateCooldown: "1m",
 		RateLimit:           5,
 		RateDuration:        "1s",
 		RateBanListCooldown: "5m",
-		RateDisconMsg:       "Please reconnect to verify yourself",
+		RateDisconMsg:       "{\"text\": \"Please reconnect to verify yourself\"}",
 		StateUpdateCooldown: "5s",
 	}
 }
@@ -69,15 +69,11 @@ type UltravioletConfig struct {
 	UsePrometheus       bool            `json:"enablePrometheus"`
 	PrometheusBind      string          `json:"prometheusBind"`
 	APIBind             string          `json:"apiBind"`
+	UseTableflip        bool            `json:"useTableflip"`
+	PidFile             string          `json:"pidFile"`
 
-	EnableHotSwap bool
-	PidFile       string
-	IODeadline    time.Duration
-	LogOutput     io.Writer
-}
-
-type UVConfigReader interface {
-	Read() (UltravioletConfig, error)
+	IODeadline time.Duration
+	LogOutput  io.Writer
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
@@ -94,11 +90,11 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		UsePrometheus:       true,
 		PrometheusBind:      ":9100",
 		APIBind:             "127.0.0.1:9099",
+		PidFile:             "/etc/ultraviolet/uv.pid",
+		UseTableflip:        true,
 
-		PidFile:       "/var/run/ultraviolet.pid",
-		EnableHotSwap: true,
-		IODeadline:    time.Second,
-		LogOutput:     os.Stdout,
+		IODeadline: time.Second,
+		LogOutput:  os.Stdout,
 	}
 }
 
@@ -152,8 +148,9 @@ func DefaultWorkerConfig() WorkerConfig {
 }
 
 type WorkerConfig struct {
-	DefaultStatus mc.SimpleStatus
-	IOTimeout     time.Duration
+	NumberOfWorkers int
+	DefaultStatus   mc.SimpleStatus
+	IOTimeout       time.Duration
 }
 
 func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
@@ -166,9 +163,9 @@ func NewWorkerConfig(uvCfg UltravioletConfig) WorkerConfig {
 	}
 }
 
-type ServerConfigReader interface {
-	// Will only return the configs if they are deemed usable
-	// If they contain conflicts of something goes wrong while reading
-	//  it will return a error
-	Read() ([]ServerConfig, error)
-}
+type UVConfigReader = func() (UltravioletConfig, error)
+
+// Will only return the configs if they are deemed usable
+// If they contain conflicts of something goes wrong while reading
+//  it will return a error
+type ServerConfigReader = func() ([]ServerConfig, error)

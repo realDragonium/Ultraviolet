@@ -83,15 +83,15 @@ func LoadServerCfgFromPath(path string) (ServerConfig, error) {
 }
 
 func NewIVConfigFileReader(path string) UVConfigReader {
-	return &uvConfigFileReader{
+	return uvConfigFileReader{
 		path: path,
-	}
+	}.Read
 }
 
 func NewUVConfigFileReader(path string) UVConfigReader {
 	return uvConfigFileReader{
 		path: path,
-	}
+	}.Read
 }
 
 type uvConfigFileReader struct {
@@ -100,4 +100,10 @@ type uvConfigFileReader struct {
 
 func (reader uvConfigFileReader) Read() (UltravioletConfig, error) {
 	return ReadUltravioletConfig(reader.path)
+}
+
+func NewUVReader(cfg UltravioletConfig) func()(UltravioletConfig, error) {
+	return func() (UltravioletConfig, error) {
+		return cfg, nil
+	}
 }

@@ -117,6 +117,10 @@ func TestString(t *testing.T) {
 			decoded: mc.String("♥"),
 			encoded: []byte{0x03, 0xe2, 0x99, 0xa5},
 		},
+		{
+			decoded: mc.String("{\"text\": \"Please reconnect to verify yourself\"}"),
+			encoded: []byte{47, 123, 34, 116, 101, 120, 116, 34, 58, 32, 34, 80, 108, 101, 97, 115, 101, 32, 114, 101, 99, 111, 110, 110, 101, 99, 116, 32, 116, 111, 32, 118, 101, 114, 105, 102, 121, 32, 121, 111, 117, 114, 115, 101, 108, 102, 34, 125},
+		},
 	}
 
 	t.Run("encode", func(t *testing.T) {

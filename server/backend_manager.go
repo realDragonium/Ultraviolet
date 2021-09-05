@@ -10,8 +10,8 @@ import (
 
 var ErrSameConfig = errors.New("old and new config are the same")
 
-func NewBackendManager(manager WorkerManager, factory BackendFactoryFunc, cfgReader config.ServerConfigReader) BackendManager {
-	return BackendManager{
+func NewBackendManager(manager WorkerManager, factory BackendFactoryFunc, cfgReader config.ServerConfigReader) (BackendManager, error) {
+	bManager := BackendManager{
 		backends:       make(map[string]Backend),
 		domains:        make(map[string]string),
 		cfgs:           make(map[string]config.ServerConfig),
@@ -19,6 +19,8 @@ func NewBackendManager(manager WorkerManager, factory BackendFactoryFunc, cfgRea
 		backendFactory: factory,
 		configReader:   cfgReader,
 	}
+	err := bManager.Update()
+	return bManager, err
 }
 
 type BackendManager struct {
@@ -32,7 +34,7 @@ type BackendManager struct {
 }
 
 func (manager *BackendManager) Update() error {
-	newCfgs, err := manager.configReader.Read()
+	newCfgs, err := manager.configReader()
 	if err != nil {
 		return err
 	}

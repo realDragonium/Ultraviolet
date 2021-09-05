@@ -44,7 +44,9 @@ func NewWorker(cfg config.WorkerConfig, reqCh <-chan net.Conn) BasicWorker {
 	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
 	statusAnswer := NewStatusAnswer(defaultStatusPk)
+	statusAnswer.ServerName = unknownServerAddr
 	closeAnswer := NewCloseAnswer()
+	closeAnswer.ServerName = unknownServerAddr
 	return BasicWorker{
 		reqCh:               reqCh,
 		defaultStatusAnswer: statusAnswer,
@@ -92,31 +94,19 @@ func (w *BasicWorker) KnowsDomain(domain string) bool {
 // TODO:
 // - add more tests with this method
 func (bw *BasicWorker) Work() {
-	var err error
-	var conn net.Conn
-	var req BackendRequest
-	var ans BackendAnswer
 	for {
 		select {
-		case conn = <-bw.reqCh:
+		case conn := <-bw.reqCh:
 			start := time.Now()
-			req, err = bw.ProcessConnection(conn)
+			req, ans, err := bw.ProcessConnection(conn)
 			if err != nil {
+				conn.Close()
 				if errors.Is(err, ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				} else {
 					log.Printf("error while trying to read: %v", err)
 				}
-				dur := time.Since(start).Seconds()
-				labels := prometheus.Labels{"server": unknownServerAddr, "type": req.Type.String(), "action": Close.String()}
-				processRequests.With(labels).Observe(dur)
-				conn.Close()
-				continue
 			}
-			// log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
-			ans = bw.ProcessRequest(req)
-			// log.Printf("%v request from %v will take action: %v", req.Type, conn.RemoteAddr(), ans.Action())
-			bw.ProcessAnswer(conn, ans)
 			dur := time.Since(start).Seconds()
 			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
 			processRequests.With(labels).Observe(dur)
@@ -154,9 +144,21 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	return request, nil
 }
 
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, BackendAnswer, error) {
+	req, err := bw.ReadConnection(conn)
+	if err != nil {
+		return req, bw.closeAnswer, err
+	}
+	// log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
+	ans := bw.ProcessRequest(req)
+	// log.Printf("%v request from %v - %v will take action: %v", req.Type, conn.RemoteAddr(), req.Username, ans.Action())
+	bw.ProcessAnswer(conn, ans)
+	return req, ans, nil
+}
+
 // TODO:
 // - Adding some more error tests
-func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
 	mcConn := mc.NewMcConn(conn)
 	conn.SetDeadline(bw.IODeadline())
 
@@ -167,7 +169,6 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		// log.Printf("error while reading handshake: %v", err)
 		return BackendRequest{}, err
 	}
-	// log.Println("received handshake")
 
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
 	if err != nil {
@@ -178,7 +179,6 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		return BackendRequest{}, ErrNotValidHandshake
 	}
 
-	conn.SetDeadline(bw.IODeadline())
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		return BackendRequest{}, ErrClientToSlow
@@ -187,7 +187,6 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, error) 
 		return BackendRequest{}, err
 	}
 	conn.SetDeadline(time.Time{})
-	// log.Println("received second packet")
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
 	request := BackendRequest{

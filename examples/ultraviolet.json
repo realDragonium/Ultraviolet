@@ -3,9 +3,11 @@
     "defaultStatus": {
         "name": "Ultraviolet",
         "protocol": 755,
-        "text": "Some broken proxy"
+        "text": "Proxy message"
     },
-    "numberOfWorkers": 25,
-    "numberOfListeners": 5,
-    "acceptProxyProtocol": false
+    "numberOfWorkers": 10,
+    "numberOfListeners": 1,
+    "acceptProxyProtocol": false,
+    "useTableflip": true,
+    "pidFile": "/etc/ultraviolet/uv.pid"
 }

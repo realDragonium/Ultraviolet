@@ -241,7 +241,7 @@ func TestProcessConnection_CanReadHandshake(t *testing.T) {
 				finishedWritingCh <- struct{}{}
 			}()
 
-			go basicWorker.ProcessConnection(c2)
+			go basicWorker.ReadConnection(c2)
 
 			select {
 			case <-finishedWritingCh:
@@ -261,7 +261,7 @@ func TestProcessConnection_CanReadSecondPacket(t *testing.T) {
 			cfg := config.DefaultWorkerConfig()
 			basicWorker, _ := newWorker(cfg)
 
-			go basicWorker.ProcessConnection(c2)
+			go basicWorker.ReadConnection(c2)
 
 			finishedWritingCh := make(chan struct{})
 			go func() {
@@ -330,7 +330,7 @@ func TestProcessConnection_CanUseServerAddress(t *testing.T) {
 				client.WritePacket(loginPk)
 			}()
 
-			request, err := basicWorker.ProcessConnection(c2)
+			request, err := basicWorker.ReadConnection(c2)
 			if err != nil {
 				t.Fatalf("received error: %v", err)
 			}
@@ -363,7 +363,7 @@ func TestProcessConnection_LoginRequest(t *testing.T) {
 		client.WritePacket(loginPk)
 	}()
 
-	ans, err := basicWorker.ProcessConnection(&mockClientconn)
+	ans, err := basicWorker.ReadConnection(&mockClientconn)
 	if err != nil {
 		t.Fatalf("didnt expected error but got: %v", err)
 	}
@@ -393,7 +393,7 @@ func TestProcessConnection_IODeadlines(t *testing.T) {
 		}
 		basicWorker, _ := newWorker(cfg)
 
-		_, err := basicWorker.ProcessConnection(&mockClientconn)
+		_, err := basicWorker.ReadConnection(&mockClientconn)
 		if !errors.Is(err, server.ErrClientToSlow) {
 			t.Fatalf("did expect client to slow error but got: %v", err)
 		}
@@ -415,7 +415,7 @@ func TestProcessConnection_IODeadlines(t *testing.T) {
 			client.WritePacket(hsPk)
 		}()
 
-		_, err := basicWorker.ProcessConnection(&mockClientconn)
+		_, err := basicWorker.ReadConnection(&mockClientconn)
 		if !errors.Is(err, server.ErrClientToSlow) {
 			t.Fatalf("did expect client to slow error but got: %v", err)
 		}

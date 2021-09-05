@@ -12,28 +12,45 @@ type WorkerManager interface {
 	RemoveBackend(domains []string)
 	KnowsDomain(domain string) bool
 	Register(worker UpdatableWorker, update bool)
+	Start() error
 }
 
-func NewWorkerManager(cfg config.UltravioletConfig, reqCh <-chan net.Conn) WorkerManager {
+func NewWorkerManager(cfg config.UVConfigReader, reqCh <-chan net.Conn) WorkerManager {
 	manager := workerManager{
-		domains: make(map[string]chan<- BackendRequest),
-		workers: []UpdatableWorker{},
+		reqCh:     reqCh,
+		cfgReader: cfg,
+		domains:   make(map[string]chan<- BackendRequest),
+		workers:   []UpdatableWorker{},
+	}
+	return &manager
+}
+
+type workerManager struct {
+	cfgReader config.UVConfigReader
+	reqCh     <-chan net.Conn
+	domains   map[string]chan<- BackendRequest
+	workers   []UpdatableWorker
+}
+
+func (manager *workerManager) Start() error {
+	cfg, err := manager.cfgReader()
+	if err != nil {
+		return err
 	}
 	workerCfg := config.NewWorkerConfig(cfg)
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		worker := NewWorker(workerCfg, reqCh)
+		worker := NewWorker(workerCfg, manager.reqCh)
 		go func(bw BasicWorker) {
 			bw.Work()
 		}(worker)
 		manager.Register(&worker, true)
 	}
 	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
-	return &manager
+	return nil
 }
 
-type workerManager struct {
-	domains map[string]chan<- BackendRequest
-	workers []UpdatableWorker
+func (manager *workerManager) SetReqChan(reqCh <-chan net.Conn) {
+	manager.reqCh = reqCh
 }
 
 func (manager *workerManager) AddBackend(domains []string, ch chan<- BackendRequest) {
