@@ -3,9 +3,7 @@ package worker
 import (
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -17,45 +15,33 @@ import (
 
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/cmd"
 )
 
-func callReloadAPI(configPath string) error {
-	mainCfg, err := config.ReadUltravioletConfig(configPath)
-	if err != nil {
-		log.Fatalf("Read main config file error: %v", err)
-	}
-	url := fmt.Sprintf("http://%s/reload", mainCfg.APIBind)
-	resp, err := http.Get(url)
-	if err != nil {
-		return err
-	}
-	bb, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
-	}
-	fmt.Printf("%s", bb)
-	resp.Body.Close()
-	return nil
-}
+var (
+	configPath     string
+	upg            *tableflip.Upgrader
+	pidFileName    = "uv.pid"
+	ReqCh          chan net.Conn
+	backendManager BackendManager
+)
 
-func runProxy(configPath string) error {
+func RunProxy(configPath, version string) error {
 	uvReader := config.NewUVConfigFileReader(configPath)
 	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
 	cfg, err := uvReader()
 	if err != nil {
 		return err
 	}
-	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || cmd.UvVersion == "docker"
+
+	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || version == "docker"
 	newListener, err := createListener(cfg, notUseHotSwap)
-	// newListener, err := newStressTestListener(cfg)
 	if err != nil {
 		return err
 	}
-	proxy := ultraviolet.NewProxy(uvReader, newListener, serverCfgReader.Read)
+	
+	proxy := NewProxy(uvReader, newListener, serverCfgReader.Read)
 	err = proxy.Start()
 	if err != nil {
 		return err
@@ -64,22 +50,20 @@ func runProxy(configPath string) error {
 	if notUseHotSwap {
 		select {}
 	}
+
 	if err := upg.Ready(); err != nil {
 		panic(err)
 	}
 	<-upg.Exit()
 
-	// promeServer.Close()
-	// API.Close()
-
 	log.Println("Waiting for all connections to be closed before shutting down")
-	// for {
-	// 	active := ultraviolet.BackendManager.CheckActiveConnections()
-	// 	if !active {
-	// 		break
-	// 	}
-	// 	time.Sleep(time.Minute)
-	// }
+	for {
+		active := backendManager.CheckActiveConnections()
+		if !active {
+			break
+		}
+		time.Sleep(time.Minute)
+	}
 	log.Println("All connections closed, shutting down process")
 	return nil
 }
@@ -139,70 +123,71 @@ func tableflipListener(cfg config.UltravioletConfig) (net.Listener, error) {
 	return upg.Listen("tcp", cfg.ListenTo)
 }
 
-type stressTestListener struct {
-	interval      time.Duration
-	realRequestCh chan net.Conn
-	r             *rand.Rand
-}
-
-func (l *stressTestListener) Accept() (net.Conn, error) {
-	var conn net.Conn
-	select {
-	case <-time.After(l.interval):
-		c1, c2 := net.Pipe()
-		conn = c1
-		go func() {
-			mcConn := mc.NewMcConn(c2)
-			hs := mc.ServerBoundHandshake{
-				ProtocolVersion: 755,
-				ServerAddress:   "localhost",
-				ServerPort:      25565,
-				NextState:       mc.LoginState,
-			}
-			hsPk := hs.Marshal()
-			mcConn.WritePacket(hsPk)
-			login := mc.ServerLoginStart{
-				Name: mc.String(fmt.Sprint(l.r.Int())),
-			}
-			loginPk := login.Marshal()
-			mcConn.WritePacket(loginPk)
-		}()
-	case c := <-l.realRequestCh:
-		conn = c
+func NewProxy(uvReader config.UVConfigReader, l net.Listener, cfgReader config.ServerConfigReader) WorkerProxy {
+	return WorkerProxy{
+		uvReader:  uvReader,
+		listener:  l,
+		cfgReader: cfgReader,
 	}
-	return conn, nil
 }
 
-func (l *stressTestListener) Close() error {
-	return nil
+type WorkerProxy struct {
+	uvReader  config.UVConfigReader
+	listener  net.Listener
+	cfgReader config.ServerConfigReader
 }
 
-func (l *stressTestListener) Addr() net.Addr {
-	return nil
-}
-
-func newStressTestListener(cfg config.UltravioletConfig) (net.Listener, error) {
-	ln, err := net.Listen("tcp", cfg.ListenTo)
+func (p *WorkerProxy) Start() error {
+	cfg, err := p.uvReader()
 	if err != nil {
-		return ln, err
+		return err
 	}
-	realReqCh := make(chan net.Conn)
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				log.Printf("got error from real listener: %v", err)
-				continue
+	if ReqCh == nil {
+		ReqCh = make(chan net.Conn, 50)
+	}
+	workerManager := NewWorkerManager(p.uvReader, ReqCh)
+	workerManager.Start()
+	backendManager, err = NewBackendManager(workerManager, BackendFactory, p.cfgReader)
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < cfg.NumberOfListeners; i++ {
+		go func(listener net.Listener, reqCh chan<- net.Conn) {
+			serveListener(listener, reqCh)
+		}(p.listener, ReqCh)
+	}
+	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
+
+	if cfg.UsePrometheus {
+		log.Println("Starting prometheus...")
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", promhttp.Handler())
+		promeServer := &http.Server{Addr: cfg.PrometheusBind, Handler: mux}
+		go func() {
+			log.Println(promeServer.ListenAndServe())
+		}()
+	}
+
+	log.Println("Now starting api endpoint")
+	UsedAPI := NewAPI(backendManager)
+	go UsedAPI.Run(cfg.APIBind)
+	log.Println("Finished starting up")
+
+	return nil
+}
+
+func serveListener(listener net.Listener, reqCh chan<- net.Conn) {
+	for {
+		conn, err := listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				log.Printf("net.Listener was closed, stopping with accepting calls")
+				break
 			}
-			realReqCh <- conn
+			log.Println(err)
+			continue
 		}
-	}()
-	source := rand.NewSource(time.Now().UnixNano())
-	random := rand.New(source)
-	stressListener := stressTestListener{
-		interval:      time.Millisecond,
-		realRequestCh: realReqCh,
-		r:             random,
+		reqCh <- conn
 	}
-	return &stressListener, nil
 }
