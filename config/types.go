@@ -51,8 +51,8 @@ type APIServerConfig struct {
 	UseStatusCache    bool            `json:"useStatusCache"`
 	CachedStatus      mc.SimpleStatus `json:"cachedStatus"`
 	DisconnectMessage string          `json:"disconnectMessage"`
-	
-	LimitBots bool 
+
+	LimitBots bool
 }
 
 func (cfg ServerConfig) ID() string {
@@ -89,6 +89,7 @@ type UltravioletConfig struct {
 	APIBind             string          `json:"apiBind"`
 	UseTableflip        bool            `json:"useTableflip"`
 	PidFile             string          `json:"pidFile"`
+	UseLessStableMode   bool            `json:"useLessStableMode"`
 
 	IODeadline time.Duration
 	LogOutput  io.Writer
@@ -121,6 +122,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		APIBind:             "127.0.0.1:9099",
 		PidFile:             "",
 		UseTableflip:        true,
+		UseLessStableMode:   false,
 
 		IODeadline: time.Second,
 		LogOutput:  os.Stdout,

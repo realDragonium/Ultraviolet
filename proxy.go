@@ -13,22 +13,22 @@ var (
 	maxConnParallelProcessing = make(chan struct{}, 100_000)
 )
 
-func NewProxy(uvReader config.UVConfigReader, l net.Listener, cfgReader config.ServerConfigReader) Proxy {
-	return Proxy{
+func NewProxy(uvReader config.UVConfigReader, l net.Listener, cfgReader config.ServerConfigReader) core.Proxy {
+	return &SpeedyProxy{
 		uvReader:  uvReader,
 		listener:  l,
 		cfgReader: cfgReader,
 	}
 }
 
-type Proxy struct {
+type SpeedyProxy struct {
 	uvReader      config.UVConfigReader
 	listener      net.Listener
 	cfgReader     config.ServerConfigReader
 	serverCatalog core.ServerCatalog
 }
 
-func (p *Proxy) Start() error {
+func (p *SpeedyProxy) Start() error {
 	p.ReloadServerCatalog()
 
 	for {
@@ -59,7 +59,7 @@ func unclaimParallelRun() {
 	<-maxConnParallelProcessing
 }
 
-func (p *Proxy) ReloadServerCatalog() error {
+func (p *SpeedyProxy) ReloadServerCatalog() error {
 	cfg, err := p.uvReader()
 	if err != nil {
 		return err
