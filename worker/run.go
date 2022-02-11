@@ -22,12 +22,13 @@ import (
 var (
 	configPath     string
 	upg            *tableflip.Upgrader
-	pidFileName    = "uv.pid"
+	pidFileName    = "/bin/ultraviolet/uv.pid"
 	ReqCh          chan net.Conn
 	backendManager BackendManager
 )
 
 func RunProxy(configPath, version string) error {
+	pidFileName = configPath + "/uv.pid"
 	uvReader := config.NewUVConfigFileReader(configPath)
 	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
 	cfg, err := uvReader()
@@ -40,7 +41,7 @@ func RunProxy(configPath, version string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	proxy := NewProxy(uvReader, newListener, serverCfgReader.Read)
 	err = proxy.Start()
 	if err != nil {
