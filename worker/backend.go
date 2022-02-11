@@ -269,7 +269,7 @@ func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 	}
 
 	if wrk.ConnLimiter != nil {
-		if wrk.ConnLimiter.Allow(req.ReqData){
+		if !wrk.ConnLimiter.Allow(req.ReqData) {
 			return BackendAnswer{}
 		}
 	}

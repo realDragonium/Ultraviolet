@@ -77,7 +77,7 @@ type APIServer struct {
 }
 
 func (server APIServer) ConnAction(req core.RequestData) core.ServerAction {
-	if server.useBotLimiter && botLimiter.Allow(req) {
+	if server.useBotLimiter && !botLimiter.Allow(req) {
 		return core.VERIFY_CONN
 	}
 
