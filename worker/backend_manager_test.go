@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/worker"
 )
@@ -402,7 +402,7 @@ func TestCheckActiveConnections(t *testing.T) {
 		ch := workerManager.something[domain]
 		ansCh := make(chan worker.BackendAnswer)
 		req := worker.BackendRequest{
-			ReqData: ultraviolet.RequestData{
+			ReqData: core.RequestData{
 				Type: mc.Login,
 			},
 			Ch: ansCh,
@@ -439,7 +439,7 @@ func TestCheckActiveConnections(t *testing.T) {
 			for i := 0; i < count; i++ {
 				ansCh := make(chan worker.BackendAnswer)
 				req := worker.BackendRequest{
-					ReqData: ultraviolet.RequestData{
+					ReqData: core.RequestData{
 						Type: mc.Login,
 					},
 					Ch: ansCh,

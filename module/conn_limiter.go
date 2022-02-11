@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -19,9 +19,7 @@ func FilterIpFromAddr(addr net.Addr) string {
 }
 
 type ConnectionLimiter interface {
-	// The process answer is empty and should be ignored when it does allow the connection to happen
-	// Returns true if the connection is allowed to happen
-	Allow(req ultraviolet.RequestData) (allowed bool, err error)
+	Allow(req core.RequestData) (allowed bool, err error)
 }
 
 func NewAbsConnLimiter(ratelimit int, cooldown time.Duration, limitStatus bool) ConnectionLimiter {
@@ -40,7 +38,7 @@ type absoluteConnlimiter struct {
 	limitStatus   bool
 }
 
-func (r *absoluteConnlimiter) Allow(req ultraviolet.RequestData) (bool, error) {
+func (r *absoluteConnlimiter) Allow(req core.RequestData) (bool, error) {
 	if time.Since(r.rateStartTime) >= r.rateCooldown {
 		r.rateCounter = 0
 		r.rateStartTime = time.Now()
@@ -57,7 +55,7 @@ func (r *absoluteConnlimiter) Allow(req ultraviolet.RequestData) (bool, error) {
 
 type AlwaysAllowConnection struct{}
 
-func (limiter AlwaysAllowConnection) Allow(req ultraviolet.RequestData) (bool, error) {
+func (limiter AlwaysAllowConnection) Allow(req core.RequestData) (bool, error) {
 	return true, nil
 }
 
@@ -93,7 +91,7 @@ type botFilterConnLimiter struct {
 }
 
 // TODO: Fix hidden race condition (something with the timing of the lastTimeAboveLimit time)
-func (l *botFilterConnLimiter) Allow(req ultraviolet.RequestData) (allowed bool, err error) {
+func (l *botFilterConnLimiter) Allow(req core.RequestData) (allowed bool, err error) {
 	if req.Type == mc.Status {
 		allowed = true
 		return

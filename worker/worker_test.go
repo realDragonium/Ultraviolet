@@ -12,6 +12,7 @@ import (
 
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/worker"
 )
@@ -152,7 +153,7 @@ func TestProcessRequest_UnknownAddr(t *testing.T) {
 			cfg := config.DefaultWorkerConfig()
 			basicwrk, _ := newWorker(cfg)
 
-			request := ultraviolet.RequestData{
+			request := core.RequestData{
 				ServerAddr: "ultraviolet",
 				Type:       tc.reqType,
 			}
@@ -176,7 +177,7 @@ func TestProcessRequest_KnownAddr_SendsRequestToWorker(t *testing.T) {
 			servers[serverAddr] = workerCh
 			basicwrk.SetServers(servers)
 
-			request := ultraviolet.RequestData{
+			request := core.RequestData{
 				ServerAddr: serverAddr,
 				Type:       mc.UnknownState,
 			}
@@ -207,7 +208,7 @@ func TestProcessRequest_KnownAddr_ReturnsAnswer(t *testing.T) {
 			servers[serverAddr] = workerCh
 			basicwrk.SetServers(servers)
 
-			request := ultraviolet.RequestData{
+			request := core.RequestData{
 				ServerAddr: serverAddr,
 				Type:       mc.UnknownState,
 			}

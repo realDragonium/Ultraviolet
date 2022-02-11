@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/module"
 )
 
@@ -19,7 +19,7 @@ var (
 func TestAlwaysOnlineState(t *testing.T) {
 	stateAgent := module.AlwaysOnlineState{}
 
-	if stateAgent.State() != ultraviolet.Online {
+	if stateAgent.State() != core.Online {
 		t.Errorf("expected to be online but got %v instead", stateAgent.State())
 	}
 }
@@ -27,7 +27,7 @@ func TestAlwaysOnlineState(t *testing.T) {
 func TestAlwaysOfflineState(t *testing.T) {
 	stateAgent := module.AlwaysOfflineState{}
 
-	if stateAgent.State() != ultraviolet.Offline {
+	if stateAgent.State() != core.Offline {
 		t.Errorf("expected to be offline but got %v instead", stateAgent.State())
 	}
 }
@@ -52,14 +52,14 @@ func (creator *stateConnCreator) Conn() func() (net.Conn, error) {
 func TestMcServerState(t *testing.T) {
 	tt := []struct {
 		returnError   bool
-		expectedState ultraviolet.ServerState
+		expectedState core.ServerState
 	}{
 		{
-			expectedState: ultraviolet.Offline,
+			expectedState: core.Offline,
 			returnError:   true,
 		},
 		{
-			expectedState: ultraviolet.Online,
+			expectedState: core.Online,
 			returnError:   false,
 		},
 	}

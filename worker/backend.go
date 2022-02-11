@@ -6,8 +6,8 @@ import (
 	"github.com/pires/go-proxyproto"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/module"
 )
@@ -244,7 +244,7 @@ func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 }
 
 func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
-	if worker.ServerState != nil && worker.ServerState.State() == ultraviolet.Offline {
+	if worker.ServerState != nil && worker.ServerState.State() == core.Offline {
 		switch req.ReqData.Type {
 		case mc.Status:
 			return NewStatusAnswer(worker.OfflineStatusPacket)

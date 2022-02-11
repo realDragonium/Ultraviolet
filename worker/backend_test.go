@@ -11,8 +11,8 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
-	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/module"
 	"github.com/realDragonium/Ultraviolet/worker"
@@ -101,17 +101,17 @@ type testConnectionLimiter struct {
 	allow         bool
 }
 
-func (limiter *testConnectionLimiter) Allow(reqData ultraviolet.RequestData) (allowed bool, err error) {
+func (limiter *testConnectionLimiter) Allow(reqData core.RequestData) (allowed bool, err error) {
 	limiter.hasBeenCalled = true
 	return limiter.allow, nil
 }
 
 type testServerState struct {
 	hasBeenCalled bool
-	state         ultraviolet.ServerState
+	state         core.ServerState
 }
 
-func (state *testServerState) State() ultraviolet.ServerState {
+func (state *testServerState) State() core.ServerState {
 	state.hasBeenCalled = true
 	return state.state
 }
@@ -204,7 +204,7 @@ func TestBackendWorker_OfflineServer(t *testing.T) {
 			}
 
 			req := worker.BackendRequest{
-				ultraviolet.RequestData{
+				core.RequestData{
 					Type: tc.reqType,
 				},
 				make(chan<- worker.BackendAnswer),
@@ -243,7 +243,7 @@ func TestBackendWorker_OnlineServer(t *testing.T) {
 				ProxyTo: targetAddr,
 			}
 			req := worker.BackendRequest{
-				ReqData: ultraviolet.RequestData{
+				ReqData: core.RequestData{
 					Type: tc.reqType,
 				},
 			}
@@ -277,7 +277,7 @@ func TestBackendWorker_HandshakeModifier(t *testing.T) {
 		ConnCreator: testConnCreator{},
 	}
 	req := worker.BackendRequest{
-		ReqData: ultraviolet.RequestData{
+		ReqData: core.RequestData{
 			Type: mc.Login,
 			Handshake: mc.ServerBoundHandshake{
 				ServerAddress: "Something",
@@ -311,7 +311,7 @@ func TestBackendWorker_ProxyBind(t *testing.T) {
 				ProxyBind: proxyBind,
 			}
 			req := worker.BackendRequest{
-				ReqData: ultraviolet.RequestData{
+				ReqData: core.RequestData{
 					Type: tc.reqType,
 				},
 			}
@@ -355,7 +355,7 @@ func TestBackendWorker_ProxyProtocol(t *testing.T) {
 				SendProxyProtocol: true,
 			}
 			req := worker.BackendRequest{
-				ReqData: ultraviolet.RequestData{
+				ReqData: core.RequestData{
 					Type: tc.reqType,
 					Addr: playerAddr,
 				},
@@ -442,22 +442,22 @@ func TestBackendWorker_ConnLimiter(t *testing.T) {
 func TestBackendWorker_ServerState(t *testing.T) {
 	tt := []struct {
 		reqType        mc.HandshakeState
-		serverState    ultraviolet.ServerState
+		serverState    core.ServerState
 		expectedAction worker.BackendAction
 	}{
 		{
 			reqType:        mc.UnknownState,
-			serverState:    ultraviolet.Online,
+			serverState:    core.Online,
 			expectedAction: worker.Proxy,
 		},
 		{
 			reqType:        mc.Login,
-			serverState:    ultraviolet.Offline,
+			serverState:    core.Offline,
 			expectedAction: worker.Disconnect,
 		},
 		{
 			reqType:        mc.Status,
-			serverState:    ultraviolet.Offline,
+			serverState:    core.Offline,
 			expectedAction: worker.SendStatus,
 		},
 	}
@@ -472,7 +472,7 @@ func TestBackendWorker_ServerState(t *testing.T) {
 				ConnCreator: testConnCreator{},
 			}
 			req := worker.BackendRequest{
-				ReqData: ultraviolet.RequestData{
+				ReqData: core.RequestData{
 					Type: tc.reqType,
 				},
 			}
@@ -593,7 +593,7 @@ func TestBackendWorker_Update(t *testing.T) {
 		}
 		ansCh := make(chan worker.BackendAnswer)
 		reqCh <- worker.BackendRequest{
-			ReqData: ultraviolet.RequestData{
+			ReqData: core.RequestData{
 				Type: mc.Login,
 			},
 			Ch: ansCh,
@@ -645,7 +645,7 @@ func TestBackendFactory(t *testing.T) {
 		reqCh := b.ReqCh()
 		rCh := make(chan worker.BackendAnswer)
 		req := worker.BackendRequest{
-			ReqData: ultraviolet.RequestData{
+			ReqData: core.RequestData{
 				Type: mc.Login,
 			},
 			Ch: rCh,

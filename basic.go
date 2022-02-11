@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -23,22 +24,14 @@ type API interface {
 	Close()
 }
 
-type RequestData struct {
-	Type       mc.HandshakeState
-	Handshake  mc.ServerBoundHandshake
-	ServerAddr string
-	Addr       net.Addr
-	Username   string
-}
-
-func ReadStuff(conn net.Conn) (reqData RequestData, err error) {
+func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
 	conn.SetDeadline(time.Now().Add(ConnTimeoutDuration))
 	mcConn := mc.NewMcConn(conn)
 
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		err = ErrClientToSlow
-		return 
+		return
 	} else if err != nil {
 		return
 	}
@@ -56,14 +49,14 @@ func ReadStuff(conn net.Conn) (reqData RequestData, err error) {
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
 		err = ErrClientToSlow
-		return 
+		return
 	} else if err != nil {
-		return 
+		return
 	}
 	conn.SetDeadline(time.Time{})
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
-	reqData = RequestData{
+	reqData = core.RequestData{
 		Type:       reqType,
 		ServerAddr: serverAddr,
 		Addr:       conn.RemoteAddr(),
@@ -82,7 +75,7 @@ func ReadStuff(conn net.Conn) (reqData RequestData, err error) {
 	return reqData, nil
 }
 
-func LookupServer(req RequestData, servers ServerCatalog) (Server, error) {
+func LookupServer(req core.RequestData, servers ServerCatalog) (Server, error) {
 	return servers.Find(req.ServerAddr)
 }
 
@@ -147,7 +140,7 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 	return SendResponse(conn, responsePk, action == STATUS_CACHED)
 }
 
-func ProxyConnection(client net.Conn, server Server, reqData RequestData) (err error) {
+func ProxyConnection(client net.Conn, server Server, reqData core.RequestData) (err error) {
 	serverConn, err := server.CreateConn(reqData)
 	if err != nil {
 		return

@@ -1,4 +1,4 @@
-package ultraviolet
+package core
 
 //go:generate stringer -type=ServerState
 type ServerState byte

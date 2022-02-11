@@ -7,6 +7,7 @@ import (
 
 	"github.com/pires/go-proxyproto"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -25,19 +26,19 @@ const (
 )
 
 type Server interface {
-	ConnAction(req RequestData) (ServerAction, error)
-	CreateConn(req RequestData) (net.Conn, error)
+	ConnAction(req core.RequestData) (ServerAction, error)
+	CreateConn(req core.RequestData) (net.Conn, error)
 	CachedStatus() mc.Packet
 }
 
 type ProxyAllServer struct {
 }
 
-func (s ProxyAllServer) ConnAction(req RequestData) (ServerAction, error) {
+func (s ProxyAllServer) ConnAction(req core.RequestData) (ServerAction, error) {
 	return PROXY, nil
 }
 
-func (s ProxyAllServer) CreateConn(req RequestData) (net.Conn, error) {
+func (s ProxyAllServer) CreateConn(req core.RequestData) (net.Conn, error) {
 	return &net.TCPConn{}, nil
 }
 
@@ -64,9 +65,9 @@ func NewConfigServer(cfg config.APIServerConfig) configServer {
 
 	cachedStatusPk := cfg.CachedStatus.Marshal()
 
-	serverState := Offline
+	serverState := core.Offline
 	if cfg.IsOnline {
-		serverState = Online
+		serverState = core.Online
 	}
 
 	return configServer{
@@ -88,21 +89,21 @@ type configServer struct {
 
 	useStatusCache bool
 	serverStatusPk mc.Packet
-	serverStatus   ServerState
+	serverStatus   core.ServerState
 }
 
-func (cfgServer configServer) ConnAction(req RequestData) (ServerAction, error) {
+func (cfgServer configServer) ConnAction(req core.RequestData) (ServerAction, error) {
 	switch cfgServer.serverStatus {
-	case Offline:
+	case core.Offline:
 		return cfgServer.serverOffline(req)
-	case Online:
+	case core.Online:
 		return cfgServer.serverOnline(req)
 	default:
 		return DISCONNECT, nil
 	}
 }
 
-func (cfgServer configServer) serverOffline(req RequestData) (ServerAction, error) {
+func (cfgServer configServer) serverOffline(req core.RequestData) (ServerAction, error) {
 	if req.Type == mc.Status {
 		return STATUS_CACHED, nil
 	}
@@ -110,7 +111,7 @@ func (cfgServer configServer) serverOffline(req RequestData) (ServerAction, erro
 	return DISCONNECT, nil
 }
 
-func (cfgServer configServer) serverOnline(req RequestData) (ServerAction, error) {
+func (cfgServer configServer) serverOnline(req core.RequestData) (ServerAction, error) {
 	if req.Type == mc.Login {
 		// if cfgServer.useRealipv2_4 {
 		// 	return PROXY_REALIP_2_4, nil
@@ -132,7 +133,7 @@ func (cfgServer configServer) serverOnline(req RequestData) (ServerAction, error
 	return DISCONNECT, nil
 }
 
-func (cfgServer configServer) CreateConn(req RequestData) (conn net.Conn, err error) {
+func (cfgServer configServer) CreateConn(req core.RequestData) (conn net.Conn, err error) {
 	conn, err = cfgServer.dialer.Dial("tcp", cfgServer.proxyTo)
 	if err != nil {
 		return

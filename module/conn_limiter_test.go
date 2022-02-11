@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/module"
 )
@@ -38,7 +38,7 @@ func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
 	for _, tc := range tt {
 		name := fmt.Sprintf("limits on: %v, limit status: %v, cooldown: %v", tc.limit, tc.limitStatus, tc.cooldown)
 		t.Run(name, func(t *testing.T) {
-			req := ultraviolet.RequestData{}
+			req := core.RequestData{}
 			connLimiter := module.NewAbsConnLimiter(tc.limit, tc.cooldown, tc.limitStatus)
 
 			for i := 0; i < tc.limit; i++ {
@@ -59,7 +59,7 @@ func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
 func TestAbsoluteConnLimiter_AllowsNewConnectionsAfterCooldown(t *testing.T) {
 	limit := 5
 	cooldown := time.Millisecond
-	req := ultraviolet.RequestData{}
+	req := core.RequestData{}
 	connLimiter := module.NewAbsConnLimiter(limit, cooldown, true)
 
 	for i := 0; i < limit+1; i++ {
@@ -76,7 +76,7 @@ func TestAbsoluteConnLimiter_AllowsNewConnectionsAfterCooldown(t *testing.T) {
 
 func TestAlwaysAllowConnection(t *testing.T) {
 	limiter := module.AlwaysAllowConnection{}
-	req := ultraviolet.RequestData{}
+	req := core.RequestData{}
 
 	ok, _ := limiter.Allow(req)
 	if !ok {
@@ -144,7 +144,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 					IP: net.IPv4(10, 10, 10, 10),
 				}
 				playerName := "backend"
-				req := ultraviolet.RequestData{
+				req := core.RequestData{
 					Type:      tc.reqType,
 					Handshake: mc.ServerBoundHandshake{},
 					Addr:      &playerAddr,
@@ -171,7 +171,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName := "backend"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -192,7 +192,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 			Reason: "You have been disconnected with the server",
 		}.Marshal()
 		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, normalUnverifyCooldown, listClearTime, disconPk)
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:     mc.Login,
 			Addr:     generateIPAddr(),
 			Username: "backend",
@@ -216,7 +216,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 			Reason: "You have been disconnected with the server",
 		}.Marshal()
 		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, disconPk)
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:     mc.Login,
 			Addr:     generateIPAddr(),
 			Username: "backend",
@@ -245,7 +245,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName := "backend"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -266,7 +266,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -289,7 +289,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -314,7 +314,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -340,7 +340,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, rateDisconPk)
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := ultraviolet.RequestData{
+		req := core.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      generateIPAddr(),

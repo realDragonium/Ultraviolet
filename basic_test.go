@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -41,7 +42,7 @@ func TestReadStuff(t *testing.T) {
 		expectedError   error
 		expectNoError   bool
 		compareReqData  bool
-		expectedReqData ultraviolet.RequestData
+		expectedReqData core.RequestData
 	}{
 		{
 			name:          "nothing to read",
@@ -53,7 +54,7 @@ func TestReadStuff(t *testing.T) {
 			pksSend:        []mc.Packet{loginHsPk, loginSecondPk},
 			expectNoError:  true,
 			compareReqData: true,
-			expectedReqData: ultraviolet.RequestData{
+			expectedReqData: core.RequestData{
 				Type:       mc.Login,
 				Handshake:  loginHs,
 				ServerAddr: "ultraviolet",
@@ -65,7 +66,7 @@ func TestReadStuff(t *testing.T) {
 			pksSend:        []mc.Packet{statusHsPk, statusSecondPk},
 			expectNoError:  true,
 			compareReqData: true,
-			expectedReqData: ultraviolet.RequestData{
+			expectedReqData: core.RequestData{
 				Type:       mc.Status,
 				Handshake:  statusHs,
 				ServerAddr: "ultraviolet",
@@ -127,14 +128,14 @@ func TestReadStuff(t *testing.T) {
 }
 
 func TestLookupServer(t *testing.T) {
-	defaultReqData := ultraviolet.RequestData{
+	defaultReqData := core.RequestData{
 		Type:       mc.Login,
 		Handshake:  loginHs,
 		ServerAddr: "Ultraviolet",
 		Addr:       &net.IPAddr{},
 		Username:   "drago",
 	}
-	notRegisteredServerReqData := ultraviolet.RequestData{
+	notRegisteredServerReqData := core.RequestData{
 		Type:       mc.Login,
 		Handshake:  loginHs,
 		ServerAddr: "uv",
@@ -148,7 +149,7 @@ func TestLookupServer(t *testing.T) {
 
 	tt := []struct {
 		name           string
-		reqData        ultraviolet.RequestData
+		reqData        core.RequestData
 		expectedError  error
 		expectNoError  bool
 		compareServer  bool

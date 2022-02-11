@@ -3,7 +3,7 @@ package worker
 import (
 	"net"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -32,7 +32,7 @@ type BackendRequest struct {
 	// ServerAddr string
 	// Addr       net.Addr
 	// Username   string
-	ReqData ultraviolet.RequestData
+	ReqData core.RequestData
 	Ch      chan<- BackendAnswer
 }
 

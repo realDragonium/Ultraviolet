@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -116,7 +117,7 @@ func (bw *BasicWorker) Work() {
 	}
 }
 
-func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (ultraviolet.RequestData, error) {
+func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (core.RequestData, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
 	handshake, err := mc.ReadPacket3_Handshake(b)
@@ -125,9 +126,9 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (ultraviolet.
 	}
 	t := mc.RequestState(handshake.NextState)
 	if t == mc.UnknownState {
-		return ultraviolet.RequestData{}, ultraviolet.ErrNotValidHandshake
+		return core.RequestData{}, ultraviolet.ErrNotValidHandshake
 	}
-	request := ultraviolet.RequestData{
+	request := core.RequestData{
 		Type:       t,
 		ServerAddr: handshake.ParseServerAddress(),
 		Addr:       conn.RemoteAddr(),
@@ -142,7 +143,7 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (ultraviolet.
 	return request, nil
 }
 
-func (bw *BasicWorker) ProcessConnection(conn net.Conn) (ultraviolet.RequestData, BackendAnswer, error) {
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (core.RequestData, BackendAnswer, error) {
 	req, err := bw.ReadConnection(conn)
 	if err != nil {
 		return req, bw.closeAnswer, err
@@ -156,7 +157,7 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (ultraviolet.RequestData
 
 // TODO:
 // - Adding some more error tests
-func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData ultraviolet.RequestData, err error) {
+func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData core.RequestData, err error) {
 	mcConn := mc.NewMcConn(conn)
 	conn.SetDeadline(bw.IODeadline())
 
@@ -185,7 +186,7 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData ultraviolet.Reques
 	conn.SetDeadline(time.Time{})
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
-	reqData = ultraviolet.RequestData{
+	reqData = core.RequestData{
 		Type:       reqType,
 		ServerAddr: serverAddr,
 		Addr:       conn.RemoteAddr(),
@@ -204,7 +205,7 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData ultraviolet.Reques
 	return reqData, nil
 }
 
-func (bw *BasicWorker) ProcessRequest(reqData ultraviolet.RequestData) BackendAnswer {
+func (bw *BasicWorker) ProcessRequest(reqData core.RequestData) BackendAnswer {
 	ch, ok := bw.serverDict[reqData.ServerAddr]
 	if !ok {
 		if reqData.Type == mc.Status {
