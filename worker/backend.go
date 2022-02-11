@@ -244,60 +244,47 @@ func (wrk *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 }
 
 func (wrk *BackendWorker) ConnAction(req core.RequestData) core.ServerAction {
-	if wrk.StatusCache != nil && req.Type == mc.Status {
-		return core.STATUS	
-	}
+	backendReq := BackendRequest{ReqData: req}
+	ans := wrk.HandleRequest(backendReq)
 
-	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
-		switch req.Type {
-		case mc.Status:
-			return core.STATUS
-		case mc.Login:
-			return core.DISCONNECT
-		}
+	switch (ans.Action()) {
+	case Disconnect:
+		return core.DISCONNECT
+	case Proxy:
+		return core.PROXY 
+	case Close: 
+		return core.DISCONNECT
+	case Error: 
+		return core.DISCONNECT
+	default:
+		return core.PROXY
 	}
-
-	if wrk.ConnLimiter != nil {
-		if ok, _ := wrk.ConnLimiter.Allow(req); !ok {
-			return core.DISCONNECT
-		}
-	}
-
-	return core.PROXY
 }
 
 func (wrk *BackendWorker) CreateConn(req core.RequestData) (c net.Conn, err error) {
-	c, err = wrk.ConnCreator.Conn()()
-	
-	if wrk.SendProxyProtocol {
-		header := &proxyproto.Header{
-			Version:           2,
-			Command:           proxyproto.PROXY,
-			TransportProtocol: proxyproto.TCPv4,
-			SourceAddr:        c.LocalAddr(),
-			DestinationAddr:   c.RemoteAddr(),
-		}
+	backendReq := BackendRequest{ReqData: req}
+	ans := wrk.HandleRequest(backendReq)
 
-		_, err = header.WriteTo(c)
+	if ans.Action() != Proxy {
+		return nil, core.ErrNoServerConn
 	}
-
-	return
+	
+	return ans.serverConnFunc()
 }
 
 func (wrk *BackendWorker) Status() mc.Packet {
-	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
-		return wrk.OfflineStatusPacket
+	backendReq := BackendRequest{
+		ReqData: core.RequestData{
+			Type: mc.Status,
+		},
 	}
+	ans := wrk.HandleRequest(backendReq)
 
-	if wrk.StatusCache != nil {
-		ans, err := wrk.StatusCache.Status()
-		if err != nil {
-			return wrk.OfflineStatusPacket
-		}
-		return ans
+	if ans.Action() != SendStatus {
+		return mc.Packet{}
 	}
-
-	return mc.Packet{}
+	
+	return ans.Response()
 }
 
 func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
