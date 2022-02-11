@@ -322,34 +322,10 @@ func TestFullRun(t *testing.T) {
 	}
 }
 
-func BenchmarkProcessRequest_Internal(b *testing.B) {
-	serverCfg := config.APIServerConfig{
-		ID: "bench-server",
-		Domains: []string{"localhost", "127.0.0.1"},
-		ProxyTo: ":25566",
-		DialTimeout: "1s",
-		IsOnline: false,
-		DisconnectMessage: "No login pls, thnx",
-		UseStatusCache: true,
-		CachedStatus: defaultStatus,
-	}
-
-	newReqData := func() core.RequestData {
-		return core.RequestData{
-			Type: mc.Status,
-			Handshake: statusHs,
-			ServerAddr: "localhost",
-			Addr: &net.IPAddr{},	
-		}
-	}
-
-	processRequestBenching(b, []config.APIServerConfig{serverCfg}, newReqData)
-}
-
 func processRequestBenching(b *testing.B, serverCfgs []config.APIServerConfig, newReqData func() core.RequestData) {
 	servers := make(map[string]core.Server)
 
-	for _, cfg  := range serverCfgs{
+	for _, cfg := range serverCfgs {
 		server := ultraviolet.NewAPIServer(cfg)
 		for _, domain := range cfg.Domains {
 			servers[domain] = server
@@ -362,5 +338,79 @@ func processRequestBenching(b *testing.B, serverCfgs []config.APIServerConfig, n
 		reqData := newReqData()
 
 		ultraviolet.ProcessRequest(reqData, servercatalog)
+	}
+}
+
+var defaultBenchServerCfg = config.APIServerConfig{
+	ID:                "bench-server",
+	Domains:           []string{"localhost", "127.0.0.1"},
+	ProxyTo:           ":25566",
+	DialTimeout:       "1s",
+	IsOnline:          false,
+	DisconnectMessage: "No login pls, thnx",
+	UseStatusCache:    true,
+	CachedStatus:      defaultStatus,
+}
+
+func BenchmarkProcessRequest_Internal(b *testing.B) {
+	serverCfg := defaultBenchServerCfg
+
+	newReqData := func() core.RequestData {
+		return core.RequestData{
+			Type:       mc.Status,
+			Handshake:  statusHs,
+			ServerAddr: "localhost",
+			Addr:       &net.IPAddr{},
+		}
+	}
+
+	processRequestBenching(b, []config.APIServerConfig{serverCfg}, newReqData)
+}
+
+func BenchmarkProcessRequest_WithBotLimiter(b *testing.B) {
+	serverCfg := defaultBenchServerCfg
+	serverCfg.LimitBots = true
+
+	newReqData := func() core.RequestData {
+		return core.RequestData{
+			Type:       mc.Status,
+			Handshake:  statusHs,
+			ServerAddr: "localhost",
+			Addr:       &net.IPAddr{},
+		}
+	}
+
+	processRequestBenching(b, []config.APIServerConfig{serverCfg}, newReqData)
+}
+
+func BenchmarkFullRun(b *testing.B) {
+	serverCfg := defaultBenchServerCfg
+	serverCfg.Domains = append(serverCfg.Domains, "ultraviolet")
+	serverCfgs := []config.APIServerConfig{serverCfg}
+	servers := make(map[string]core.Server)
+
+	for _, cfg := range serverCfgs {
+		server := ultraviolet.NewAPIServer(cfg)
+		for _, domain := range cfg.Domains {
+			servers[domain] = server
+		}
+	}
+
+	servercatalog := core.NewServerCatalog(servers, defaultStatusPk, mc.Packet{})
+
+	for i := 0; i < b.N; i++ {
+		c1, c2 := net.Pipe()
+
+		go func() {
+			mcConn := mc.NewMcConn(c1)
+			mcConn.WritePacket(loginHsPk)
+			mcConn.WritePacket(loginSecondPk)
+			mcConn.ReadPacket()
+		}()
+
+		err := ultraviolet.FullRun(c2, servercatalog)
+		if errors.Is(err, core.ErrNoServerFound) {
+			b.Fail()
+		}
 	}
 }

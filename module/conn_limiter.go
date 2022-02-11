@@ -16,7 +16,7 @@ func FilterIpFromAddr(addr net.Addr) string {
 }
 
 type ConnectionLimiter interface {
-	Allow(req core.RequestData) (allowed bool, err error)
+	Allow(req core.RequestData) bool
 }
 
 func NewAbsConnLimiter(ratelimit int, cooldown time.Duration, limitStatus bool) ConnectionLimiter {
@@ -35,25 +35,25 @@ type absoluteConnlimiter struct {
 	limitStatus   bool
 }
 
-func (r *absoluteConnlimiter) Allow(req core.RequestData) (bool, error) {
+func (r *absoluteConnlimiter) Allow(req core.RequestData) bool {
 	if time.Since(r.rateStartTime) >= r.rateCooldown {
 		r.rateCounter = 0
 		r.rateStartTime = time.Now()
 	}
 	if !r.limitStatus {
-		return true, nil
+		return true
 	}
 	if r.rateCounter < r.rateLimit {
 		r.rateCounter++
-		return true, nil
+		return true
 	}
-	return false, core.ErrOverConnRateLimit
+	return false
 }
 
 type AlwaysAllowConnection struct{}
 
-func (limiter AlwaysAllowConnection) Allow(req core.RequestData) (bool, error) {
-	return true, nil
+func (limiter AlwaysAllowConnection) Allow(req core.RequestData) bool {
+	return true
 }
 
 func NewBotFilterConnLimiter(ratelimit int, cooldown, clearTime, unverify time.Duration, disconnPk mc.Packet) ConnectionLimiter {
@@ -87,12 +87,11 @@ type botFilterConnLimiter struct {
 	namesList map[string]string
 }
 
-// TODO: Fix hidden race condition (something with the timing of the lastTimeAboveLimit time)
-func (l *botFilterConnLimiter) Allow(req core.RequestData) (allowed bool, err error) {
+func (l *botFilterConnLimiter) Allow(req core.RequestData) bool {
 	if req.Type == mc.Status {
-		allowed = true
-		return
+		return true
 	}
+
 	if time.Since(l.rateStartTime) >= l.rateCooldown {
 		if l.rateCounter > l.rateLimit {
 			l.lastTimeAboveLimit = l.rateStartTime
@@ -110,24 +109,21 @@ func (l *botFilterConnLimiter) Allow(req core.RequestData) (allowed bool, err er
 	if time.Since(blockTime) >= l.listClearTime {
 		delete(l.blackList, ip)
 	} else if ok {
-		allowed = false
-		return
+		return false
 	}
 
 	l.limiting = l.limiting || l.rateCounter > l.rateLimit
 	if l.limiting {
 		username, ok := l.namesList[ip]
 		if !ok {
-			allowed = false
 			l.namesList[ip] = req.Username
-			return
+			return false
 		}
 		if username != req.Username {
-			allowed = false
 			l.blackList[ip] = time.Now()
-			return
+			return false
 		}
 	}
-	allowed = true
-	return
+
+	return true
 }

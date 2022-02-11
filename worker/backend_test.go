@@ -101,9 +101,9 @@ type testConnectionLimiter struct {
 	allow         bool
 }
 
-func (limiter *testConnectionLimiter) Allow(reqData core.RequestData) (allowed bool, err error) {
+func (limiter *testConnectionLimiter) Allow(reqData core.RequestData) bool {
 	limiter.hasBeenCalled = true
-	return limiter.allow, nil
+	return limiter.allow
 }
 
 type testServerState struct {

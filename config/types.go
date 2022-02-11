@@ -51,6 +51,8 @@ type APIServerConfig struct {
 	UseStatusCache    bool            `json:"useStatusCache"`
 	CachedStatus      mc.SimpleStatus `json:"cachedStatus"`
 	DisconnectMessage string          `json:"disconnectMessage"`
+	
+	LimitBots bool 
 }
 
 func (cfg ServerConfig) ID() string {

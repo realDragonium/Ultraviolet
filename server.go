@@ -8,7 +8,10 @@ import (
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/module"
 )
+
+var botLimiter = module.NewBotFilterConnLimiter(5, time.Minute, time.Hour, 5*time.Second, mc.Packet{})
 
 type ProxyAllServer struct {
 }
@@ -56,6 +59,7 @@ func NewAPIServer(cfg config.APIServerConfig) core.Server {
 		useStatusCache:    cfg.UseStatusCache,
 		serverStatusPk:    cachedStatusPk,
 		serverStatus:      serverState,
+		useBotLimiter:     cfg.LimitBots,
 	}
 }
 
@@ -66,12 +70,17 @@ type APIServer struct {
 	dialer  net.Dialer
 	proxyTo string
 
+	useBotLimiter  bool
 	useStatusCache bool
 	serverStatusPk mc.Packet
 	serverStatus   core.ServerState
 }
 
 func (server APIServer) ConnAction(req core.RequestData) core.ServerAction {
+	if server.useBotLimiter && botLimiter.Allow(req) {
+		return core.VERIFY_CONN
+	}
+
 	switch server.serverStatus {
 	case core.Offline:
 		return server.serverOffline(req)

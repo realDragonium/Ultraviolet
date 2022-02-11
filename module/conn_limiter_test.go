@@ -42,13 +42,11 @@ func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
 			connLimiter := module.NewAbsConnLimiter(tc.limit, tc.cooldown, tc.limitStatus)
 
 			for i := 0; i < tc.limit; i++ {
-				ok, _ := connLimiter.Allow(req)
-				if !ok {
+				if !connLimiter.Allow(req) {
 					t.Error("expected ok to be true but its false")
 				}
 			}
-			ok, _ := connLimiter.Allow(req)
-			if ok == tc.shouldLimit {
+			if connLimiter.Allow(req) == tc.shouldLimit {
 				t.Error("expected ok to be false but its true")
 			}
 		})
@@ -67,8 +65,7 @@ func TestAbsoluteConnLimiter_AllowsNewConnectionsAfterCooldown(t *testing.T) {
 	}
 
 	time.Sleep(cooldown)
-	ok, _ := connLimiter.Allow(req)
-	if !ok {
+	if !connLimiter.Allow(req) {
 		t.Error("expected ok to be true but its false")
 	}
 
@@ -78,8 +75,7 @@ func TestAlwaysAllowConnection(t *testing.T) {
 	limiter := module.AlwaysAllowConnection{}
 	req := core.RequestData{}
 
-	ok, _ := limiter.Allow(req)
-	if !ok {
+	if !limiter.Allow(req) {
 		t.Error("expected ok to be true but its false")
 	}
 
@@ -151,7 +147,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 					Username:  playerName,
 				}
 
-				ok, _ := connLimiter.Allow(req)
+				ok := connLimiter.Allow(req)
 				if ok != tc.allowed {
 					t.Errorf("expected: %v, got: %v", tc.allowed, ok)
 				}
@@ -179,8 +175,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		}
 		connLimiter.Allow(req)
 		time.Sleep(cooldown)
-		ok, _ := connLimiter.Allow(req)
-		if !ok {
+
+		if !connLimiter.Allow(req) {
 			t.Fatal("expected to be allowed but it was denied")
 		}
 	})
@@ -202,8 +198,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req)
 		time.Sleep(cooldown)
 		req.Addr = generateIPAddr()
-		ok, _ := connLimiter.Allow(req)
-		if ok {
+
+		if connLimiter.Allow(req) {
 			t.Fatal("expected to be limited but it was allowed")
 		}
 	})
@@ -232,8 +228,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 
 		time.Sleep(2 * unverifyCooldown)
 		req.Addr = generateIPAddr()
-		ok, _ := connLimiter.Allow(req)
-		if !ok {
+
+		if !connLimiter.Allow(req) {
 			t.Fatal("expected to be allowed but it was denied")
 		}
 	})
@@ -252,8 +248,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 			Username:  playerName,
 		}
 		connLimiter.Allow(req)
-		ok, _ := connLimiter.Allow(req)
-		if !ok {
+
+		if !connLimiter.Allow(req) {
 			t.Fatal("expected to be allowed but it was denied")
 		}
 	})
@@ -275,8 +271,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		req2 := req
 		req2.Username = playerName2
 		connLimiter.Allow(req)
-		ok, _ := connLimiter.Allow(req2)
-		if ok {
+
+		if connLimiter.Allow(req2) {
 			t.Fatal("expected to be denied but it was allowed")
 		}
 	})
@@ -299,8 +295,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		req2.Username = playerName2
 		connLimiter.Allow(req)
 		connLimiter.Allow(req2)
-		ok, _ := connLimiter.Allow(req)
-		if ok {
+
+		if connLimiter.Allow(req) {
 			t.Fatal("expected to be denied but it was allowed")
 		}
 	})
@@ -326,8 +322,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req)
 		connLimiter.Allow(req2)
 		time.Sleep(cooldown * 2)
-		ok, _ := connLimiter.Allow(req)
-		if ok {
+
+		if connLimiter.Allow(req) {
 			t.Fatal("expected to be denied but it was allowed")
 		}
 	})
@@ -352,8 +348,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req2)
 		time.Sleep(2 * listClearCooldown)
 		t.Log("last check ----------------")
-		ok, _ := connLimiter.Allow(req)
-		if !ok {
+
+		if !connLimiter.Allow(req) {
 			t.Fatal("expected to be allowed but it was denied")
 		}
 	})
