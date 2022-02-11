@@ -4,6 +4,7 @@ import (
 	"errors"
 	"time"
 
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -35,14 +36,12 @@ type statusCache struct {
 	handshake mc.ServerBoundHandshake
 }
 
-var ErrStatusPing = errors.New("something went wrong while pinging")
-
 func (cache *statusCache) Status() (mc.Packet, error) {
 	if time.Since(cache.cacheTime) < cache.cooldown {
 		return cache.status, nil
 	}
 	answer, err := cache.newStatus()
-	if err != nil && !errors.Is(err, ErrStatusPing) {
+	if err != nil && !errors.Is(err, core.ErrStatusPing) {
 		return cache.status, err
 	}
 	cache.cacheTime = time.Now()

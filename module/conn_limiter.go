@@ -1,7 +1,6 @@
 package module
 
 import (
-	"errors"
 	"net"
 	"strings"
 	"time"
@@ -9,8 +8,6 @@ import (
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
-
-var ErrOverConnRateLimit = errors.New("too many request within rate limit time frame")
 
 func FilterIpFromAddr(addr net.Addr) string {
 	s := addr.String()
@@ -50,7 +47,7 @@ func (r *absoluteConnlimiter) Allow(req core.RequestData) (bool, error) {
 		r.rateCounter++
 		return true, nil
 	}
-	return false, ErrOverConnRateLimit
+	return false, core.ErrOverConnRateLimit
 }
 
 type AlwaysAllowConnection struct{}
