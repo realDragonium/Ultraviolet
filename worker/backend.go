@@ -212,65 +212,122 @@ func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendConfig) {
 	}
 }
 
-func (worker *BackendWorker) Work() {
+func (wrk *BackendWorker) Work() {
 	for {
 		select {
-		case req := <-worker.reqCh:
-			ans := worker.HandleRequest(req)
-			ans.ServerName = worker.Name
+		case req := <-wrk.reqCh:
+			ans := wrk.HandleRequest(req)
+			ans.ServerName = wrk.Name
 			req.Ch <- ans
-		case proxyAction := <-worker.proxyCh:
-			worker.proxyRequest(proxyAction)
-		case connCheck := <-worker.connCheckCh:
-			connCheck.Ch <- worker.activeConns > 0
-		case cfg := <-worker.updateCh:
-			worker.UpdateSameGoroutine(cfg)
-		case <-worker.closeCh:
-			close(worker.reqCh)
+		case proxyAction := <-wrk.proxyCh:
+			wrk.proxyRequest(proxyAction)
+		case connCheck := <-wrk.connCheckCh:
+			connCheck.Ch <- wrk.activeConns > 0
+		case cfg := <-wrk.updateCh:
+			wrk.UpdateSameGoroutine(cfg)
+		case <-wrk.closeCh:
+			close(wrk.reqCh)
 			return
 		}
 	}
 }
 
-func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
+func (wrk *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case ProxyOpen:
-		worker.activeConns++
-		playersConnected.WithLabelValues(worker.Name).Inc()
+		wrk.activeConns++
+		playersConnected.WithLabelValues(wrk.Name).Inc()
 	case ProxyClose:
-		worker.activeConns--
-		playersConnected.WithLabelValues(worker.Name).Dec()
+		wrk.activeConns--
+		playersConnected.WithLabelValues(wrk.Name).Dec()
 	}
 }
 
-func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
-	if worker.ServerState != nil && worker.ServerState.State() == core.Offline {
-		switch req.ReqData.Type {
+func (wrk *BackendWorker) ConnAction(req core.RequestData) core.ServerAction {
+	if wrk.StatusCache != nil && req.Type == mc.Status {
+		return core.STATUS	
+	}
+
+	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
+		switch req.Type {
 		case mc.Status:
-			return NewStatusAnswer(worker.OfflineStatusPacket)
+			return core.STATUS
 		case mc.Login:
-			return NewDisconnectAnswer(worker.DisconnectPacket)
+			return core.DISCONNECT
 		}
 	}
 
-	if worker.StatusCache != nil && req.ReqData.Type == mc.Status {
-		ans, err := worker.StatusCache.Status()
+	if wrk.ConnLimiter != nil {
+		if ok, _ := wrk.ConnLimiter.Allow(req); !ok {
+			return core.DISCONNECT
+		}
+	}
+
+	return core.PROXY
+}
+
+func (wrk *BackendWorker) CreateConn(req core.RequestData) (c net.Conn, err error) {
+	c, err = wrk.ConnCreator.Conn()()
+	
+	if wrk.SendProxyProtocol {
+		header := &proxyproto.Header{
+			Version:           2,
+			Command:           proxyproto.PROXY,
+			TransportProtocol: proxyproto.TCPv4,
+			SourceAddr:        c.LocalAddr(),
+			DestinationAddr:   c.RemoteAddr(),
+		}
+
+		_, err = header.WriteTo(c)
+	}
+
+	return
+}
+
+func (wrk *BackendWorker) Status() mc.Packet {
+	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
+		return wrk.OfflineStatusPacket
+	}
+
+	if wrk.StatusCache != nil {
+		ans, err := wrk.StatusCache.Status()
 		if err != nil {
-			return NewStatusAnswer(worker.OfflineStatusPacket)
+			return wrk.OfflineStatusPacket
+		}
+		return ans
+	}
+
+	return mc.Packet{}
+}
+
+func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
+	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
+		switch req.ReqData.Type {
+		case mc.Status:
+			return NewStatusAnswer(wrk.OfflineStatusPacket)
+		case mc.Login:
+			return NewDisconnectAnswer(wrk.DisconnectPacket)
+		}
+	}
+
+	if wrk.StatusCache != nil && req.ReqData.Type == mc.Status {
+		ans, err := wrk.StatusCache.Status()
+		if err != nil {
+			return NewStatusAnswer(wrk.OfflineStatusPacket)
 		}
 		return NewStatusAnswer(ans)
 	}
 
-	if worker.ConnLimiter != nil {
-		if ok, _ := worker.ConnLimiter.Allow(req.ReqData); !ok {
+	if wrk.ConnLimiter != nil {
+		if ok, _ := wrk.ConnLimiter.Allow(req.ReqData); !ok {
 			return BackendAnswer{}
 		}
 	}
-	connFunc := worker.ConnCreator.Conn()
-	if worker.SendProxyProtocol {
+	connFunc := wrk.ConnCreator.Conn()
+	if wrk.SendProxyProtocol {
 		connFunc = func() (net.Conn, error) {
 			addr := req.ReqData.Addr
-			serverConn, err := worker.ConnCreator.Conn()()
+			serverConn, err := wrk.ConnCreator.Conn()()
 			if err != nil {
 				return serverConn, err
 			}
@@ -289,8 +346,8 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 		}
 	}
 
-	if worker.HsModifier != nil {
-		worker.HsModifier.Modify(&req.ReqData.Handshake, req.ReqData.Addr.String())
+	if wrk.HsModifier != nil {
+		wrk.HsModifier.Modify(&req.ReqData.Handshake, req.ReqData.Addr.String())
 	}
 
 	hsPk := req.ReqData.Handshake.Marshal()
@@ -301,5 +358,5 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 	case mc.Login:
 		secondPacket = mc.ServerLoginStart{Name: mc.String(req.ReqData.Username)}.Marshal()
 	}
-	return NewProxyAnswer(hsPk, secondPacket, worker.proxyCh, connFunc)
+	return NewProxyAnswer(hsPk, secondPacket, wrk.proxyCh, connFunc)
 }

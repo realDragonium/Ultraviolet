@@ -112,11 +112,7 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 		return conn.Close()
 	}
 
-	action, err := server.ConnAction(reqData)
-	if err != nil {
-		log.Printf("Error while getting server action: %v", err)
-		return conn.Close()
-	}
+	action := server.ConnAction(reqData)
 
 	if action == core.PROXY {
 		go ProxyConnection(conn, server, reqData)

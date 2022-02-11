@@ -13,8 +13,8 @@ import (
 type ProxyAllServer struct {
 }
 
-func (s ProxyAllServer) ConnAction(req core.RequestData) (core.ServerAction, error) {
-	return core.PROXY, nil
+func (s ProxyAllServer) ConnAction(req core.RequestData) core.ServerAction {
+	return core.PROXY
 }
 
 func (s ProxyAllServer) CreateConn(req core.RequestData) (net.Conn, error) {
@@ -71,45 +71,45 @@ type APIServer struct {
 	serverStatus   core.ServerState
 }
 
-func (server APIServer) ConnAction(req core.RequestData) (core.ServerAction, error) {
+func (server APIServer) ConnAction(req core.RequestData) core.ServerAction {
 	switch server.serverStatus {
 	case core.Offline:
 		return server.serverOffline(req)
 	case core.Online:
 		return server.serverOnline(req)
 	default:
-		return core.DISCONNECT, nil
+		return core.DISCONNECT
 	}
 }
 
-func (server APIServer) serverOffline(req core.RequestData) (core.ServerAction, error) {
+func (server APIServer) serverOffline(req core.RequestData) core.ServerAction {
 	if req.Type == mc.Status {
-		return core.STATUS, nil
+		return core.STATUS
 	}
 
-	return core.DISCONNECT, nil
+	return core.DISCONNECT
 }
 
-func (server APIServer) serverOnline(req core.RequestData) (core.ServerAction, error) {
+func (server APIServer) serverOnline(req core.RequestData) core.ServerAction {
 	if req.Type == mc.Login {
 		// if cfgServer.useRealipv2_4 {
-		// 	return PROXY_REALIP_2_4, nil
+		// 	return PROXY_REALIP_2_4
 		// }
 		// if cfgServer.useRealipv2_5 {
-		// 	return PROXY_REALIP_2_5, nil
+		// 	return PROXY_REALIP_2_5
 		// }
-		return core.PROXY, nil
+		return core.PROXY
 	}
 
 	if req.Type == mc.Status {
 		if server.useStatusCache {
-			return core.STATUS, nil
+			return core.STATUS
 		}
 
-		return core.PROXY, nil
+		return core.PROXY
 	}
 
-	return core.DISCONNECT, nil
+	return core.DISCONNECT
 }
 
 func (server APIServer) CreateConn(req core.RequestData) (conn net.Conn, err error) {

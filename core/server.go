@@ -7,8 +7,8 @@ import (
 )
 
 type Server interface {
-	ConnAction(req RequestData) (ServerAction, error)
-	CreateConn(req RequestData) (net.Conn, error)
+	ConnAction(req RequestData) ServerAction
+	CreateConn(req RequestData) (c net.Conn, err error)
 	Status() mc.Packet
 }
 
