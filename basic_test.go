@@ -153,7 +153,7 @@ func TestLookupServer(t *testing.T) {
 		expectedError  error
 		expectNoError  bool
 		compareServer  bool
-		expectedServer ultraviolet.Server
+		expectedServer core.Server
 	}{
 		{
 			name:           "default flow",
@@ -165,7 +165,7 @@ func TestLookupServer(t *testing.T) {
 		{
 			name:          "cant find server",
 			reqData:       notRegisteredServerReqData,
-			expectedError: ultraviolet.ErrNoServerFound,
+			expectedError: core.ErrNoServerFound,
 		},
 	}
 

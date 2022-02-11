@@ -73,7 +73,7 @@ func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
 	return reqData, nil
 }
 
-func LookupServer(req core.RequestData, servers ServerCatalog) (Server, error) {
+func LookupServer(req core.RequestData, servers ServerCatalog) (core.Server, error) {
 	return servers.Find(req.ServerAddr)
 }
 
@@ -105,7 +105,7 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 	}
 
 	server, err := LookupServer(reqData, servers)
-	if errors.Is(err, ErrNoServerFound) && reqData.Type == mc.Status {
+	if errors.Is(err, core.ErrNoServerFound) && reqData.Type == mc.Status {
 		return SendResponse(conn, servers.DefaultStatus(), true)
 	} else if err != nil {
 		log.Printf("got error: %v", err)
@@ -118,7 +118,7 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 		return conn.Close()
 	}
 
-	if action == PROXY {
+	if action == core.PROXY {
 		go ProxyConnection(conn, server, reqData)
 		return
 	}
@@ -127,18 +127,18 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 
 	var responsePk mc.Packet
 	switch action {
-	case VERIFY_CONN:
+	case core.VERIFY_CONN:
 		responsePk = servers.VerifyConn()
-	case STATUS_CACHED:
-		responsePk = server.CachedStatus()
-	case DISCONNECT:
+	case core.STATUS:
+		responsePk = server.Status()
+	case core.DISCONNECT:
 		return
 	}
 
-	return SendResponse(conn, responsePk, action == STATUS_CACHED)
+	return SendResponse(conn, responsePk, action == core.STATUS)
 }
 
-func ProxyConnection(client net.Conn, server Server, reqData core.RequestData) (err error) {
+func ProxyConnection(client net.Conn, server core.Server, reqData core.RequestData) (err error) {
 	serverConn, err := server.CreateConn(reqData)
 	if err != nil {
 		return
