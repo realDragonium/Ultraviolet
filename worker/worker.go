@@ -12,7 +12,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -100,7 +99,7 @@ func (bw *BasicWorker) Work() {
 			req, ans, err := bw.ProcessConnection(conn)
 			if err != nil {
 				conn.Close()
-				if errors.Is(err, ultraviolet.ErrClientToSlow) {
+				if errors.Is(err, core.ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				} else {
 					log.Printf("error while trying to read: %v", err)
@@ -126,7 +125,7 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (core.Request
 	}
 	t := mc.RequestState(handshake.NextState)
 	if t == mc.UnknownState {
-		return core.RequestData{}, ultraviolet.ErrNotValidHandshake
+		return core.RequestData{}, core.ErrNotValidHandshake
 	}
 	request := core.RequestData{
 		Type:       t,
@@ -163,7 +162,7 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData core.RequestData, 
 
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return reqData, ultraviolet.ErrClientToSlow
+		return reqData, core.ErrClientToSlow
 	} else if err != nil {
 		return
 	}
@@ -174,12 +173,12 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData core.RequestData, 
 	}
 	reqType := mc.RequestState(handshake.NextState)
 	if reqType == mc.UnknownState {
-		return reqData, ultraviolet.ErrNotValidHandshake
+		return reqData, core.ErrNotValidHandshake
 	}
 
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return reqData, ultraviolet.ErrClientToSlow
+		return reqData, core.ErrClientToSlow
 	} else if err != nil {
 		return
 	}

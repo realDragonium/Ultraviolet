@@ -47,7 +47,7 @@ func TestReadStuff(t *testing.T) {
 		{
 			name:          "nothing to read",
 			pksSend:       []mc.Packet{},
-			expectedError: ultraviolet.ErrClientToSlow,
+			expectedError: core.ErrClientToSlow,
 		},
 		{
 			name:           "normal flow login",
@@ -75,19 +75,19 @@ func TestReadStuff(t *testing.T) {
 		{
 			name:          "timeout reading second packet with login",
 			pksSend:       []mc.Packet{loginHsPk},
-			expectedError: ultraviolet.ErrClientToSlow,
+			expectedError: core.ErrClientToSlow,
 		},
 		{
 			name:          "timeout reading second packet with status",
 			pksSend:       []mc.Packet{statusHsPk},
-			expectedError: ultraviolet.ErrClientToSlow,
+			expectedError: core.ErrClientToSlow,
 		},
 		{
 			name: "unknown handshake state",
 			pksSend: []mc.Packet{mc.ServerBoundHandshake{
 				NextState: 3,
 			}.Marshal()},
-			expectedError: ultraviolet.ErrNotValidHandshake,
+			expectedError: core.ErrNotValidHandshake,
 		},
 	}
 

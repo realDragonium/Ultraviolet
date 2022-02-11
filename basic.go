@@ -14,9 +14,7 @@ import (
 
 var (
 	ConnTimeoutDuration  = 5 * time.Second
-	ErrNotValidHandshake = errors.New("not a valid handshake state")
-	ErrClientToSlow      = errors.New("client was to slow with sending its packets")
-	ErrClientClosedConn  = errors.New("client closed the connection")
+
 )
 
 type API interface {
@@ -30,7 +28,7 @@ func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
 
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		err = ErrClientToSlow
+		err = core.ErrClientToSlow
 		return
 	} else if err != nil {
 		return
@@ -42,13 +40,13 @@ func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
 	}
 	reqType := mc.RequestState(handshake.NextState)
 	if reqType == mc.UnknownState {
-		err = ErrNotValidHandshake
+		err = core.ErrNotValidHandshake
 		return
 	}
 
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		err = ErrClientToSlow
+		err = core.ErrClientToSlow
 		return
 	} else if err != nil {
 		return

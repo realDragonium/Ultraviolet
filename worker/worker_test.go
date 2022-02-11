@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -396,7 +395,7 @@ func TestProcessConnection_IODeadlines(t *testing.T) {
 		basicwrk, _ := newWorker(cfg)
 
 		_, err := basicwrk.ReadConnection(&mockClientconn)
-		if !errors.Is(err, ultraviolet.ErrClientToSlow) {
+		if !errors.Is(err, core.ErrClientToSlow) {
 			t.Fatalf("did expect client to slow error but got: %v", err)
 		}
 	})
@@ -418,7 +417,7 @@ func TestProcessConnection_IODeadlines(t *testing.T) {
 		}()
 
 		_, err := basicwrk.ReadConnection(&mockClientconn)
-		if !errors.Is(err, ultraviolet.ErrClientToSlow) {
+		if !errors.Is(err, core.ErrClientToSlow) {
 			t.Fatalf("did expect client to slow error but got: %v", err)
 		}
 	})
