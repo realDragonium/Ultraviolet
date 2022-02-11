@@ -13,12 +13,33 @@ import (
 )
 
 var (
-	ConnTimeoutDuration  = 5 * time.Second
+	ConnTimeoutDuration = 5 * time.Second
 )
 
 type API interface {
 	Run(addr string)
 	Close()
+}
+
+func ProcessRequest(reqData core.RequestData, servers core.ServerCatalog) (action core.ServerAction, pk mc.Packet, err error) {
+	server, err := LookupServer(reqData, servers)
+	if err != nil {
+		if errors.Is(err, core.ErrNoServerFound) && reqData.Type == mc.Status {
+			pk = servers.DefaultStatus()
+		}
+		return
+	}
+
+	action = server.ConnAction(reqData)
+
+	switch action {
+	case core.VERIFY_CONN:
+		pk = servers.VerifyConn()
+	case core.STATUS:
+		pk = server.Status()
+	}
+
+	return
 }
 
 func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
@@ -128,7 +149,7 @@ func ProcessServer(conn net.Conn, server core.Server, reqData core.RequestData) 
 	switch action {
 	// TOOD: Figure this one out
 	// case core.VERIFY_CONN:
-		// responsePk = servers.VerifyConn()
+	// responsePk = servers.VerifyConn()
 	case core.STATUS:
 		responsePk = server.Status()
 	case core.CLOSE:

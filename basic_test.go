@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
+	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
@@ -318,5 +319,48 @@ func TestFullRun(t *testing.T) {
 
 	if err != nil {
 		t.Errorf("Didnt expect error: %v", err)
+	}
+}
+
+func BenchmarkProcessRequest_Internal(b *testing.B) {
+	serverCfg := config.APIServerConfig{
+		ID: "bench-server",
+		Domains: []string{"localhost", "127.0.0.1"},
+		ProxyTo: ":25566",
+		DialTimeout: "1s",
+		IsOnline: false,
+		DisconnectMessage: "No login pls, thnx",
+		UseStatusCache: true,
+		CachedStatus: defaultStatus,
+	}
+
+	newReqData := func() core.RequestData {
+		return core.RequestData{
+			Type: mc.Status,
+			Handshake: statusHs,
+			ServerAddr: "localhost",
+			Addr: &net.IPAddr{},	
+		}
+	}
+
+	processRequestBenching(b, []config.APIServerConfig{serverCfg}, newReqData)
+}
+
+func processRequestBenching(b *testing.B, serverCfgs []config.APIServerConfig, newReqData func() core.RequestData) {
+	servers := make(map[string]core.Server)
+
+	for _, cfg  := range serverCfgs{
+		server := ultraviolet.NewAPIServer(cfg)
+		for _, domain := range cfg.Domains {
+			servers[domain] = server
+		}
+	}
+
+	servercatalog := core.NewServerCatalog(servers, defaultStatusPk, mc.Packet{})
+
+	for i := 0; i < b.N; i++ {
+		reqData := newReqData()
+
+		ultraviolet.ProcessRequest(reqData, servercatalog)
 	}
 }

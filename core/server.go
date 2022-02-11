@@ -15,6 +15,7 @@ type Server interface {
 type ServerAction byte
 
 const (
+	// IDEA: Some errors could replace these 'actions'
 	CLOSE ServerAction = iota
 	DEFAULT_STATUS
 	STATUS

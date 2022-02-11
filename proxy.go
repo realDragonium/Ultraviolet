@@ -4,9 +4,7 @@ import (
 	"errors"
 	"log"
 	"net"
-	"net/http"
 
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 )
@@ -31,22 +29,7 @@ type Proxy struct {
 }
 
 func (p *Proxy) Start() error {
-	cfg, err := p.uvReader()
-	if err != nil {
-		return err
-	}
-
 	p.ReloadServerCatalog()
-
-	if cfg.UsePrometheus {
-		log.Println("Starting prometheus...")
-		mux := http.NewServeMux()
-		mux.Handle("/metrics", promhttp.Handler())
-		promeServer := &http.Server{Addr: cfg.PrometheusBind, Handler: mux}
-		go func() {
-			log.Println(promeServer.ListenAndServe())
-		}()
-	}
 
 	for {
 		conn, err := p.listener.Accept()
@@ -95,7 +78,7 @@ func (p *Proxy) ReloadServerCatalog() error {
 			return err
 		}
 
-		server := NewConfigServer(apiCfg)
+		server := NewAPIServer(apiCfg)
 		for _, domain := range newCfg.Domains {
 			servers[domain] = server
 		}

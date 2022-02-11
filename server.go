@@ -25,7 +25,7 @@ func (s ProxyAllServer) Status() mc.Packet {
 	return mc.Packet{}
 }
 
-func NewConfigServer(cfg config.APIServerConfig) core.Server {
+func NewAPIServer(cfg config.APIServerConfig) core.Server {
 	dialTimeout, err := time.ParseDuration(cfg.DialTimeout)
 	if err != nil {
 		dialTimeout = time.Second
