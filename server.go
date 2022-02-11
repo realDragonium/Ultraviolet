@@ -46,7 +46,7 @@ func (s ProxyAllServer) CachedStatus() mc.Packet {
 	return mc.Packet{}
 }
 
-func NewConfigServer(cfg config.APIServerConfig) configServer {
+func NewConfigServer(cfg config.APIServerConfig) APIServer {
 	dialTimeout, err := time.ParseDuration(cfg.DialTimeout)
 	if err != nil {
 		dialTimeout = time.Second
@@ -70,7 +70,7 @@ func NewConfigServer(cfg config.APIServerConfig) configServer {
 		serverState = core.Online
 	}
 
-	return configServer{
+	return APIServer{
 		sendProxyProtocol: cfg.SendProxyProtocol,
 		disconnectPacket:  disconnectPacket,
 		dialer:            dialer,
@@ -80,7 +80,7 @@ func NewConfigServer(cfg config.APIServerConfig) configServer {
 	}
 }
 
-type configServer struct {
+type APIServer struct {
 	sendProxyProtocol bool
 	disconnectPacket  mc.Packet
 
@@ -92,18 +92,18 @@ type configServer struct {
 	serverStatus   core.ServerState
 }
 
-func (cfgServer configServer) ConnAction(req core.RequestData) (ServerAction, error) {
-	switch cfgServer.serverStatus {
+func (server APIServer) ConnAction(req core.RequestData) (ServerAction, error) {
+	switch server.serverStatus {
 	case core.Offline:
-		return cfgServer.serverOffline(req)
+		return server.serverOffline(req)
 	case core.Online:
-		return cfgServer.serverOnline(req)
+		return server.serverOnline(req)
 	default:
 		return DISCONNECT, nil
 	}
 }
 
-func (cfgServer configServer) serverOffline(req core.RequestData) (ServerAction, error) {
+func (server APIServer) serverOffline(req core.RequestData) (ServerAction, error) {
 	if req.Type == mc.Status {
 		return STATUS_CACHED, nil
 	}
@@ -111,7 +111,7 @@ func (cfgServer configServer) serverOffline(req core.RequestData) (ServerAction,
 	return DISCONNECT, nil
 }
 
-func (cfgServer configServer) serverOnline(req core.RequestData) (ServerAction, error) {
+func (server APIServer) serverOnline(req core.RequestData) (ServerAction, error) {
 	if req.Type == mc.Login {
 		// if cfgServer.useRealipv2_4 {
 		// 	return PROXY_REALIP_2_4, nil
@@ -123,7 +123,7 @@ func (cfgServer configServer) serverOnline(req core.RequestData) (ServerAction, 
 	}
 
 	if req.Type == mc.Status {
-		if cfgServer.useStatusCache {
+		if server.useStatusCache {
 			return STATUS_CACHED, nil
 		}
 
@@ -133,13 +133,13 @@ func (cfgServer configServer) serverOnline(req core.RequestData) (ServerAction, 
 	return DISCONNECT, nil
 }
 
-func (cfgServer configServer) CreateConn(req core.RequestData) (conn net.Conn, err error) {
-	conn, err = cfgServer.dialer.Dial("tcp", cfgServer.proxyTo)
+func (server APIServer) CreateConn(req core.RequestData) (conn net.Conn, err error) {
+	conn, err = server.dialer.Dial("tcp", server.proxyTo)
 	if err != nil {
 		return
 	}
 
-	if cfgServer.sendProxyProtocol {
+	if server.sendProxyProtocol {
 		header := &proxyproto.Header{
 			Version:           2,
 			Command:           proxyproto.PROXY,
@@ -154,6 +154,6 @@ func (cfgServer configServer) CreateConn(req core.RequestData) (conn net.Conn, e
 	return
 }
 
-func (cfgServer configServer) CachedStatus() mc.Packet {
-	return cfgServer.serverStatusPk
+func (server APIServer) CachedStatus() mc.Packet {
+	return server.serverStatusPk
 }
