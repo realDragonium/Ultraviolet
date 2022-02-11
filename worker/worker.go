@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
@@ -23,7 +24,7 @@ const (
 )
 
 type UpdatableWorker interface {
-	Update(data map[string]chan<- BackendRequest)
+	Update(data core.ServerCatalog)
 }
 
 var (
@@ -39,33 +40,29 @@ var (
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh <-chan net.Conn) BasicWorker {
-	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
-	statusAnswer := NewStatusAnswer(defaultStatusPk)
-	statusAnswer.ServerName = unknownServerAddr
 	closeAnswer := NewCloseAnswer()
 	closeAnswer.ServerName = unknownServerAddr
+	dict := core.NewEmptyServerCatalog(defaultStatusPk, mc.Packet{})
 	return BasicWorker{
-		reqCh:               reqCh,
-		defaultStatusAnswer: statusAnswer,
-		closeAnswer:         closeAnswer,
-		serverDict:          dict,
-		ioTimeout:           cfg.IOTimeout,
-		closeCh:             make(chan struct{}),
-		updateCh:            make(chan map[string]chan<- BackendRequest),
+		reqCh:       reqCh,
+		closeAnswer: closeAnswer,
+		serverDict:  dict,
+		ioTimeout:   cfg.IOTimeout,
+		closeCh:     make(chan struct{}),
+		updateCh:    make(chan core.ServerCatalog),
 	}
 }
 
 type BasicWorker struct {
 	reqCh    <-chan net.Conn
 	closeCh  chan struct{}
-	updateCh chan map[string]chan<- BackendRequest
+	updateCh chan core.ServerCatalog
 
-	defaultStatusAnswer BackendAnswer
-	closeAnswer         BackendAnswer
+	closeAnswer BackendAnswer
 
 	ioTimeout  time.Duration
-	serverDict map[string]chan<- BackendRequest
+	serverDict core.ServerCatalog
 }
 
 func (w *BasicWorker) IODeadline() time.Time {
@@ -76,17 +73,17 @@ func (w *BasicWorker) CloseCh() chan<- struct{} {
 	return w.closeCh
 }
 
-func (w *BasicWorker) Update(data map[string]chan<- BackendRequest) {
+func (w *BasicWorker) Update(data core.ServerCatalog) {
 	w.updateCh <- data
 }
 
-func (w *BasicWorker) SetServers(servers map[string]chan<- BackendRequest) {
+func (w *BasicWorker) SetServers(servers core.ServerCatalog) {
 	w.serverDict = servers
 }
 
 func (w *BasicWorker) KnowsDomain(domain string) bool {
-	_, ok := w.serverDict[domain]
-	return ok
+	_, err := w.serverDict.Find(domain)
+	return err == nil
 }
 
 // TODO:
@@ -95,19 +92,13 @@ func (bw *BasicWorker) Work() {
 	for {
 		select {
 		case conn := <-bw.reqCh:
-			start := time.Now()
-			req, ans, err := bw.ProcessConnection(conn)
-			if err != nil {
-				conn.Close()
+			if err := bw.ProcessConnection(conn); err != nil {
 				if errors.Is(err, core.ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				} else {
 					log.Printf("error while trying to read: %v", err)
 				}
 			}
-			dur := time.Since(start).Seconds()
-			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
-			processRequests.With(labels).Observe(dur)
 		case <-bw.closeCh:
 			return
 		case serverChs := <-bw.updateCh:
@@ -142,16 +133,17 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (core.Request
 	return request, nil
 }
 
-func (bw *BasicWorker) ProcessConnection(conn net.Conn) (core.RequestData, BackendAnswer, error) {
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (err error) {
 	req, err := bw.ReadConnection(conn)
 	if err != nil {
-		return req, bw.closeAnswer, err
+		return
 	}
-	// log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
-	ans := bw.ProcessRequest(req)
-	// log.Printf("%v request from %v - %v will take action: %v", req.Type, conn.RemoteAddr(), req.Username, ans.Action())
-	bw.ProcessAnswer(conn, ans)
-	return req, ans, nil
+
+	server, err := bw.serverDict.Find(req.ServerAddr)
+	if err != nil {
+		return
+	}
+	return ultraviolet.ProcessServer(conn, server, req)
 }
 
 // TODO:
@@ -204,27 +196,6 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData core.RequestData, 
 	return reqData, nil
 }
 
-func (bw *BasicWorker) ProcessRequest(reqData core.RequestData) BackendAnswer {
-	ch, ok := bw.serverDict[reqData.ServerAddr]
-	if !ok {
-		if reqData.Type == mc.Status {
-			return bw.defaultStatusAnswer
-		}
-		return bw.closeAnswer
-	}
-
-	rCh := make(chan BackendAnswer)
-	backendReq := BackendRequest{
-		ReqData: reqData,
-		Ch:      rCh,
-	}
-
-	ch <- backendReq
-	return <-rCh
-}
-
-// TODO:
-// - figure out or this need more deadlines
 func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans BackendAnswer) {
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.Action() {

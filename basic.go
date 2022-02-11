@@ -73,7 +73,7 @@ func ReadStuff(conn net.Conn) (reqData core.RequestData, err error) {
 	return reqData, nil
 }
 
-func LookupServer(req core.RequestData, servers ServerCatalog) (core.Server, error) {
+func LookupServer(req core.RequestData, servers core.ServerCatalog) (core.Server, error) {
 	return servers.Find(req.ServerAddr)
 }
 
@@ -98,10 +98,10 @@ func SendResponse(conn net.Conn, pk mc.Packet, withPing bool) error {
 	return nil
 }
 
-func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
+func FullRun(conn net.Conn, servers core.ServerCatalog) error {
 	reqData, err := ReadStuff(conn)
 	if err != nil {
-		return
+		return err
 	}
 
 	server, err := LookupServer(reqData, servers)
@@ -112,23 +112,28 @@ func FullRun(conn net.Conn, servers ServerCatalog) (err error) {
 		return conn.Close()
 	}
 
+	return ProcessServer(conn, server, reqData)
+}
+
+func ProcessServer(conn net.Conn, server core.Server, reqData core.RequestData) error {
 	action := server.ConnAction(reqData)
 
 	if action == core.PROXY {
 		go ProxyConnection(conn, server, reqData)
-		return
+		return nil
 	}
 
 	defer conn.Close()
 
 	var responsePk mc.Packet
 	switch action {
-	case core.VERIFY_CONN:
-		responsePk = servers.VerifyConn()
+	// TOOD: Figure this one out
+	// case core.VERIFY_CONN:
+		// responsePk = servers.VerifyConn()
 	case core.STATUS:
 		responsePk = server.Status()
-	case core.DISCONNECT:
-		return
+	case core.CLOSE:
+		return nil
 	}
 
 	return SendResponse(conn, responsePk, action == core.STATUS)

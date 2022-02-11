@@ -5,10 +5,12 @@ import (
 	"net"
 
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
+	"github.com/realDragonium/Ultraviolet/mc"
 )
 
 type WorkerManager interface {
-	AddBackend(domains []string, ch chan<- BackendRequest)
+	AddBackend(domains []string, server core.Server)
 	RemoveBackend(domains []string)
 	KnowsDomain(domain string) bool
 	Register(worker UpdatableWorker, update bool)
@@ -19,7 +21,7 @@ func NewWorkerManager(cfg config.UVConfigReader, reqCh <-chan net.Conn) WorkerMa
 	manager := workerManager{
 		reqCh:     reqCh,
 		cfgReader: cfg,
-		domains:   make(map[string]chan<- BackendRequest),
+		domains:   core.NewEmptyServerCatalog(mc.Packet{}, mc.Packet{}),
 		workers:   []UpdatableWorker{},
 	}
 	return &manager
@@ -28,7 +30,7 @@ func NewWorkerManager(cfg config.UVConfigReader, reqCh <-chan net.Conn) WorkerMa
 type workerManager struct {
 	cfgReader config.UVConfigReader
 	reqCh     <-chan net.Conn
-	domains   map[string]chan<- BackendRequest
+	domains   core.BasicServerCatalog
 	workers   []UpdatableWorker
 }
 
@@ -53,16 +55,16 @@ func (manager *workerManager) SetReqChan(reqCh <-chan net.Conn) {
 	manager.reqCh = reqCh
 }
 
-func (manager *workerManager) AddBackend(domains []string, ch chan<- BackendRequest) {
+func (manager *workerManager) AddBackend(domains []string, server core.Server) {
 	for _, domain := range domains {
-		manager.domains[domain] = ch
+		manager.domains.ServerDict[domain] = server
 	}
 	manager.update()
 }
 
 func (manager *workerManager) RemoveBackend(domains []string) {
 	for _, domain := range domains {
-		delete(manager.domains, domain)
+		delete(manager.domains.ServerDict, domain)
 	}
 	manager.update()
 }
@@ -81,6 +83,6 @@ func (manager *workerManager) update() {
 }
 
 func (manager *workerManager) KnowsDomain(domain string) bool {
-	_, knows := manager.domains[domain]
-	return knows
+	_, err := manager.domains.Find(domain)
+	return err == nil
 }

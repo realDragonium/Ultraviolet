@@ -1,9 +1,12 @@
 package worker_test
 
 import (
+	"net"
 	"testing"
 
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
+	"github.com/realDragonium/Ultraviolet/mc"
 	"github.com/realDragonium/Ultraviolet/worker"
 )
 
@@ -11,8 +14,22 @@ type testUpdatableWorkerCounter struct {
 	updatesReceived int
 }
 
-func (worker *testUpdatableWorkerCounter) Update(data map[string]chan<- worker.BackendRequest) {
+func (worker *testUpdatableWorkerCounter) Update(data core.ServerCatalog) {
 	worker.updatesReceived++
+}
+
+type testServer struct{}
+
+func (s testServer) ConnAction(req core.RequestData) core.ServerAction {
+	return core.CLOSE
+}
+
+func (s testServer) CreateConn(req core.RequestData) (c net.Conn, err error) {
+	return nil, nil
+}
+
+func (s testServer) Status() mc.Packet {
+	return mc.Packet{}
 }
 
 func TestRegisterServerConfig(t *testing.T) {
@@ -20,8 +37,7 @@ func TestRegisterServerConfig(t *testing.T) {
 	t.Run("add backend", func(t *testing.T) {
 		manager := worker.NewWorkerManager(config.NewUVReader(cfg), nil)
 		domains := []string{"uv", "uv2"}
-		ch := make(chan worker.BackendRequest)
-		manager.AddBackend(domains, ch)
+		manager.AddBackend(domains, testServer{})
 		for _, domain := range domains {
 			if !manager.KnowsDomain(domain) {
 				t.Error("manager should have known this domain")
@@ -33,8 +49,7 @@ func TestRegisterServerConfig(t *testing.T) {
 		manager := worker.NewWorkerManager(config.NewUVReader(cfg), nil)
 		domain := "uv2"
 		domains := []string{"uv", domain}
-		ch := make(chan worker.BackendRequest)
-		manager.AddBackend(domains, ch)
+		manager.AddBackend(domains, testServer{})
 
 		removeDomains := []string{domain}
 		manager.RemoveBackend(removeDomains)
@@ -71,8 +86,7 @@ func TestRegisterServerConfig(t *testing.T) {
 
 		domain := "uv2"
 		domains := []string{"uv", domain}
-		ch := make(chan worker.BackendRequest)
-		manager.AddBackend(domains, ch)
+		manager.AddBackend(domains, testServer{})
 
 		if wrk.updatesReceived != 1 {
 			t.Fatal("expected to receive an update")

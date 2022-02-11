@@ -15,10 +15,11 @@ type Server interface {
 type ServerAction byte
 
 const (
-	DISCONNECT ServerAction = iota
+	CLOSE ServerAction = iota
 	DEFAULT_STATUS
 	STATUS
 	VERIFY_CONN
+	DISCONNECT
 	PROXY
 	PROXY_REALIP_2_4
 	PROXY_REALIP_2_5

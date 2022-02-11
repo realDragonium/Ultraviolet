@@ -8,6 +8,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 )
 
 var (
@@ -26,7 +27,7 @@ type Proxy struct {
 	uvReader      config.UVConfigReader
 	listener      net.Listener
 	cfgReader     config.ServerConfigReader
-	serverCatalog ServerCatalog
+	serverCatalog core.ServerCatalog
 }
 
 func (p *Proxy) Start() error {
@@ -58,7 +59,7 @@ func (p *Proxy) Start() error {
 		}
 
 		claimParallelRun()
-		go func(conn net.Conn, serverCatalog ServerCatalog) {
+		go func(conn net.Conn, serverCatalog core.ServerCatalog) {
 			defer unclaimParallelRun()
 			FullRun(conn, serverCatalog)
 		}(conn, p.serverCatalog)
@@ -81,7 +82,7 @@ func (p *Proxy) ReloadServerCatalog() error {
 		return err
 	}
 
-	serverCatalog := NewBasicServerCatalog(cfg.DefaultStatusPk(), cfg.VerifyConnectionPk())
+	servers := make(map[string]core.Server)
 
 	newCfgs, err := p.cfgReader()
 	if err != nil {
@@ -96,10 +97,10 @@ func (p *Proxy) ReloadServerCatalog() error {
 
 		server := NewConfigServer(apiCfg)
 		for _, domain := range newCfg.Domains {
-			serverCatalog.ServerDict[domain] = server
+			servers[domain] = server
 		}
 	}
 
-	p.serverCatalog = &serverCatalog
+	p.serverCatalog = core.NewServerCatalog(servers, cfg.DefaultStatusPk(), cfg.VerifyConnectionPk())
 	return nil
 }

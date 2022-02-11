@@ -78,7 +78,7 @@ func (server APIServer) ConnAction(req core.RequestData) core.ServerAction {
 	case core.Online:
 		return server.serverOnline(req)
 	default:
-		return core.DISCONNECT
+		return core.CLOSE
 	}
 }
 
@@ -87,7 +87,7 @@ func (server APIServer) serverOffline(req core.RequestData) core.ServerAction {
 		return core.STATUS
 	}
 
-	return core.DISCONNECT
+	return core.CLOSE
 }
 
 func (server APIServer) serverOnline(req core.RequestData) core.ServerAction {
@@ -109,7 +109,7 @@ func (server APIServer) serverOnline(req core.RequestData) core.ServerAction {
 		return core.PROXY
 	}
 
-	return core.DISCONNECT
+	return core.CLOSE
 }
 
 func (server APIServer) CreateConn(req core.RequestData) (conn net.Conn, err error) {

@@ -144,7 +144,7 @@ func TestLookupServer(t *testing.T) {
 	}
 
 	simpleServer := ultraviolet.ProxyAllServer{}
-	serverCatalog := ultraviolet.NewBasicServerCatalog(mc.Packet{}, mc.Packet{})
+	serverCatalog := core.NewEmptyServerCatalog(mc.Packet{}, mc.Packet{})
 	serverCatalog.ServerDict["ultraviolet"] = simpleServer
 
 	tt := []struct {
@@ -300,7 +300,7 @@ func TestSendResponse(t *testing.T) {
 
 func TestFullRun(t *testing.T) {
 	proxyServer := ultraviolet.ProxyAllServer{}
-	serverCatalog := ultraviolet.NewBasicServerCatalog(mc.Packet{}, mc.Packet{})
+	serverCatalog := core.NewEmptyServerCatalog(mc.Packet{}, mc.Packet{})
 	serverCatalog.ServerDict["ultraviolet"] = proxyServer
 
 	pksSend := []mc.Packet{loginHsPk, loginSecondPk}

@@ -31,6 +31,7 @@ type Backend interface {
 	HasActiveConn() bool
 	Update(cfg BackendConfig) error
 	Close()
+	Server() core.Server
 }
 
 func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
@@ -156,6 +157,12 @@ func (w *BackendWorker) Run() {
 	}(*w)
 }
 
+func (w *BackendWorker) Server() core.Server {
+	return &BackendServer{
+		ch: w.ReqCh(),
+	}
+}
+
 func (w *BackendWorker) ReqCh() chan<- BackendRequest {
 	return w.reqCh
 }
@@ -243,50 +250,6 @@ func (wrk *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	}
 }
 
-func (wrk *BackendWorker) ConnAction(req core.RequestData) core.ServerAction {
-	backendReq := BackendRequest{ReqData: req}
-	ans := wrk.HandleRequest(backendReq)
-
-	switch (ans.Action()) {
-	case Disconnect:
-		return core.DISCONNECT
-	case Proxy:
-		return core.PROXY 
-	case Close: 
-		return core.DISCONNECT
-	case Error: 
-		return core.DISCONNECT
-	default:
-		return core.PROXY
-	}
-}
-
-func (wrk *BackendWorker) CreateConn(req core.RequestData) (c net.Conn, err error) {
-	backendReq := BackendRequest{ReqData: req}
-	ans := wrk.HandleRequest(backendReq)
-
-	if ans.Action() != Proxy {
-		return nil, core.ErrNoServerConn
-	}
-	
-	return ans.serverConnFunc()
-}
-
-func (wrk *BackendWorker) Status() mc.Packet {
-	backendReq := BackendRequest{
-		ReqData: core.RequestData{
-			Type: mc.Status,
-		},
-	}
-	ans := wrk.HandleRequest(backendReq)
-
-	if ans.Action() != SendStatus {
-		return mc.Packet{}
-	}
-	
-	return ans.Response()
-}
-
 func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
 		switch req.ReqData.Type {
@@ -346,4 +309,66 @@ func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 		secondPacket = mc.ServerLoginStart{Name: mc.String(req.ReqData.Username)}.Marshal()
 	}
 	return NewProxyAnswer(hsPk, secondPacket, wrk.proxyCh, connFunc)
+}
+
+func NewBackendServer(ch chan<- BackendRequest) core.Server {
+	return &BackendServer{
+		ch: ch,
+	}
+}
+
+type BackendServer struct {
+	ch chan<- BackendRequest
+}
+
+func (wrk *BackendServer) ConnAction(req core.RequestData) core.ServerAction {
+	ans := wrk.HandleRequest(req)
+
+	switch ans.Action() {
+	case Disconnect:
+		return core.DISCONNECT
+	case Proxy:
+		return core.PROXY
+	case Close:
+		return core.CLOSE
+	case Error:
+		return core.CLOSE
+	default:
+		return core.PROXY
+	}
+}
+
+func (wrk *BackendServer) CreateConn(req core.RequestData) (c net.Conn, err error) {
+	ans := wrk.HandleRequest(req)
+
+	if ans.Action() != Proxy {
+		return nil, core.ErrNoServerConn
+	}
+
+	return ans.serverConnFunc()
+}
+
+func (wrk *BackendServer) Status() mc.Packet {
+	reqData := core.RequestData{
+		Type: mc.Status,
+	}
+	ans := wrk.HandleRequest(reqData)
+
+	if ans.Action() != SendStatus {
+		return mc.Packet{}
+	}
+
+	return ans.Response()
+}
+
+func (wrk *BackendServer) HandleRequest(req core.RequestData) BackendAnswer {
+	backendReq := BackendRequest{
+		ReqData: core.RequestData{
+			Type: mc.Status,
+		},
+	}
+	ansCh := make(chan BackendAnswer)
+	backendReq.Ch = ansCh
+	wrk.ch <- backendReq
+	return <-ansCh
 }
