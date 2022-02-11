@@ -250,6 +250,21 @@ func UnmarshalServerBoundLoginStart(packet Packet) (ServerLoginStart, error) {
 
 const ClientBoundDisconnectPacketID byte = 0x00
 
+type DisconnectClient struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+func (pk DisconnectClient) Marshal() Packet {
+	return MarshalPacket(
+		ClientBoundDisconnectPacketID,
+		Chat(pk.Reason),
+	)
+}
+
+func (pk *DisconnectClient) MarshalPacket() Packet {
+	return pk.Marshal()
+}
+
 type ClientBoundDisconnect struct {
 	Reason Chat
 }

@@ -1,4 +1,4 @@
-package server_test
+package module_test
 
 import (
 	"errors"
@@ -7,8 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
+	"github.com/realDragonium/Ultraviolet/module"
 )
 
 type statusCacheConnCreator struct {
@@ -33,9 +34,9 @@ func (creator statusCacheConnCreatorMultipleCalls) Conn() func() (net.Conn, erro
 	}
 }
 
-func statusCall_TestError(t *testing.T, cache *server.StatusCache, errCh chan error) server.BackendAnswer {
+func statusCall_TestError(t *testing.T, cache *module.StatusCache, errCh chan error) mc.Packet {
 	t.Helper()
-	answerCh := make(chan server.BackendAnswer)
+	answerCh := make(chan mc.Packet)
 	go func() {
 		answer, err := (*cache).Status()
 		if err != nil {
@@ -52,7 +53,7 @@ func statusCall_TestError(t *testing.T, cache *server.StatusCache, errCh chan er
 	case err := <-errCh:
 		t.Fatalf("didnt expect an error but got: %v", err)
 	}
-	return server.BackendAnswer{}
+	return mc.Packet{}
 }
 
 type serverSimulator struct {
@@ -112,13 +113,12 @@ func TestStatusCache(t *testing.T) {
 		Description: "some random motd text",
 	}.Marshal()
 
-	// TODO: got rondom test fail here
 	t.Run("normal flow", func(t *testing.T) {
 		errCh := make(chan error)
-		answerCh := make(chan server.BackendAnswer)
+		answerCh := make(chan mc.Packet)
 		c1, c2 := net.Pipe()
 		connCreator := statusCacheConnCreator{conn: c1}
-		statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+		statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 		simulator := serverSimulator{}
 		go func() {
 			err := simulator.simulateServerStatus(c2, statusPacket)
@@ -134,7 +134,7 @@ func TestStatusCache(t *testing.T) {
 			answerCh <- answer
 		}()
 
-		var answer server.BackendAnswer
+		var answer mc.Packet
 
 		select {
 		case answer = <-answerCh:
@@ -145,13 +145,10 @@ func TestStatusCache(t *testing.T) {
 			t.Fatal("timed out")
 		}
 
-		if answer.Action() != server.SendStatus {
-			t.Errorf("expected %v but got %v instead", server.SendStatus, answer.Action())
-		}
-		if !samePK(statusPacket, answer.Response()) {
+		if !cmp.Equal(statusPacket, answer) {
 			t.Error("received different packet than we expected!")
-			t.Logf("expected: %v", statusPacket)
-			t.Logf("received: %v", answer.Response())
+			t.Logf("expected: %#v", statusPacket)
+			t.Logf("received: %#v", answer)
 		}
 		if simulator.callAmount != 1 {
 			t.Errorf("expected backend to be called 1 time but got called %v time(s)", simulator.callAmount)
@@ -162,7 +159,7 @@ func TestStatusCache(t *testing.T) {
 		errCh := make(chan error)
 		connCh := make(chan net.Conn, 1)
 		connCreator := &statusCacheConnCreatorMultipleCalls{connCh: connCh}
-		statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+		statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 		simulator := serverSimulator{}
 
 		c1, c2 := net.Pipe()
@@ -182,7 +179,7 @@ func TestStatusCache(t *testing.T) {
 		errCh := make(chan error)
 		connCh := make(chan net.Conn, 1)
 		connCreator := &statusCacheConnCreatorMultipleCalls{connCh: connCh}
-		statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+		statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 		simulator := serverSimulator{}
 
 		c1, c2 := net.Pipe()
@@ -203,7 +200,7 @@ func TestStatusCache(t *testing.T) {
 		t.Run("with conn being nil", func(t *testing.T) {
 			usedError := errors.New("cant create connection")
 			connCreator := statusCacheConnCreator{err: usedError, conn: nil}
-			statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+			statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 			_, err := statusCache.Status()
 			if !errors.Is(err, usedError) {
 				t.Errorf("expected an error but something else: %v", err)
@@ -212,7 +209,7 @@ func TestStatusCache(t *testing.T) {
 		t.Run("with conn being an connection", func(t *testing.T) {
 			usedError := errors.New("cant create connection")
 			connCreator := statusCacheConnCreator{err: usedError, conn: &net.TCPConn{}}
-			statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+			statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 			_, err := statusCache.Status()
 			if !errors.Is(err, usedError) {
 				t.Errorf("expected an error but something else: %v", err)
@@ -257,11 +254,11 @@ func TestStatusCache(t *testing.T) {
 			name := fmt.Sprintf("closeConnBy:%v", tc.closeConnByStep)
 			t.Run(name, func(t *testing.T) {
 				errCh := make(chan error)
-				answerCh := make(chan server.BackendAnswer)
+				answerCh := make(chan mc.Packet)
 
 				c1, c2 := net.Pipe()
 				connCreator := statusCacheConnCreator{conn: c1}
-				statusCache := server.NewStatusCache(protocolVersion, cooldown, connCreator)
+				statusCache := module.NewStatusCache(protocolVersion, cooldown, connCreator)
 				simulator := serverSimulator{
 					closeConnByStep: tc.closeConnByStep,
 				}
@@ -284,7 +281,7 @@ func TestStatusCache(t *testing.T) {
 
 				}()
 
-				var answer server.BackendAnswer
+				var answer mc.Packet
 				var err error
 				select {
 				case answer = <-answerCh:
@@ -303,10 +300,10 @@ func TestStatusCache(t *testing.T) {
 					t.Fatal("expected an error but got nothing")
 				}
 
-				if tc.matchStatus && !samePK(statusPacket, answer.Response()) {
+				if tc.matchStatus && !cmp.Equal(statusPacket, answer) {
 					t.Error("received different packet than we expected!")
 					t.Logf("expected: %v", statusPacket)
-					t.Logf("received: %v", answer.Response())
+					t.Logf("received: %v", answer)
 				}
 
 			})

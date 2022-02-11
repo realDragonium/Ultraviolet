@@ -1,4 +1,4 @@
-package server_test
+package worker_test
 
 import (
 	"bytes"
@@ -11,9 +11,11 @@ import (
 	"time"
 
 	"github.com/pires/go-proxyproto"
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
+	"github.com/realDragonium/Ultraviolet/module"
+	"github.com/realDragonium/Ultraviolet/worker"
 )
 
 var (
@@ -22,27 +24,27 @@ var (
 
 var RequestStateInfo = []struct {
 	reqType         mc.HandshakeState
-	denyAction      server.BackendAction
-	unknownAction   server.BackendAction
-	onlineAction    server.BackendAction
-	offlineAction   server.BackendAction
-	rateLimitAction server.BackendAction
+	denyAction      worker.BackendAction
+	unknownAction   worker.BackendAction
+	onlineAction    worker.BackendAction
+	offlineAction   worker.BackendAction
+	rateLimitAction worker.BackendAction
 }{
 	{
 		reqType:         mc.Status,
-		denyAction:      server.Close,
-		unknownAction:   server.SendStatus,
-		onlineAction:    server.Proxy,
-		offlineAction:   server.SendStatus,
-		rateLimitAction: server.Close,
+		denyAction:      worker.Close,
+		unknownAction:   worker.SendStatus,
+		onlineAction:    worker.Proxy,
+		offlineAction:   worker.SendStatus,
+		rateLimitAction: worker.Close,
 	},
 	{
 		reqType:         mc.Login,
-		denyAction:      server.Disconnect,
-		unknownAction:   server.Close,
-		onlineAction:    server.Proxy,
-		offlineAction:   server.Disconnect,
-		rateLimitAction: server.Close,
+		denyAction:      worker.Disconnect,
+		unknownAction:   worker.Close,
+		onlineAction:    worker.Proxy,
+		offlineAction:   worker.Disconnect,
+		rateLimitAction: worker.Close,
 	},
 }
 
@@ -96,51 +98,67 @@ func (modifier *testHandshakeModifier) Modify(hs *mc.ServerBoundHandshake, addr 
 
 type testConnectionLimiter struct {
 	hasBeenCalled bool
-	answer        server.BackendAnswer
 	allow         bool
 }
 
-func (limiter *testConnectionLimiter) Allow(req server.BackendRequest) (server.BackendAnswer, bool) {
+func (limiter *testConnectionLimiter) Allow(reqData ultraviolet.RequestData) (allowed bool, err error) {
 	limiter.hasBeenCalled = true
-	return limiter.answer, limiter.allow
+	return limiter.allow, nil
 }
 
 type testServerState struct {
 	hasBeenCalled bool
-	state         server.ServerState
+	state         ultraviolet.ServerState
 }
 
-func (state *testServerState) State() server.ServerState {
+func (state *testServerState) State() ultraviolet.ServerState {
 	state.hasBeenCalled = true
 	return state.state
 }
 
 type testStatusCache struct {
 	hasBeenCalled bool
-	answer        server.BackendAnswer
+	answer        mc.Packet
 	err           error
 }
 
-func (cache *testStatusCache) Status() (server.BackendAnswer, error) {
+func (cache *testStatusCache) Status() (mc.Packet, error) {
 	cache.hasBeenCalled = true
 	return cache.answer, cache.err
 }
 
+type stateConnCreator struct {
+	callAmount  int
+	returnError bool
+}
+
+func (creator *stateConnCreator) Conn() func() (net.Conn, error) {
+	creator.callAmount++
+	if creator.returnError {
+		return func() (net.Conn, error) {
+			return nil, ErrEmptyConnCreator
+		}
+	}
+	return func() (net.Conn, error) {
+		return &net.TCPConn{}, nil
+	}
+}
+
 //Test Help methods
-func setupBackendWorker(t *testing.T, serverCfg config.ServerConfig) server.BackendWorker {
+func setupBackendWorker(t *testing.T, serverCfg config.ServerConfig) worker.BackendWorker {
 	workerServerCfg, err := config.ServerToBackendConfig(serverCfg)
 	if err != nil {
 		t.Fatalf("error encounterd: %v", err)
 	}
-	serverWorker := server.NewBackendWorker(workerServerCfg)
-	return serverWorker
+	serverwrk := worker.NewBackendWorker(workerServerCfg)
+	return serverwrk
 }
 
-func processRequest_TestTimeout(t *testing.T, worker server.BackendWorker, req server.BackendRequest) server.BackendAnswer {
+func processRequest_TestTimeout(t *testing.T, wrk worker.BackendWorker, req worker.BackendRequest) worker.BackendAnswer {
 	t.Helper()
-	answerCh := make(chan server.BackendAnswer)
+	answerCh := make(chan worker.BackendAnswer)
 	go func() {
-		answer := worker.HandleRequest(req)
+		answer := wrk.HandleRequest(req)
 		answerCh <- answer
 	}()
 
@@ -151,7 +169,7 @@ func processRequest_TestTimeout(t *testing.T, worker server.BackendWorker, req s
 	case <-time.After(defaultChTimeout):
 		t.Fatal("timed out")
 	}
-	return server.BackendAnswer{}
+	return worker.BackendAnswer{}
 }
 
 func testCloseConnection(t *testing.T, conn net.Conn) {
@@ -184,12 +202,16 @@ func TestBackendWorker_OfflineServer(t *testing.T) {
 				OfflineStatus:     defaultOfflineStatus(),
 				DisconnectMessage: disconnectMessage,
 			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
+
+			req := worker.BackendRequest{
+				ultraviolet.RequestData{
+					Type: tc.reqType,
+				},
+				make(chan<- worker.BackendAnswer),
 			}
 			offlineStatusPk := defaultOfflineStatusPacket()
-			worker := setupBackendWorker(t, serverCfg)
-			answer := processRequest_TestTimeout(t, worker, req)
+			wrk := setupBackendWorker(t, serverCfg)
+			answer := processRequest_TestTimeout(t, wrk, req)
 			if answer.Action() != tc.offlineAction {
 				t.Errorf("expected: %v - got: %v", tc.offlineAction, answer.Action())
 			}
@@ -220,8 +242,10 @@ func TestBackendWorker_OnlineServer(t *testing.T) {
 				Domains: []string{serverAddr},
 				ProxyTo: targetAddr,
 			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
+			req := worker.BackendRequest{
+				ReqData: ultraviolet.RequestData{
+					Type: tc.reqType,
+				},
 			}
 			listener, err := net.Listen("tcp", targetAddr)
 			if err != nil {
@@ -231,8 +255,8 @@ func TestBackendWorker_OnlineServer(t *testing.T) {
 				listener.Accept()
 
 			}()
-			worker := setupBackendWorker(t, serverCfg)
-			answer := processRequest_TestTimeout(t, worker, req)
+			wrk := setupBackendWorker(t, serverCfg)
+			answer := processRequest_TestTimeout(t, wrk, req)
 			if answer.Action() != tc.onlineAction {
 				t.Fatalf("expected: %v - got: %v", tc.onlineAction, answer.Action())
 			}
@@ -247,24 +271,26 @@ func TestBackendWorker_OnlineServer(t *testing.T) {
 
 func TestBackendWorker_HandshakeModifier(t *testing.T) {
 	hsModifier := testHandshakeModifier{}
-	worker := server.BackendWorker{
+	wrk := worker.BackendWorker{
 		HsModifier:  &hsModifier,
-		ServerState: server.AlwaysOnlineState{},
+		ServerState: module.AlwaysOnlineState{},
 		ConnCreator: testConnCreator{},
 	}
-	req := server.BackendRequest{
-		Type: mc.Login,
-		Handshake: mc.ServerBoundHandshake{
-			ServerAddress: "Something",
-		},
-		Addr: &net.TCPAddr{
-			IP:   net.ParseIP("1.1.1.1"),
-			Port: 25560,
+	req := worker.BackendRequest{
+		ReqData: ultraviolet.RequestData{
+			Type: mc.Login,
+			Handshake: mc.ServerBoundHandshake{
+				ServerAddress: "Something",
+			},
+			Addr: &net.TCPAddr{
+				IP:   net.ParseIP("1.1.1.1"),
+				Port: 25560,
+			},
 		},
 	}
-	answer := processRequest_TestTimeout(t, worker, req)
-	if answer.Action() != server.Proxy {
-		t.Fatalf("expected: %v - got: %v", server.Proxy, answer.Action())
+	answer := processRequest_TestTimeout(t, wrk, req)
+	if answer.Action() != worker.Proxy {
+		t.Fatalf("expected: %v - got: %v", worker.Proxy, answer.Action())
 	}
 
 	if !hsModifier.hasBeenCalled {
@@ -284,13 +310,15 @@ func TestBackendWorker_ProxyBind(t *testing.T) {
 				ProxyTo:   targetAddr,
 				ProxyBind: proxyBind,
 			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
+			req := worker.BackendRequest{
+				ReqData: ultraviolet.RequestData{
+					Type: tc.reqType,
+				},
 			}
 
 			go func() {
-				worker := setupBackendWorker(t, serverCfg)
-				answer := processRequest_TestTimeout(t, worker, req)
+				wrk := setupBackendWorker(t, serverCfg)
+				answer := processRequest_TestTimeout(t, wrk, req)
 				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
 
@@ -326,9 +354,11 @@ func TestBackendWorker_ProxyProtocol(t *testing.T) {
 				ProxyTo:           targetAddr,
 				SendProxyProtocol: true,
 			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
-				Addr: playerAddr,
+			req := worker.BackendRequest{
+				ReqData: ultraviolet.RequestData{
+					Type: tc.reqType,
+					Addr: playerAddr,
+				},
 			}
 			listener, err := net.Listen("tcp", targetAddr)
 			if err != nil {
@@ -349,8 +379,8 @@ func TestBackendWorker_ProxyProtocol(t *testing.T) {
 			}()
 
 			go func() {
-				worker := setupBackendWorker(t, serverCfg)
-				answer := processRequest_TestTimeout(t, worker, req)
+				wrk := setupBackendWorker(t, serverCfg)
+				answer := processRequest_TestTimeout(t, wrk, req)
 				answer.ServerConn() // Calling it instead of the player's goroutine
 			}()
 
@@ -374,48 +404,37 @@ func TestBackendWorker_ConnLimiter(t *testing.T) {
 	tt := []struct {
 		allowConn         bool
 		shouldAnswerMatch bool
-		processAnswer     server.BackendAnswer
+		processAnswer     worker.BackendAnswer
 	}{
 		{
 			allowConn:         true,
 			shouldAnswerMatch: false,
-			processAnswer:     server.NewCloseAnswer(),
+			processAnswer:     worker.NewCloseAnswer(),
 		},
 		{
 			allowConn:         false,
 			shouldAnswerMatch: true,
-			processAnswer:     server.NewCloseAnswer(),
+			processAnswer:     worker.NewCloseAnswer(),
 		},
 	}
 	for _, tc := range tt {
 		name := fmt.Sprintf("allows connection: %v", tc.allowConn)
 		t.Run(name, func(t *testing.T) {
 			connLimiter := testConnectionLimiter{
-				answer: tc.processAnswer,
-				allow:  tc.allowConn,
+				allow: tc.allowConn,
 			}
-			worker := server.BackendWorker{
-				ServerState: server.AlwaysOnlineState{},
+			wrk := worker.BackendWorker{
+				ServerState: module.AlwaysOnlineState{},
 				ConnCreator: testConnCreator{},
 				ConnLimiter: &connLimiter,
 			}
-			req := server.BackendRequest{}
-			answer := processRequest_TestTimeout(t, worker, req)
+			req := worker.BackendRequest{}
+			processRequest_TestTimeout(t, wrk, req)
 
 			if !connLimiter.hasBeenCalled {
 				t.Error("expected conn limiter to be called but it wasnt")
 			}
 
-			answerMatch := answer.Action() == tc.processAnswer.Action()
-			if answerMatch != tc.shouldAnswerMatch {
-				if tc.shouldAnswerMatch {
-					t.Error("answer action didnt match to conn limiter answer action")
-					t.Logf("received answer: %v", answer)
-				} else {
-					t.Error("answer action was equal to conn limiter answer action which shouldnt happen")
-					t.Logf("received answer: %v", answer)
-				}
-			}
 		})
 	}
 }
@@ -423,23 +442,23 @@ func TestBackendWorker_ConnLimiter(t *testing.T) {
 func TestBackendWorker_ServerState(t *testing.T) {
 	tt := []struct {
 		reqType        mc.HandshakeState
-		serverState    server.ServerState
-		expectedAction server.BackendAction
+		serverState    ultraviolet.ServerState
+		expectedAction worker.BackendAction
 	}{
 		{
 			reqType:        mc.UnknownState,
-			serverState:    server.Online,
-			expectedAction: server.Proxy,
+			serverState:    ultraviolet.Online,
+			expectedAction: worker.Proxy,
 		},
 		{
 			reqType:        mc.Login,
-			serverState:    server.Offline,
-			expectedAction: server.Disconnect,
+			serverState:    ultraviolet.Offline,
+			expectedAction: worker.Disconnect,
 		},
 		{
 			reqType:        mc.Status,
-			serverState:    server.Offline,
-			expectedAction: server.SendStatus,
+			serverState:    ultraviolet.Offline,
+			expectedAction: worker.SendStatus,
 		},
 	}
 	for _, tc := range tt {
@@ -448,14 +467,16 @@ func TestBackendWorker_ServerState(t *testing.T) {
 			serverState := testServerState{
 				state: tc.serverState,
 			}
-			worker := server.BackendWorker{
+			wrk := worker.BackendWorker{
 				ServerState: &serverState,
 				ConnCreator: testConnCreator{},
 			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
+			req := worker.BackendRequest{
+				ReqData: ultraviolet.RequestData{
+					Type: tc.reqType,
+				},
 			}
-			answer := processRequest_TestTimeout(t, worker, req)
+			answer := processRequest_TestTimeout(t, wrk, req)
 
 			if answer.Action() != tc.expectedAction {
 				t.Errorf("expected %v but got %v instead", tc.expectedAction, answer.Action())
@@ -467,71 +488,10 @@ func TestBackendWorker_ServerState(t *testing.T) {
 	}
 }
 
-func TestBackendWorker_StatusCache(t *testing.T) {
-	tt := []struct {
-		reqType        mc.HandshakeState
-		callsCache     bool
-		errToReturn    error
-		answer         server.BackendAnswer
-		expectedAction server.BackendAction
-	}{
-		{
-			reqType:        mc.Status,
-			callsCache:     true,
-			answer:         server.BackendAnswer{},
-			expectedAction: server.Error,
-		},
-		{
-			reqType:        mc.Login,
-			callsCache:     false,
-			expectedAction: server.Proxy,
-		},
-		{
-			reqType:        mc.Status,
-			callsCache:     true,
-			answer:         server.NewDisconnectAnswer(mc.Packet{}),
-			errToReturn:    nil,
-			expectedAction: server.Disconnect,
-		},
-		{
-			reqType:        mc.Status,
-			callsCache:     true,
-			answer:         server.NewDisconnectAnswer(mc.Packet{}),
-			errToReturn:    errors.New("random error for testing"),
-			expectedAction: server.SendStatus,
-		},
-	}
-
-	for _, tc := range tt {
-		name := fmt.Sprintf("reqType:%v - shouldCall:%v - returnErr:%v", tc.reqType, tc.callsCache, tc.errToReturn)
-		t.Run(name, func(t *testing.T) {
-			cache := testStatusCache{
-				answer: tc.answer,
-				err:    tc.errToReturn,
-			}
-			worker := server.BackendWorker{
-				ServerState: server.AlwaysOnlineState{},
-				ConnCreator: testConnCreator{},
-				StatusCache: &cache,
-			}
-			req := server.BackendRequest{
-				Type: tc.reqType,
-			}
-			answer := processRequest_TestTimeout(t, worker, req)
-			if answer.Action() != tc.expectedAction {
-				t.Errorf("expected %v but got %v instead", tc.expectedAction, answer.Action())
-			}
-			if cache.hasBeenCalled != tc.callsCache {
-				t.Error("Expected cache to be called but wasnt")
-			}
-		})
-	}
-}
-
 func TestBackendWorker_Update(t *testing.T) {
 	t.Run("change when update config contains new value", func(t *testing.T) {
-		worker := server.BackendWorker{}
-		cfg := server.BackendConfig{
+		wrk := worker.BackendWorker{}
+		cfg := worker.BackendConfig{
 			Name:                "UV",
 			UpdateProxyProtocol: true,
 			SendProxyProtocol:   true,
@@ -543,38 +503,38 @@ func TestBackendWorker_Update(t *testing.T) {
 			ServerState:         &testServerState{},
 			StatusCache:         &testStatusCache{},
 		}
-		worker.UpdateSameGoroutine(cfg)
-		if worker.Name != cfg.Name {
-			t.Errorf("expected: %v - got: %v", cfg.Name, worker.Name)
+		wrk.UpdateSameGoroutine(cfg)
+		if wrk.Name != cfg.Name {
+			t.Errorf("expected: %v - got: %v", cfg.Name, wrk.Name)
 		}
-		if worker.SendProxyProtocol != cfg.SendProxyProtocol {
-			t.Errorf("expected: %v - got: %v", cfg.SendProxyProtocol, worker.SendProxyProtocol)
+		if wrk.SendProxyProtocol != cfg.SendProxyProtocol {
+			t.Errorf("expected: %v - got: %v", cfg.SendProxyProtocol, wrk.SendProxyProtocol)
 		}
-		if !samePk(worker.DisconnectPacket, cfg.DisconnectPacket) {
-			t.Errorf("expected: %v - got: %v", cfg.DisconnectPacket, worker.DisconnectPacket)
+		if !samePk(wrk.DisconnectPacket, cfg.DisconnectPacket) {
+			t.Errorf("expected: %v - got: %v", cfg.DisconnectPacket, wrk.DisconnectPacket)
 		}
-		if !samePk(worker.OfflineStatusPacket, cfg.OfflineStatusPacket) {
-			t.Errorf("expected: %v - got: %v", cfg.OfflineStatusPacket, worker.OfflineStatusPacket)
+		if !samePk(wrk.OfflineStatusPacket, cfg.OfflineStatusPacket) {
+			t.Errorf("expected: %v - got: %v", cfg.OfflineStatusPacket, wrk.OfflineStatusPacket)
 		}
-		if worker.HsModifier != cfg.HsModifier {
-			t.Errorf("expected: %v - got: %v", cfg.HsModifier, worker.HsModifier)
+		if wrk.HsModifier != cfg.HsModifier {
+			t.Errorf("expected: %v - got: %v", cfg.HsModifier, wrk.HsModifier)
 		}
-		if worker.ConnCreator != cfg.ConnCreator {
-			t.Errorf("expected: %v - got: %v", cfg.ConnCreator, worker.ConnCreator)
+		if wrk.ConnCreator != cfg.ConnCreator {
+			t.Errorf("expected: %v - got: %v", cfg.ConnCreator, wrk.ConnCreator)
 		}
-		if worker.ConnLimiter != cfg.ConnLimiter {
-			t.Errorf("expected: %v - got: %v", cfg.ConnLimiter, worker.ConnLimiter)
+		if wrk.ConnLimiter != cfg.ConnLimiter {
+			t.Errorf("expected: %v - got: %v", cfg.ConnLimiter, wrk.ConnLimiter)
 		}
-		if worker.StatusCache != cfg.StatusCache {
-			t.Errorf("expected: %v - got: %v", cfg.StatusCache, worker.StatusCache)
+		if wrk.StatusCache != cfg.StatusCache {
+			t.Errorf("expected: %v - got: %v", cfg.StatusCache, wrk.StatusCache)
 		}
-		if worker.ServerState != cfg.ServerState {
-			t.Errorf("expected: %v - got: %v", cfg.ServerState, worker.ServerState)
+		if wrk.ServerState != cfg.ServerState {
+			t.Errorf("expected: %v - got: %v", cfg.ServerState, wrk.ServerState)
 		}
 	})
 
 	t.Run("change when update config contains new value", func(t *testing.T) {
-		worker := server.BackendWorker{
+		wrk := worker.BackendWorker{
 			Name:                "UV",
 			SendProxyProtocol:   true,
 			DisconnectPacket:    mc.Packet{ID: 0x45, Data: []byte{0x11, 0x12, 0x13}},
@@ -585,72 +545,74 @@ func TestBackendWorker_Update(t *testing.T) {
 			ServerState:         &testServerState{},
 			StatusCache:         &testStatusCache{},
 		}
-		cfg := server.BackendConfig{}
-		worker.UpdateSameGoroutine(cfg)
-		if worker.Name == cfg.Name {
-			t.Errorf("didnt expect: %v", worker.Name)
+		cfg := worker.BackendConfig{}
+		wrk.UpdateSameGoroutine(cfg)
+		if wrk.Name == cfg.Name {
+			t.Errorf("didnt expect: %v", wrk.Name)
 		}
-		if worker.SendProxyProtocol == cfg.SendProxyProtocol {
-			t.Errorf("didnt expect: %v", worker.SendProxyProtocol)
+		if wrk.SendProxyProtocol == cfg.SendProxyProtocol {
+			t.Errorf("didnt expect: %v", wrk.SendProxyProtocol)
 		}
-		if samePk(worker.DisconnectPacket, cfg.DisconnectPacket) {
-			t.Errorf("didnt expect: %v", worker.DisconnectPacket)
+		if samePk(wrk.DisconnectPacket, cfg.DisconnectPacket) {
+			t.Errorf("didnt expect: %v", wrk.DisconnectPacket)
 		}
-		if samePk(worker.OfflineStatusPacket, cfg.OfflineStatusPacket) {
-			t.Errorf("didnt expect: %v", worker.OfflineStatusPacket)
+		if samePk(wrk.OfflineStatusPacket, cfg.OfflineStatusPacket) {
+			t.Errorf("didnt expect: %v", wrk.OfflineStatusPacket)
 		}
-		if worker.HsModifier == cfg.HsModifier {
-			t.Errorf("didnt expect: %v", worker.HsModifier)
+		if wrk.HsModifier == cfg.HsModifier {
+			t.Errorf("didnt expect: %v", wrk.HsModifier)
 		}
-		if worker.ConnCreator == cfg.ConnCreator {
-			t.Errorf("didnt expect: %v", worker.ConnCreator)
+		if wrk.ConnCreator == cfg.ConnCreator {
+			t.Errorf("didnt expect: %v", wrk.ConnCreator)
 		}
-		if worker.ConnLimiter == cfg.ConnLimiter {
-			t.Errorf("didnt expect: %v", worker.ConnLimiter)
+		if wrk.ConnLimiter == cfg.ConnLimiter {
+			t.Errorf("didnt expect: %v", wrk.ConnLimiter)
 		}
-		if worker.StatusCache == cfg.StatusCache {
-			t.Errorf("didnt expect: %v", worker.StatusCache)
+		if wrk.StatusCache == cfg.StatusCache {
+			t.Errorf("didnt expect: %v", wrk.StatusCache)
 		}
-		if worker.ServerState == cfg.ServerState {
-			t.Errorf("didnt expect: %v", worker.ServerState)
+		if wrk.ServerState == cfg.ServerState {
+			t.Errorf("didnt expect: %v", wrk.ServerState)
 		}
 	})
 
 	t.Run("can update while running", func(t *testing.T) {
-		worker := server.NewEmptyBackendWorker()
-		worker.ServerState = server.AlwaysOfflineState{}
-		reqCh := worker.ReqCh()
-		worker.Run()
+		wrk := worker.NewEmptyBackendWorker()
+		wrk.ServerState = module.AlwaysOfflineState{}
+		reqCh := wrk.ReqCh()
+		wrk.Run()
 		testPk := mc.ClientBoundDisconnect{
 			Reason: mc.String("some text here"),
 		}.Marshal()
-		cfg := server.BackendConfig{
+		cfg := worker.BackendConfig{
 			DisconnectPacket: testPk,
 		}
-		err := worker.Update(cfg)
+		err := wrk.Update(cfg)
 		if err != nil {
 			t.Fatalf("got error: %v", err)
 		}
-		ansCh := make(chan server.BackendAnswer)
-		reqCh <- server.BackendRequest{
-			Type: mc.Login,
-			Ch:   ansCh,
+		ansCh := make(chan worker.BackendAnswer)
+		reqCh <- worker.BackendRequest{
+			ReqData: ultraviolet.RequestData{
+				Type: mc.Login,
+			},
+			Ch: ansCh,
 		}
 		ans := <-ansCh
 
 		if !samePk(testPk, ans.Response()) {
 			t.Errorf("expected: %v - got: %v", testPk, ans.Response())
 		}
-		worker.Close()
+		wrk.Close()
 	})
 }
 
 func TestBackendFactory(t *testing.T) {
 	t.Run("lets the worker run", func(t *testing.T) {
 		cfg := config.BackendWorkerConfig{}
-		b := server.BackendFactory(cfg)
+		b := worker.BackendFactory(cfg)
 		reqCh := b.ReqCh()
-		req := server.BackendRequest{}
+		req := worker.BackendRequest{}
 		select {
 		case reqCh <- req:
 			t.Log("backend is running in different goroutine")
@@ -670,21 +632,23 @@ func TestBackendFactory(t *testing.T) {
 			StateOption:      config.ALWAYS_OFFLINE,
 		}
 
-		b := server.BackendFactory(cfg)
-		worker, ok := b.(*server.BackendWorker)
+		b := worker.BackendFactory(cfg)
+		wrk, ok := b.(*worker.BackendWorker)
 		if !ok {
 			t.Fatalf("backend is different type then expected")
 		}
-		newCfg := server.BackendConfig{
+		newCfg := worker.BackendConfig{
 			DisconnectPacket: mc.Packet{ID: 0x44, Data: []byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}},
 		}
-		worker.UpdateSameGoroutine(newCfg)
+		wrk.UpdateSameGoroutine(newCfg)
 
 		reqCh := b.ReqCh()
-		rCh := make(chan server.BackendAnswer)
-		req := server.BackendRequest{
-			Ch:   rCh,
-			Type: mc.Login,
+		rCh := make(chan worker.BackendAnswer)
+		req := worker.BackendRequest{
+			ReqData: ultraviolet.RequestData{
+				Type: mc.Login,
+			},
+			Ch: rCh,
 		}
 		reqCh <- req
 		ans := <-rCh

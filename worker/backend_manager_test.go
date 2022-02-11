@@ -1,4 +1,4 @@
-package server_test
+package worker_test
 
 import (
 	"io/ioutil"
@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
+	"github.com/realDragonium/Ultraviolet/worker"
 )
 
 type testConfigReader struct {
@@ -25,17 +26,17 @@ func (reader testConfigReader) Read() ([]config.ServerConfig, error) {
 
 func newTestWorkerManager() testWorkerManager {
 	return testWorkerManager{
-		something: make(map[string]chan<- server.BackendRequest),
+		something: make(map[string]chan<- worker.BackendRequest),
 	}
 }
 
 type testWorkerManager struct {
 	timesAddCalled    int
 	timesRemoveCalled int
-	something         map[string]chan<- server.BackendRequest
+	something         map[string]chan<- worker.BackendRequest
 }
 
-func (man *testWorkerManager) AddBackend(domains []string, ch chan<- server.BackendRequest) {
+func (man *testWorkerManager) AddBackend(domains []string, ch chan<- worker.BackendRequest) {
 	man.timesAddCalled++
 	for _, domain := range domains {
 		man.something[domain] = ch
@@ -51,7 +52,7 @@ func (man *testWorkerManager) KnowsDomain(domain string) bool {
 	_, knows := man.something[domain]
 	return knows
 }
-func (man *testWorkerManager) Register(worker server.UpdatableWorker, update bool) {
+func (man *testWorkerManager) Register(wrk worker.UpdatableWorker, update bool) {
 }
 
 func (man *testWorkerManager) Start() error {
@@ -62,25 +63,25 @@ func (man *testWorkerManager) SetReqChan(reqCh <-chan net.Conn) {
 
 func newTestBackend() testBackend {
 	return testBackend{
-		reqCh: make(chan server.BackendRequest),
+		reqCh: make(chan worker.BackendRequest),
 	}
 }
 
 type testBackend struct {
-	reqCh        chan server.BackendRequest
+	reqCh        chan worker.BackendRequest
 	calledClose  bool
 	calledUpdate bool
 	timesClosed  int
 	timesUpdated int
 }
 
-func (backend *testBackend) ReqCh() chan<- server.BackendRequest {
+func (backend *testBackend) ReqCh() chan<- worker.BackendRequest {
 	return backend.reqCh
 }
 func (backend *testBackend) HasActiveConn() bool {
 	return false
 }
-func (backend *testBackend) Update(cfg server.BackendConfig) error {
+func (backend *testBackend) Update(cfg worker.BackendConfig) error {
 	backend.calledUpdate = true
 	backend.timesUpdated++
 	return nil
@@ -90,24 +91,24 @@ func (backend *testBackend) Close() {
 	backend.timesClosed++
 }
 
-func newSimpleBackendManager() server.BackendManager {
+func newSimpleBackendManager() worker.BackendManager {
 	workerManager := newTestWorkerManager()
-	factory := func(cfg config.BackendWorkerConfig) server.Backend {
+	factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 		backend := newTestBackend()
 		return &backend
 	}
 	reader := newReaderWithDefaultConfig()
-	backend, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+	backend, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 	return backend
 }
 
-func newBackendManagerWithReader(reader config.ServerConfigReader) server.BackendManager {
-	factory := func(cfg config.BackendWorkerConfig) server.Backend {
+func newBackendManagerWithReader(reader config.ServerConfigReader) worker.BackendManager {
+	factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 		backend := newTestBackend()
 		return &backend
 	}
 	workerManager := newTestWorkerManager()
-	backend, _ := server.NewBackendManager(&workerManager, factory, reader)
+	backend, _ := worker.NewBackendManager(&workerManager, factory, reader)
 	return backend
 }
 
@@ -131,14 +132,14 @@ func newReaderWithDefaultConfig() *testConfigReader {
 func TestBackendManager(t *testing.T) {
 	t.Run("adding new config calls factory to create new backend", func(t *testing.T) {
 		ch := make(chan struct{})
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			ch <- struct{}{}
 			backend := newTestBackend()
 			return &backend
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		go server.NewBackendManager(&workerManager, factory, reader.Read)
+		go worker.NewBackendManager(&workerManager, factory, reader.Read)
 		select {
 		case <-ch:
 			t.Log("factory has been called")
@@ -148,7 +149,7 @@ func TestBackendManager(t *testing.T) {
 	})
 
 	t.Run("fault config cause and error without any update", func(t *testing.T) {
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
@@ -173,7 +174,7 @@ func TestBackendManager(t *testing.T) {
 				},
 			},
 		}
-		_, err := server.NewBackendManager(&workerManager, factory, reader.Read)
+		_, err := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		if !strings.HasPrefix(err.Error(), "x509") {
 			t.Errorf("expected an privat key error but got: %v", err)
 		}
@@ -186,26 +187,26 @@ func TestBackendManager(t *testing.T) {
 	})
 
 	t.Run("adding new config calls worker manager to update", func(t *testing.T) {
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		server.NewBackendManager(&workerManager, factory, reader.Read)
+		worker.NewBackendManager(&workerManager, factory, reader.Read)
 		if workerManager.timesAddCalled != 1 {
 			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
 		}
 	})
 
 	t.Run("adding already registered configs doesnt register them again", func(t *testing.T) {
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		manager.Update()
 		if workerManager.timesAddCalled != 1 {
 			t.Errorf("expected to be called once but was called %d", workerManager.timesAddCalled)
@@ -213,7 +214,7 @@ func TestBackendManager(t *testing.T) {
 	})
 
 	t.Run("removing a config should update worker manager", func(t *testing.T) {
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
@@ -222,7 +223,7 @@ func TestBackendManager(t *testing.T) {
 		read := func() ([]config.ServerConfig, error) {
 			return reader.Read()
 		}
-		manager, err := server.NewBackendManager(&workerManager, factory, read)
+		manager, err := worker.NewBackendManager(&workerManager, factory, read)
 		if err != nil {
 			t.Fatalf("got error: %v", err)
 		}
@@ -238,7 +239,7 @@ func TestBackendManager(t *testing.T) {
 
 	t.Run("removing a config should update backend", func(t *testing.T) {
 		b := newTestBackend()
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			return &b
 		}
 		workerManager := newTestWorkerManager()
@@ -246,7 +247,7 @@ func TestBackendManager(t *testing.T) {
 		read := func() ([]config.ServerConfig, error) {
 			return reader.Read()
 		}
-		manager, _ := server.NewBackendManager(&workerManager, factory, read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, read)
 		reader.cfgs = []config.ServerConfig{}
 		manager.Update()
 		if !b.calledClose {
@@ -256,12 +257,12 @@ func TestBackendManager(t *testing.T) {
 
 	t.Run("updates backend if values have changed", func(t *testing.T) {
 		b := newTestBackend()
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			return &b
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		reader.cfgs[0].ProxyTo = "2"
 		manager.Update()
 		if !b.calledUpdate {
@@ -271,12 +272,12 @@ func TestBackendManager(t *testing.T) {
 
 	t.Run("does NOT update backend if values have NOT changed", func(t *testing.T) {
 		b := newTestBackend()
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			return &b
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		manager.Update()
 		if b.calledUpdate {
 			t.Error("should not have been updated")
@@ -285,13 +286,13 @@ func TestBackendManager(t *testing.T) {
 
 	t.Run("adding new config calls worker manager to register new domains", func(t *testing.T) {
 		newDomain := "uv1"
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithDefaultConfig()
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		workerManager.timesAddCalled = 0
 		reader.cfgs[0].Domains = append(reader.cfgs[0].Domains, newDomain)
 		manager.Update()
@@ -301,7 +302,7 @@ func TestBackendManager(t *testing.T) {
 	})
 
 	t.Run("removing new config calls worker manager to remove domain", func(t *testing.T) {
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
@@ -312,7 +313,7 @@ func TestBackendManager(t *testing.T) {
 			ProxyTo:  "1",
 		}
 		reader := newReaderWithConfig(cfg)
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 		reader.cfgs[0].Domains = []string{"uv"}
 		manager.Update()
 		if workerManager.timesRemoveCalled != 1 {
@@ -322,7 +323,7 @@ func TestBackendManager(t *testing.T) {
 
 	t.Run("update domain by worker when old config is removed and new config is added with same domain", func(t *testing.T) {
 		domain := "uv"
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
 			backend := newTestBackend()
 			return &backend
 		}
@@ -336,7 +337,7 @@ func TestBackendManager(t *testing.T) {
 		read := func() ([]config.ServerConfig, error) {
 			return reader.Read()
 		}
-		manager, _ := server.NewBackendManager(&workerManager, factory, read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, read)
 		backendCh1 := workerManager.something[domain]
 		reader.cfgs = []config.ServerConfig{
 			{
@@ -384,8 +385,8 @@ func TestCheckActiveConnections(t *testing.T) {
 
 	t.Run("active connection", func(t *testing.T) {
 		domain := "uv"
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
-			backend := server.BackendFactory(cfg)
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
+			backend := worker.BackendFactory(cfg)
 			return backend
 		}
 		workerManager := newTestWorkerManager()
@@ -396,17 +397,19 @@ func TestCheckActiveConnections(t *testing.T) {
 			CheckStateOption: "online",
 		}
 		reader := newReaderWithConfig(cfg)
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 
 		ch := workerManager.something[domain]
-		ansCh := make(chan server.BackendAnswer)
-		req := server.BackendRequest{
-			Type: mc.Login,
-			Ch:   ansCh,
+		ansCh := make(chan worker.BackendAnswer)
+		req := worker.BackendRequest{
+			ReqData: ultraviolet.RequestData{
+				Type: mc.Login,
+			},
+			Ch: ansCh,
 		}
 		ch <- req
 		ans := <-ansCh
-		ans.ProxyCh() <- server.ProxyOpen
+		ans.ProxyCh() <- worker.ProxyOpen
 		time.Sleep(defaultChTimeout)
 
 		active := manager.CheckActiveConnections()
@@ -423,25 +426,27 @@ func TestCheckActiveConnections(t *testing.T) {
 			ProxyTo:          "1",
 			CheckStateOption: "online",
 		}
-		factory := func(cfg config.BackendWorkerConfig) server.Backend {
-			backend := server.BackendFactory(cfg)
+		factory := func(cfg config.BackendWorkerConfig) worker.Backend {
+			backend := worker.BackendFactory(cfg)
 			return backend
 		}
 		workerManager := newTestWorkerManager()
 		reader := newReaderWithConfig(cfg)
-		manager, _ := server.NewBackendManager(&workerManager, factory, reader.Read)
+		manager, _ := worker.NewBackendManager(&workerManager, factory, reader.Read)
 
 		for _, ch := range workerManager.something {
 			count := rand.Intn(3)
 			for i := 0; i < count; i++ {
-				ansCh := make(chan server.BackendAnswer)
-				req := server.BackendRequest{
-					Type: mc.Login,
-					Ch:   ansCh,
+				ansCh := make(chan worker.BackendAnswer)
+				req := worker.BackendRequest{
+					ReqData: ultraviolet.RequestData{
+						Type: mc.Login,
+					},
+					Ch: ansCh,
 				}
 				ch <- req
 				ans := <-ansCh
-				ans.ProxyCh() <- server.ProxyOpen
+				ans.ProxyCh() <- worker.ProxyOpen
 			}
 		}
 		time.Sleep(defaultChTimeout)

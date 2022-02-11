@@ -1,4 +1,4 @@
-package server
+package module
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 )
 
 type StatusCache interface {
-	Status() (BackendAnswer, error)
+	Status() (mc.Packet, error)
 }
 
 func NewStatusCache(protocol int, cooldown time.Duration, connCreator ConnectionCreator) StatusCache {
@@ -29,7 +29,7 @@ func NewStatusCache(protocol int, cooldown time.Duration, connCreator Connection
 type statusCache struct {
 	connCreator ConnectionCreator
 
-	status    BackendAnswer
+	status    mc.Packet
 	cooldown  time.Duration
 	cacheTime time.Time
 	handshake mc.ServerBoundHandshake
@@ -37,7 +37,7 @@ type statusCache struct {
 
 var ErrStatusPing = errors.New("something went wrong while pinging")
 
-func (cache *statusCache) Status() (BackendAnswer, error) {
+func (cache *statusCache) Status() (mc.Packet, error) {
 	if time.Since(cache.cacheTime) < cache.cooldown {
 		return cache.status, nil
 	}
@@ -50,24 +50,26 @@ func (cache *statusCache) Status() (BackendAnswer, error) {
 	return cache.status, nil
 }
 
-func (cache *statusCache) newStatus() (BackendAnswer, error) {
-	var answer BackendAnswer
+func (cache *statusCache) newStatus() (pk mc.Packet, err error) {
 	connFunc := cache.connCreator.Conn()
 	conn, err := connFunc()
 	if err != nil {
-		return answer, err
+		return
 	}
+
 	mcConn := mc.NewMcConn(conn)
-	if err := mcConn.WriteMcPacket(cache.handshake); err != nil {
-		return answer, err
+	if err = mcConn.WriteMcPacket(cache.handshake); err != nil {
+		return
 	}
-	if err := mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal()); err != nil {
-		return answer, err
+	if err = mcConn.WritePacket(mc.ServerBoundRequest{}.Marshal()); err != nil {
+		return
 	}
-	pk, err := mcConn.ReadPacket()
+
+	pk, err = mcConn.ReadPacket()
 	if err != nil {
-		return answer, err
+		return
 	}
+
 	conn.Close()
-	return NewStatusAnswer(pk), nil
+	return
 }

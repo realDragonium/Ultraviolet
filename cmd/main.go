@@ -106,13 +106,13 @@ func runProxy(configPath string) error {
 	// API.Close()
 
 	log.Println("Waiting for all connections to be closed before shutting down")
-	for {
-		active := ultraviolet.BackendManager.CheckActiveConnections()
-		if !active {
-			break
-		}
-		time.Sleep(time.Minute)
-	}
+	// for {
+	// 	active := ultraviolet.BackendManager.CheckActiveConnections()
+	// 	if !active {
+	// 		break
+	// 	}
+	// 	time.Sleep(time.Minute)
+	// }
 	log.Println("All connections closed, shutting down process")
 	return nil
 }

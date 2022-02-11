@@ -3,7 +3,15 @@ package mc
 import (
 	"bufio"
 	"net"
+
+	
 )
+
+
+type McConn interface{
+	ReadPacket() (Packet, error)
+	WritePacket(p Packet) error
+}
 
 func NewMcConn(conn net.Conn) mcConn {
 	return mcConn{

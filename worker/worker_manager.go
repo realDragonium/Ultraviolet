@@ -1,4 +1,4 @@
-package server
+package worker
 
 import (
 	"log"
@@ -39,11 +39,11 @@ func (manager *workerManager) Start() error {
 	}
 	workerCfg := config.NewWorkerConfig(cfg)
 	for i := 0; i < cfg.NumberOfWorkers; i++ {
-		worker := NewWorker(workerCfg, manager.reqCh)
+		wrk := NewWorker(workerCfg, manager.reqCh)
 		go func(bw BasicWorker) {
 			bw.Work()
-		}(worker)
-		manager.Register(&worker, true)
+		}(wrk)
+		manager.Register(&wrk, true)
 	}
 	log.Printf("Running %v worker(s)", cfg.NumberOfWorkers)
 	return nil
@@ -75,8 +75,8 @@ func (manager *workerManager) Register(worker UpdatableWorker, update bool) {
 }
 
 func (manager *workerManager) update() {
-	for _, worker := range manager.workers {
-		worker.Update(manager.domains)
+	for _, wrk := range manager.workers {
+		wrk.Update(manager.domains)
 	}
 }
 

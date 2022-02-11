@@ -1,8 +1,9 @@
-package server
+package worker
 
 import (
 	"net"
 
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -25,22 +26,14 @@ const (
 	ProxyClose
 )
 
-//go:generate stringer -type=ServerState
-type ServerState byte
-
-const (
-	Unknown ServerState = iota
-	Online
-	Offline
-)
-
 type BackendRequest struct {
-	Type       mc.HandshakeState
-	Handshake  mc.ServerBoundHandshake
-	ServerAddr string
-	Addr       net.Addr
-	Username   string
-	Ch         chan<- BackendAnswer
+	// Type       mc.HandshakeState
+	// Handshake  mc.ServerBoundHandshake
+	// ServerAddr string
+	// Addr       net.Addr
+	// Username   string
+	ReqData ultraviolet.RequestData
+	Ch      chan<- BackendAnswer
 }
 
 type BackendAnswer struct {

@@ -8,12 +8,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/server"
 )
 
 var (
-	ReqCh          chan net.Conn
-	BackendManager server.BackendManager
+	maxConnParallelProcessing = make(chan struct{}, 100_000)
 )
 
 func NewProxy(uvReader config.UVConfigReader, l net.Listener, cfgReader config.ServerConfigReader) Proxy {
@@ -25,32 +23,19 @@ func NewProxy(uvReader config.UVConfigReader, l net.Listener, cfgReader config.S
 }
 
 type Proxy struct {
-	uvReader  config.UVConfigReader
-	listener  net.Listener
-	cfgReader config.ServerConfigReader
+	uvReader      config.UVConfigReader
+	listener      net.Listener
+	cfgReader     config.ServerConfigReader
+	serverCatalog ServerCatalog
 }
 
-func (p Proxy) Start() error {
+func (p *Proxy) Start() error {
 	cfg, err := p.uvReader()
 	if err != nil {
 		return err
 	}
-	if ReqCh == nil {
-		ReqCh = make(chan net.Conn, 50)
-	}
-	workerManager := server.NewWorkerManager(p.uvReader, ReqCh)
-	workerManager.Start()
-	BackendManager, err = server.NewBackendManager(workerManager, server.BackendFactory, p.cfgReader)
-	if err != nil {
-		return err
-	}
 
-	for i := 0; i < cfg.NumberOfListeners; i++ {
-		go func(listener net.Listener, reqCh chan<- net.Conn) {
-			serveListener(listener, reqCh)
-		}(p.listener, ReqCh)
-	}
-	log.Printf("Running %v listener(s)", cfg.NumberOfListeners)
+	p.ReloadServerCatalog()
 
 	if cfg.UsePrometheus {
 		log.Println("Starting prometheus...")
@@ -62,25 +47,59 @@ func (p Proxy) Start() error {
 		}()
 	}
 
-	log.Println("Now starting api endpoint")
-	UsedAPI := NewAPI(BackendManager)
-	go UsedAPI.Run(cfg.APIBind)
-	log.Println("Finished starting up")
+	for {
+		conn, err := p.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			log.Printf("net.Listener was closed, stopping with accepting calls")
+			break
+		} else if err != nil {
+			log.Printf("got error: %v", err)
+			continue
+		}
+
+		claimParallelRun()
+		go func(conn net.Conn, serverCatalog ServerCatalog) {
+			defer unclaimParallelRun()
+			FullRun(conn, serverCatalog)
+		}(conn, p.serverCatalog)
+	}
 
 	return nil
 }
 
-func serveListener(listener net.Listener, reqCh chan<- net.Conn) {
-	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			if errors.Is(err, net.ErrClosed) {
-				log.Printf("net.Listener was closed, stopping with accepting calls")
-				break
-			}
-			log.Println(err)
-			continue
-		}
-		reqCh <- conn
+func claimParallelRun() {
+	maxConnParallelProcessing <- struct{}{}
+}
+
+func unclaimParallelRun() {
+	<-maxConnParallelProcessing
+}
+
+func (p *Proxy) ReloadServerCatalog() error {
+	cfg, err := p.uvReader()
+	if err != nil {
+		return err
 	}
+
+	serverCatalog := NewBasicServerCatalog(cfg.DefaultStatusPk(), cfg.VerifyConnectionPk())
+
+	newCfgs, err := p.cfgReader()
+	if err != nil {
+		return err
+	}
+
+	for _, newCfg := range newCfgs {
+		apiCfg, err := config.ServerToAPIConfig(newCfg)
+		if err != nil {
+			return err
+		}
+
+		server := NewConfigServer(apiCfg)
+		for _, domain := range newCfg.Domains {
+			serverCatalog.ServerDict[domain] = server
+		}
+	}
+
+	p.serverCatalog = &serverCatalog
+	return nil
 }

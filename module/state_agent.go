@@ -1,14 +1,18 @@
-package server
+package module
 
-import "time"
+import (
+	"time"
+
+	ultraviolet "github.com/realDragonium/Ultraviolet"
+)
 
 type StateAgent interface {
-	State() ServerState
+	State() ultraviolet.ServerState
 }
 
 func NewMcServerState(cooldown time.Duration, connCreator ConnectionCreator) StateAgent {
 	return &McServerState{
-		state:       Unknown,
+		state:       ultraviolet.Unknown,
 		cooldown:    cooldown,
 		connCreator: connCreator,
 		startTime:   time.Time{},
@@ -16,13 +20,13 @@ func NewMcServerState(cooldown time.Duration, connCreator ConnectionCreator) Sta
 }
 
 type McServerState struct {
-	state       ServerState
+	state       ultraviolet.ServerState
 	cooldown    time.Duration
 	startTime   time.Time
 	connCreator ConnectionCreator
 }
 
-func (server *McServerState) State() ServerState {
+func (server *McServerState) State() ultraviolet.ServerState {
 	if time.Since(server.startTime) <= server.cooldown {
 		return server.state
 	}
@@ -30,9 +34,9 @@ func (server *McServerState) State() ServerState {
 	connFunc := server.connCreator.Conn()
 	conn, err := connFunc()
 	if err != nil {
-		server.state = Offline
+		server.state = ultraviolet.Offline
 	} else {
-		server.state = Online
+		server.state = ultraviolet.Online
 		conn.Close()
 	}
 	return server.state
@@ -40,12 +44,12 @@ func (server *McServerState) State() ServerState {
 
 type AlwaysOnlineState struct{}
 
-func (agent AlwaysOnlineState) State() ServerState {
-	return Online
+func (agent AlwaysOnlineState) State() ultraviolet.ServerState {
+	return ultraviolet.Online
 }
 
 type AlwaysOfflineState struct{}
 
-func (agent AlwaysOfflineState) State() ServerState {
-	return Offline
+func (agent AlwaysOfflineState) State() ultraviolet.ServerState {
+	return ultraviolet.Offline
 }

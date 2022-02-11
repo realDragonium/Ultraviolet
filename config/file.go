@@ -137,6 +137,23 @@ func GenerateKeys(cfg ServerConfig) *ecdsa.PrivateKey {
 	return privkey
 }
 
+func ServerToAPIConfig(cfg ServerConfig) (APIServerConfig, error) {
+	apiCfg := APIServerConfig{
+		Domains: cfg.Domains,
+		ProxyTo: cfg.ProxyTo,
+		ProxyBind: cfg.ProxyBind,
+		DialTimeout: cfg.DialTimeout,
+		SendProxyProtocol: cfg.SendProxyProtocol,
+		IsOnline: true,
+		UseStatusCache: false,
+		CachedStatus: mc.SimpleStatus{},
+		DisconnectMessage: cfg.DisconnectMessage,
+	}
+
+	return apiCfg, nil
+}
+
+
 func ServerToBackendConfig(cfg ServerConfig) (BackendWorkerConfig, error) {
 	name := cfg.Name
 	if name == "" {

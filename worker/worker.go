@@ -1,4 +1,4 @@
-package server
+package worker
 
 import (
 	"bufio"
@@ -12,6 +12,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
@@ -26,10 +27,7 @@ type UpdatableWorker interface {
 }
 
 var (
-	ErrNotValidHandshake = errors.New("not a valid handshake state")
-	ErrClientToSlow      = errors.New("client was to slow with sending its packets")
-	ErrClientClosedConn  = errors.New("client closed the connection")
-	unknownServerAddr    = "unknown"
+	unknownServerAddr = "unknown"
 
 	requestBuckets  = []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5}
 	processRequests = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -101,7 +99,7 @@ func (bw *BasicWorker) Work() {
 			req, ans, err := bw.ProcessConnection(conn)
 			if err != nil {
 				conn.Close()
-				if errors.Is(err, ErrClientToSlow) {
+				if errors.Is(err, ultraviolet.ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				} else {
 					log.Printf("error while trying to read: %v", err)
@@ -118,7 +116,7 @@ func (bw *BasicWorker) Work() {
 	}
 }
 
-func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (ultraviolet.RequestData, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
 	handshake, err := mc.ReadPacket3_Handshake(b)
@@ -127,9 +125,9 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	}
 	t := mc.RequestState(handshake.NextState)
 	if t == mc.UnknownState {
-		return BackendRequest{}, ErrNotValidHandshake
+		return ultraviolet.RequestData{}, ultraviolet.ErrNotValidHandshake
 	}
-	request := BackendRequest{
+	request := ultraviolet.RequestData{
 		Type:       t,
 		ServerAddr: handshake.ParseServerAddress(),
 		Addr:       conn.RemoteAddr(),
@@ -144,7 +142,7 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	return request, nil
 }
 
-func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, BackendAnswer, error) {
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (ultraviolet.RequestData, BackendAnswer, error) {
 	req, err := bw.ReadConnection(conn)
 	if err != nil {
 		return req, bw.closeAnswer, err
@@ -158,16 +156,15 @@ func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, Backend
 
 // TODO:
 // - Adding some more error tests
-func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData ultraviolet.RequestData, err error) {
 	mcConn := mc.NewMcConn(conn)
 	conn.SetDeadline(bw.IODeadline())
 
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return BackendRequest{}, ErrClientToSlow
+		return reqData, ultraviolet.ErrClientToSlow
 	} else if err != nil {
-		// log.Printf("error while reading handshake: %v", err)
-		return BackendRequest{}, err
+		return
 	}
 
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
@@ -176,20 +173,19 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
 	}
 	reqType := mc.RequestState(handshake.NextState)
 	if reqType == mc.UnknownState {
-		return BackendRequest{}, ErrNotValidHandshake
+		return reqData, ultraviolet.ErrNotValidHandshake
 	}
 
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return BackendRequest{}, ErrClientToSlow
+		return reqData, ultraviolet.ErrClientToSlow
 	} else if err != nil {
-		// log.Printf("error while reading second packet: %v", err)
-		return BackendRequest{}, err
+		return
 	}
 	conn.SetDeadline(time.Time{})
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
-	request := BackendRequest{
+	reqData = ultraviolet.RequestData{
 		Type:       reqType,
 		ServerAddr: serverAddr,
 		Addr:       conn.RemoteAddr(),
@@ -200,25 +196,30 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {
 			log.Printf("error while parsing login packet: %v", err)
-			return BackendRequest{}, err
+			return reqData, err
 		}
-		request.Username = string(loginStart.Name)
+		reqData.Username = string(loginStart.Name)
 	}
 
-	return request, nil
+	return reqData, nil
 }
 
-func (bw *BasicWorker) ProcessRequest(req BackendRequest) BackendAnswer {
-	ch, ok := bw.serverDict[req.ServerAddr]
+func (bw *BasicWorker) ProcessRequest(reqData ultraviolet.RequestData) BackendAnswer {
+	ch, ok := bw.serverDict[reqData.ServerAddr]
 	if !ok {
-		if req.Type == mc.Status {
+		if reqData.Type == mc.Status {
 			return bw.defaultStatusAnswer
 		}
 		return bw.closeAnswer
 	}
+
 	rCh := make(chan BackendAnswer)
-	req.Ch = rCh
-	ch <- req
+	backendReq := BackendRequest{
+		ReqData: reqData,
+		Ch:      rCh,
+	}
+
+	ch <- backendReq
 	return <-rCh
 }
 

@@ -1,25 +1,20 @@
-package ultraviolet
+package worker
 
 import (
 	"fmt"
 	"net/http"
 
-	"github.com/realDragonium/Ultraviolet/server"
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 )
 
-func NewAPI(backendManager server.BackendManager) API {
+func NewAPI(backendManager BackendManager) ultraviolet.API {
 	return &api{
 		backendManager: backendManager,
 	}
 }
 
-type API interface {
-	Run(addr string)
-	Close()
-}
-
 type api struct {
-	backendManager server.BackendManager
+	backendManager BackendManager
 	server         http.Server
 }
 

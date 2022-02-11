@@ -1,4 +1,4 @@
-package server_test
+package module_test
 
 import (
 	"fmt"
@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
+	"github.com/realDragonium/Ultraviolet/module"
 )
 
 func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
@@ -37,23 +38,18 @@ func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
 	for _, tc := range tt {
 		name := fmt.Sprintf("limits on: %v, limit status: %v, cooldown: %v", tc.limit, tc.limitStatus, tc.cooldown)
 		t.Run(name, func(t *testing.T) {
-			req := server.BackendRequest{}
-			connLimiter := server.NewAbsConnLimiter(tc.limit, tc.cooldown, tc.limitStatus)
+			req := ultraviolet.RequestData{}
+			connLimiter := module.NewAbsConnLimiter(tc.limit, tc.cooldown, tc.limitStatus)
 
 			for i := 0; i < tc.limit; i++ {
-				_, ok := connLimiter.Allow(req)
+				ok, _ := connLimiter.Allow(req)
 				if !ok {
 					t.Error("expected ok to be true but its false")
 				}
 			}
-			ans, ok := connLimiter.Allow(req)
+			ok, _ := connLimiter.Allow(req)
 			if ok == tc.shouldLimit {
 				t.Error("expected ok to be false but its true")
-			}
-			if tc.shouldLimit && ans.Action() != server.Close {
-				t.Error("Got a different answer then expected")
-				t.Errorf("expected this answer: %v", server.NewCloseAnswer())
-				t.Errorf("got this instead: %v", ans)
 			}
 		})
 	}
@@ -63,34 +59,28 @@ func TestAbsoluteConnLimiter_DeniesWhenLimitIsReached(t *testing.T) {
 func TestAbsoluteConnLimiter_AllowsNewConnectionsAfterCooldown(t *testing.T) {
 	limit := 5
 	cooldown := time.Millisecond
-	req := server.BackendRequest{}
-	connLimiter := server.NewAbsConnLimiter(limit, cooldown, true)
+	req := ultraviolet.RequestData{}
+	connLimiter := module.NewAbsConnLimiter(limit, cooldown, true)
 
 	for i := 0; i < limit+1; i++ {
 		connLimiter.Allow(req)
 	}
 
 	time.Sleep(cooldown)
-	ans, ok := connLimiter.Allow(req)
+	ok, _ := connLimiter.Allow(req)
 	if !ok {
 		t.Error("expected ok to be true but its false")
-	}
-	if ans.Action() != server.Error {
-		t.Errorf("expected answer to be empty but its not? %v", ans)
 	}
 
 }
 
 func TestAlwaysAllowConnection(t *testing.T) {
-	limiter := server.AlwaysAllowConnection{}
-	req := server.BackendRequest{}
+	limiter := module.AlwaysAllowConnection{}
+	req := ultraviolet.RequestData{}
 
-	ans, ok := limiter.Allow(req)
+	ok, _ := limiter.Allow(req)
 	if !ok {
 		t.Error("expected ok to be true but its false")
-	}
-	if ans.Action() != server.Error {
-		t.Errorf("expected answer to be empty but its not? %v", ans)
 	}
 
 }
@@ -149,37 +139,21 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		for _, tc := range tt {
 			name := fmt.Sprintf("type:%v allowed:%v ratelimit:%d", tc.reqType, tc.allowed, tc.rateLimit)
 			t.Run(name, func(t *testing.T) {
-				connLimiter := server.NewBotFilterConnLimiter(tc.rateLimit, tc.cooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
+				connLimiter := module.NewBotFilterConnLimiter(tc.rateLimit, tc.cooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
 				playerAddr := net.IPAddr{
 					IP: net.IPv4(10, 10, 10, 10),
 				}
 				playerName := "backend"
-				req := server.BackendRequest{
+				req := ultraviolet.RequestData{
 					Type:      tc.reqType,
 					Handshake: mc.ServerBoundHandshake{},
 					Addr:      &playerAddr,
 					Username:  playerName,
 				}
 
-				ans, ok := connLimiter.Allow(req)
+				ok, _ := connLimiter.Allow(req)
 				if ok != tc.allowed {
 					t.Errorf("expected: %v, got: %v", tc.allowed, ok)
-				}
-				if tc.allowed {
-					return
-				}
-				if ans.Action() != server.Disconnect {
-					t.Errorf("got %v - wanted %v", ans.Action(), server.Disconnect)
-				}
-				receivedPk := ans.Response()
-				disconPacket, err := mc.UnmarshalClientDisconnect(receivedPk)
-				if err != nil {
-					t.Fatalf("got error: %v", err)
-				}
-				if disconPacket.Reason != mc.String(disconMsg) {
-					t.Error("Received different notification than expected")
-					t.Logf("expected: %v", disconMsg)
-					t.Logf("got: %v", disconPacket.Reason)
 				}
 			})
 		}
@@ -192,12 +166,12 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: mc.String(disconMsg),
 		}.Marshal()
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, normalUnverifyCooldown, disconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, normalUnverifyCooldown, disconPk)
 		playerAddr := net.IPAddr{
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName := "backend"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -205,7 +179,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		}
 		connLimiter.Allow(req)
 		time.Sleep(cooldown)
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if !ok {
 			t.Fatal("expected to be allowed but it was denied")
 		}
@@ -217,8 +191,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "You have been disconnected with the server",
 		}.Marshal()
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, cooldown, normalUnverifyCooldown, listClearTime, disconPk)
-		req := server.BackendRequest{
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, normalUnverifyCooldown, listClearTime, disconPk)
+		req := ultraviolet.RequestData{
 			Type:     mc.Login,
 			Addr:     generateIPAddr(),
 			Username: "backend",
@@ -228,7 +202,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req)
 		time.Sleep(cooldown)
 		req.Addr = generateIPAddr()
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if ok {
 			t.Fatal("expected to be limited but it was allowed")
 		}
@@ -241,8 +215,8 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		disconPk := mc.ClientBoundDisconnect{
 			Reason: "You have been disconnected with the server",
 		}.Marshal()
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, disconPk)
-		req := server.BackendRequest{
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, disconPk)
+		req := ultraviolet.RequestData{
 			Type:     mc.Login,
 			Addr:     generateIPAddr(),
 			Username: "backend",
@@ -258,7 +232,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 
 		time.Sleep(2 * unverifyCooldown)
 		req.Addr = generateIPAddr()
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if !ok {
 			t.Fatal("expected to be allowed but it was denied")
 		}
@@ -266,19 +240,19 @@ func TestBotFilterConnLimiter(t *testing.T) {
 
 	t.Run("over rate limit allows second login request", func(t *testing.T) {
 		ratelimit := 0
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
 		playerAddr := net.IPAddr{
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName := "backend"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
 			Username:  playerName,
 		}
 		connLimiter.Allow(req)
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if !ok {
 			t.Fatal("expected to be allowed but it was denied")
 		}
@@ -286,13 +260,13 @@ func TestBotFilterConnLimiter(t *testing.T) {
 
 	t.Run("second request with different name gets denied", func(t *testing.T) {
 		ratelimit := 0
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
 		playerAddr := net.IPAddr{
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -301,24 +275,21 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		req2 := req
 		req2.Username = playerName2
 		connLimiter.Allow(req)
-		ans, ok := connLimiter.Allow(req2)
+		ok, _ := connLimiter.Allow(req2)
 		if ok {
 			t.Fatal("expected to be denied but it was allowed")
-		}
-		if ans.Action() != server.Close {
-			t.Errorf("got %v - wanted %v", ans.Action(), server.Close)
 		}
 	})
 
 	t.Run("when blocked extra request gets denied", func(t *testing.T) {
 		ratelimit := 0
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, normalCooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
 		playerAddr := net.IPAddr{
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -328,7 +299,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		req2.Username = playerName2
 		connLimiter.Allow(req)
 		connLimiter.Allow(req2)
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if ok {
 			t.Fatal("expected to be denied but it was allowed")
 		}
@@ -337,13 +308,13 @@ func TestBotFilterConnLimiter(t *testing.T) {
 	t.Run("when blocked after normal cooldown still blocked", func(t *testing.T) {
 		ratelimit := 1
 		cooldown := time.Millisecond
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, normalUnverifyCooldown, rateDisconPk)
 		playerAddr := net.IPAddr{
 			IP: net.IPv4(10, 10, 10, 10),
 		}
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      &playerAddr,
@@ -355,7 +326,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req)
 		connLimiter.Allow(req2)
 		time.Sleep(cooldown * 2)
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if ok {
 			t.Fatal("expected to be denied but it was allowed")
 		}
@@ -366,10 +337,10 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		ratelimit := 1
 		cooldown := time.Millisecond
 		listClearCooldown := 10 * time.Millisecond
-		connLimiter := server.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, rateDisconPk)
+		connLimiter := module.NewBotFilterConnLimiter(ratelimit, cooldown, listClearTime, unverifyCooldown, rateDisconPk)
 		playerName1 := "backend"
 		playerName2 := "uv"
-		req := server.BackendRequest{
+		req := ultraviolet.RequestData{
 			Type:      mc.Login,
 			Handshake: mc.ServerBoundHandshake{},
 			Addr:      generateIPAddr(),
@@ -381,7 +352,7 @@ func TestBotFilterConnLimiter(t *testing.T) {
 		connLimiter.Allow(req2)
 		time.Sleep(2 * listClearCooldown)
 		t.Log("last check ----------------")
-		_, ok := connLimiter.Allow(req)
+		ok, _ := connLimiter.Allow(req)
 		if !ok {
 			t.Fatal("expected to be allowed but it was denied")
 		}

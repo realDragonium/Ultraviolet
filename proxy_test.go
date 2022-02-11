@@ -1,15 +1,16 @@
 package ultraviolet_test
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/pires/go-proxyproto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
@@ -17,9 +18,8 @@ import (
 )
 
 var (
-	defaultChTimeout = 25 * time.Millisecond
-	port             *int16
-	portLock         sync.Mutex = sync.Mutex{}
+	port     *int16
+	portLock sync.Mutex = sync.Mutex{}
 )
 
 func newTestLogger(t *testing.T) io.Writer {
@@ -63,13 +63,8 @@ func StartProxy(cfg config.UltravioletConfig) (string, error) {
 		return serverAddr, err
 	}
 	proxy := ultraviolet.NewProxy(uvReader.Read, listener, serverCfgReader.Read)
-	return serverAddr, proxy.Start()
-}
-
-func samePK(expected, received mc.Packet) bool {
-	sameID := expected.ID == received.ID
-	sameData := bytes.Equal(expected.Data, received.Data)
-	return sameID && sameData
+	go proxy.Start()
+	return serverAddr, nil
 }
 
 func TestProxyProtocol(t *testing.T) {
@@ -121,6 +116,7 @@ func TestProxyProtocol(t *testing.T) {
 			if err != nil {
 				t.Fatalf("received error: %v", err)
 			}
+
 			if tc.sendProxyProtocol {
 				header := &proxyproto.Header{
 					Version:           1,
@@ -168,7 +164,7 @@ func TestProxyProtocol(t *testing.T) {
 
 			expectedStatus := defaultStatus
 			expectedStatusPacket := expectedStatus.Marshal()
-			if !samePK(expectedStatusPacket, pk) {
+			if !cmp.Equal(expectedStatusPacket, pk) {
 				expected, _ := mc.UnmarshalClientBoundResponse(expectedStatusPacket)
 				received, _ := mc.UnmarshalClientBoundResponse(pk)
 				t.Errorf("expcted: %v \ngot: %v", expected, received)
@@ -195,99 +191,82 @@ func (reader *testUVReader) Read() (config.UltravioletConfig, error) {
 	return reader.cfg, nil
 }
 
-type testListener struct {
-	conn net.Conn
+var defaultStatus = mc.SimpleStatus{
+	Name:        "uv",
+	Protocol:    1,
+	Description: "something",
 }
 
-func (l *testListener) Accept() (net.Conn, error) {
-	for l.conn == nil {
-		time.Sleep(time.Millisecond)
+var defaultStatusPk = defaultStatus.Marshal()
+
+func TestFlowProxy(t *testing.T) {
+	tt := []struct {
+		name       string
+		handshake  mc.Packet
+		secondPk   mc.Packet
+		expectedPk mc.Packet
+		servers    []config.ServerConfig
+	}{
+		{
+			name:       "no server found - default status",
+			handshake:  statusHsPk,
+			secondPk:   statusSecondPk,
+			expectedPk: defaultStatusPk,
+		},
+		{
+			name:       "server found - status",
+			handshake:  statusHsPk,
+			secondPk:   statusSecondPk,
+			expectedPk: defaultStatusPk,
+			servers: []config.ServerConfig{
+				{
+					Domains: []string{"Ultraviolet"},
+					
+				},
+			},
+		},
 	}
-	return l.conn, nil
-}
 
-func (l *testListener) Close() error {
-	return nil
-}
+	for _, tc := range tt {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.UltravioletConfig{
+				IODeadline:    time.Millisecond,
+				DefaultStatus: defaultStatus,
+				LogOutput:     newTestLogger(t),
+			}
 
-func (l *testListener) Addr() net.Addr {
-	return nil
-}
+			serverAddr, err := StartProxy(cfg)
+			if err != nil {
+				t.Fatalf("received error: %v", err)
+			}
+			log.Println(serverAddr)
+			conn, err := net.Dial("tcp", serverAddr)
+			if err != nil {
+				t.Fatalf("received error: %v", err)
+			}
 
-func TestStartProxy(t *testing.T) {
-	t.Run("when UVReader erturns error, return error", func(t *testing.T) {
-		testError := errors.New("random error")
-		uvReader := func() (config.UltravioletConfig, error) {
-			return config.UltravioletConfig{}, testError
-		}
-		cfgsReader := func() ([]config.ServerConfig, error) {
-			return nil, nil
-		}
-		listener := testListener{}
-		proxy := ultraviolet.NewProxy(uvReader, &listener, cfgsReader)
-		err := proxy.Start()
-		if !errors.Is(err, testError) {
-			t.Errorf("expected test error but got: %v", err)
-		}
-	})
+			mcConn := mc.NewMcConn(conn)
+			err = mcConn.WritePacket(tc.handshake)
+			if err != nil {
+				t.Fatalf("received error: %v", err)
+			}
 
-	t.Run("starts up listener", func(t *testing.T) {
-		cfg := config.UltravioletConfig{
-			LogOutput:         newTestLogger(t),
-			ListenTo:          testAddr(),
-			NumberOfListeners: 1,
-		}
-		uvReader := func() (config.UltravioletConfig, error) {
-			return cfg, nil
-		}
-		cfgsReader := func() ([]config.ServerConfig, error) {
-			return nil, nil
-		}
-		listener, err := net.Listen("tcp", cfg.ListenTo)
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-		ultraviolet.ReqCh = make(chan net.Conn)
-		proxy := ultraviolet.NewProxy(uvReader, listener, cfgsReader)
-		err = proxy.Start()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
+			err = mcConn.WritePacket(tc.secondPk)
+			if err != nil {
+				t.Fatalf("received error: %v", err)
+			}
 
-		go func() {
-			net.Dial("tcp", cfg.ListenTo)
-		}()
+			pk, err := mcConn.ReadPacket()
+			if err != nil {
+				t.Fatalf("didnt expect an error but got: %v", err)
+			}
 
-		select {
-		case <-time.After(defaultChTimeout):
-			t.Fatal("timed out")
-		case <-ultraviolet.ReqCh:
-			t.Log("connection has been accepted")
-		}
-	})
+			if !cmp.Equal(tc.expectedPk, pk) {
+				expected, _ := mc.UnmarshalClientBoundResponse(tc.expectedPk)
+				received, _ := mc.UnmarshalClientBoundResponse(pk)
+				t.Errorf("expcted: %#v \ngot: %#v", expected, received)
+			}
 
-	t.Run("processes request", func(t *testing.T) {
-		c1, _ := net.Pipe()
-		cfg := config.UltravioletConfig{
-			LogOutput:         newTestLogger(t),
-			ListenTo:          testAddr(),
-			NumberOfListeners: 1,
-		}
-		uvReader := func() (config.UltravioletConfig, error) {
-			return cfg, nil
-		}
-		cfgsReader := func() ([]config.ServerConfig, error) {
-			return nil, nil
-		}
-		listener := testListener{
-			conn: c1,
-		}
-		proxy := ultraviolet.NewProxy(uvReader, &listener, cfgsReader)
-		err := proxy.Start()
-		if err != nil {
-			t.Errorf("unexpected error: %v", err)
-		}
-
-	})
-
+		})
+	}
 }
