@@ -27,11 +27,6 @@ const (
 )
 
 type BackendRequest struct {
-	// Type       mc.HandshakeState
-	// Handshake  mc.ServerBoundHandshake
-	// ServerAddr string
-	// Addr       net.Addr
-	// Username   string
 	ReqData core.RequestData
 	Ch      chan<- BackendAnswer
 }

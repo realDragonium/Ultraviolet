@@ -14,7 +14,6 @@ import (
 
 var (
 	ConnTimeoutDuration  = 5 * time.Second
-
 )
 
 type API interface {

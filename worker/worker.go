@@ -81,13 +81,6 @@ func (w *BasicWorker) SetServers(servers core.ServerCatalog) {
 	w.serverDict = servers
 }
 
-func (w *BasicWorker) KnowsDomain(domain string) bool {
-	_, err := w.serverDict.Find(domain)
-	return err == nil
-}
-
-// TODO:
-// - add more tests with this method
 func (bw *BasicWorker) Work() {
 	for {
 		select {
