@@ -1,8 +1,7 @@
-package cmd
+package worker
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -21,40 +20,8 @@ import (
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/cmd"
 )
-
-var (
-	defaultCfgPath = "/etc/ultraviolet"
-	configPath     string
-	UvVersion      = "(unknown version)"
-	upg            *tableflip.Upgrader
-	pidFileName    = "uv.pid"
-)
-
-func Main() {
-	if len(os.Args) < 2 {
-		log.Fatalf("Didnt receive enough arguments, try adding 'run' or 'reload' after the command")
-	}
-
-	flags := flag.NewFlagSet("", flag.ExitOnError)
-	cfgDir := flags.String("config", defaultCfgPath, "`Path` to be used as directory")
-	flags.Parse(os.Args[2:])
-
-	configPath = *cfgDir
-
-	switch os.Args[1] {
-	case "run":
-		log.Printf("Starting Ultraviolet %v", UvVersion)
-		err := runProxy(configPath)
-		log.Printf("got error while starting up: %v", err)
-	case "reload":
-		err := callReloadAPI(configPath)
-		if err != nil {
-			log.Fatalf("got error: %v ", err)
-		}
-		log.Println("Finished reloading")
-	}
-}
 
 func callReloadAPI(configPath string) error {
 	mainCfg, err := config.ReadUltravioletConfig(configPath)
@@ -82,7 +49,7 @@ func runProxy(configPath string) error {
 	if err != nil {
 		return err
 	}
-	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || UvVersion == "docker"
+	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || cmd.UvVersion == "docker"
 	newListener, err := createListener(cfg, notUseHotSwap)
 	// newListener, err := newStressTestListener(cfg)
 	if err != nil {

@@ -14,7 +14,7 @@ builds:
       - arm
       - arm64
     ldflags:
-      - -X github.com/realDragonium/Ultraviolet/cmd.uvVersion={{.Version}}
+      - -X github.com/realDragonium/Ultraviolet/cmd.UvVersion={{.Version}}
 release:
   draft: true
   name_template: '{{.Version}}'

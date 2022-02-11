@@ -1,4 +1,6 @@
 # Ultraviolet
+Join the Infrared discord!
+ [![Discord](https://img.shields.io/discord/800456341088370698?label=discord&logo=discord)](https://discord.gg/r98YPRsZAx)
 
 ## What is Ultraviolet?
 Its a reverse minecraft proxy, capable of serving as a placeholder when the server is offline for status response to clients. It also has some basic anti backend ddos features. So can it ask players to verify themselves when there are to many players trying to join within a given timeframe and it will (by default) cache the status of the server.  
