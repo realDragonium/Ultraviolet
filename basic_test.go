@@ -343,7 +343,7 @@ func processRequestBenching(b *testing.B, serverCfgs []config.APIServerConfig, n
 
 var defaultBenchServerCfg = config.APIServerConfig{
 	ID:                "bench-server",
-	Domains:           []string{"localhost", "127.0.0.1"},
+	Domains:           []string{"localhost", "127.0.0.1", "ultraviolet"},
 	ProxyTo:           ":25566",
 	DialTimeout:       "1s",
 	IsOnline:          false,
@@ -383,10 +383,8 @@ func BenchmarkProcessRequest_WithBotLimiter(b *testing.B) {
 	processRequestBenching(b, []config.APIServerConfig{serverCfg}, newReqData)
 }
 
-func BenchmarkFullRun(b *testing.B) {
-	serverCfg := defaultBenchServerCfg
-	serverCfg.Domains = append(serverCfg.Domains, "ultraviolet")
-	serverCfgs := []config.APIServerConfig{serverCfg}
+func BenchmarkFullRun_NetPipe(b *testing.B) {
+	serverCfgs := []config.APIServerConfig{defaultBenchServerCfg}
 	servers := make(map[string]core.Server)
 
 	for _, cfg := range serverCfgs {
