@@ -1,4 +1,4 @@
-package server_test
+package module_test
 
 import (
 	"crypto/ecdsa"
@@ -8,11 +8,11 @@ import (
 	"testing"
 
 	"github.com/realDragonium/Ultraviolet/mc"
-	"github.com/realDragonium/Ultraviolet/server"
+	"github.com/realDragonium/Ultraviolet/module"
 )
 
 func TestRateLimter_RealIPv2_4(t *testing.T) {
-	handshakeModifier := server.NewRealIP2_4()
+	handshakeModifier := module.NewRealIP2_4()
 	handshake := mc.ServerBoundHandshake{
 		ProtocolVersion: 755,
 		ServerAddress:   "ultraviolet",
@@ -35,7 +35,7 @@ func TestRateLimter_RealIPv2_5(t *testing.T) {
 	if err != nil {
 		t.Fatalf("got error: %v", err)
 	}
-	handshakeModifier := server.NewRealIP2_5(privKey)
+	handshakeModifier := module.NewRealIP2_5(privKey)
 	handshake := mc.ServerBoundHandshake{
 		ProtocolVersion: 755,
 		ServerAddress:   "ultraviolet",

@@ -1,4 +1,4 @@
-package server
+package worker
 
 import (
 	"errors"
@@ -68,7 +68,7 @@ func (manager *BackendManager) addConfig(cfg config.ServerConfig) {
 	bwCfg, _ := config.ServerToBackendConfig(cfg)
 	backend := manager.backendFactory(bwCfg)
 	manager.backends[cfg.ID()] = backend
-	manager.workerManager.AddBackend(cfg.Domains, backend.ReqCh())
+	manager.workerManager.AddBackend(cfg.Domains, backend.Server())
 }
 
 func (manager *BackendManager) removeConfig(cfg config.ServerConfig) {
@@ -118,7 +118,7 @@ func (manager *BackendManager) updateConfig(cfg config.ServerConfig) {
 		}
 	}
 	b := manager.backendByID(cfg.ID())
-	manager.workerManager.AddBackend(addedDomains, b.ReqCh())
+	manager.workerManager.AddBackend(addedDomains, b.Server())
 	manager.workerManager.RemoveBackend(removedDomains)
 
 	backendWorkerCfg, _ := config.ServerToBackendConfig(cfg)

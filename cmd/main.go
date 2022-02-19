@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -14,21 +13,21 @@ import (
 	"path/filepath"
 	"runtime"
 	"syscall"
-	"time"
 
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
-	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/core"
+	"github.com/realDragonium/Ultraviolet/worker"
 )
 
 var (
 	defaultCfgPath = "/etc/ultraviolet"
 	configPath     string
 	uvVersion      = "(unknown version)"
+	pidFileName    = "/bin/ultraviolet/uv.pid"
 	upg            *tableflip.Upgrader
-	pidFileName    = "uv.pid"
 )
 
 func Main() {
@@ -56,39 +55,39 @@ func Main() {
 	}
 }
 
-func callReloadAPI(configPath string) error {
-	mainCfg, err := config.ReadUltravioletConfig(configPath)
-	if err != nil {
-		log.Fatalf("Read main config file error: %v", err)
-	}
-	url := fmt.Sprintf("http://%s/reload", mainCfg.APIBind)
-	resp, err := http.Get(url)
+func runProxy(configPath string) error {
+	uvReader := config.NewUVConfigFileReader(configPath)
+
+	cfg, err := uvReader()
 	if err != nil {
 		return err
 	}
-	bb, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return err
+
+	var newProxyFunc core.NewProxyFunc
+	newProxyFunc = worker.NewProxy
+	if cfg.UseLessStableMode {
+		newProxyFunc = ultraviolet.NewProxy
 	}
-	fmt.Printf("%s", bb)
-	resp.Body.Close()
-	return nil
+
+	return RunProxy(configPath, uvVersion, newProxyFunc)
 }
 
-func runProxy(configPath string) error {
+func RunProxy(configPath, version string, newProxy core.NewProxyFunc) error {
+	pidFileName = configPath + "/uv.pid"
 	uvReader := config.NewUVConfigFileReader(configPath)
 	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
 	cfg, err := uvReader()
 	if err != nil {
 		return err
 	}
-	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || uvVersion == "docker"
+
+	notUseHotSwap := !cfg.UseTableflip || runtime.GOOS == "windows" || version == "docker"
 	newListener, err := createListener(cfg, notUseHotSwap)
-	// newListener, err := newStressTestListener(cfg)
 	if err != nil {
 		return err
 	}
-	proxy := ultraviolet.NewProxy(uvReader, newListener, serverCfgReader.Read)
+
+	proxy := newProxy(uvReader, newListener, serverCfgReader.Read)
 	err = proxy.Start()
 	if err != nil {
 		return err
@@ -97,23 +96,21 @@ func runProxy(configPath string) error {
 	if notUseHotSwap {
 		select {}
 	}
+
 	if err := upg.Ready(); err != nil {
 		panic(err)
 	}
 	<-upg.Exit()
 
-	// promeServer.Close()
-	// API.Close()
-
-	log.Println("Waiting for all connections to be closed before shutting down")
-	for {
-		active := ultraviolet.BackendManager.CheckActiveConnections()
-		if !active {
-			break
-		}
-		time.Sleep(time.Minute)
-	}
-	log.Println("All connections closed, shutting down process")
+	// log.Println("Waiting for all connections to be closed before shutting down")
+	// for {
+	// 	active := backendManager.CheckActiveConnections()
+	// 	if !active {
+	// 		break
+	// 	}
+	// 	time.Sleep(time.Minute)
+	// }
+	// log.Println("All connections closed, shutting down process")
 	return nil
 }
 
@@ -172,70 +169,21 @@ func tableflipListener(cfg config.UltravioletConfig) (net.Listener, error) {
 	return upg.Listen("tcp", cfg.ListenTo)
 }
 
-type stressTestListener struct {
-	interval      time.Duration
-	realRequestCh chan net.Conn
-	r             *rand.Rand
-}
-
-func (l *stressTestListener) Accept() (net.Conn, error) {
-	var conn net.Conn
-	select {
-	case <-time.After(l.interval):
-		c1, c2 := net.Pipe()
-		conn = c1
-		go func() {
-			mcConn := mc.NewMcConn(c2)
-			hs := mc.ServerBoundHandshake{
-				ProtocolVersion: 755,
-				ServerAddress:   "localhost",
-				ServerPort:      25565,
-				NextState:       mc.LoginState,
-			}
-			hsPk := hs.Marshal()
-			mcConn.WritePacket(hsPk)
-			login := mc.ServerLoginStart{
-				Name: mc.String(fmt.Sprint(l.r.Int())),
-			}
-			loginPk := login.Marshal()
-			mcConn.WritePacket(loginPk)
-		}()
-	case c := <-l.realRequestCh:
-		conn = c
-	}
-	return conn, nil
-}
-
-func (l *stressTestListener) Close() error {
-	return nil
-}
-
-func (l *stressTestListener) Addr() net.Addr {
-	return nil
-}
-
-func newStressTestListener(cfg config.UltravioletConfig) (net.Listener, error) {
-	ln, err := net.Listen("tcp", cfg.ListenTo)
+func callReloadAPI(configPath string) error {
+	mainCfg, err := config.ReadUltravioletConfig(configPath)
 	if err != nil {
-		return ln, err
+		log.Fatalf("Read main config file error: %v", err)
 	}
-	realReqCh := make(chan net.Conn)
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				log.Printf("got error from real listener: %v", err)
-				continue
-			}
-			realReqCh <- conn
-		}
-	}()
-	source := rand.NewSource(time.Now().UnixNano())
-	random := rand.New(source)
-	stressListener := stressTestListener{
-		interval:      time.Millisecond,
-		realRequestCh: realReqCh,
-		r:             random,
+	url := fmt.Sprintf("http://%s/reload", mainCfg.APIBind)
+	resp, err := http.Get(url)
+	if err != nil {
+		return err
 	}
-	return &stressListener, nil
+	bb, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("%s", bb)
+	resp.Body.Close()
+	return nil
 }

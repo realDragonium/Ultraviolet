@@ -1,4 +1,4 @@
-package server
+package worker
 
 import (
 	"bufio"
@@ -12,7 +12,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	ultraviolet "github.com/realDragonium/Ultraviolet"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
 )
 
@@ -22,14 +24,11 @@ const (
 )
 
 type UpdatableWorker interface {
-	Update(data map[string]chan<- BackendRequest)
+	Update(data core.ServerCatalog)
 }
 
 var (
-	ErrNotValidHandshake = errors.New("not a valid handshake state")
-	ErrClientToSlow      = errors.New("client was to slow with sending its packets")
-	ErrClientClosedConn  = errors.New("client closed the connection")
-	unknownServerAddr    = "unknown"
+	unknownServerAddr = "unknown"
 
 	requestBuckets  = []float64{.0001, .0005, .001, .005, .01, .05, .1, .5, 1, 5}
 	processRequests = promauto.NewHistogramVec(prometheus.HistogramOpts{
@@ -41,33 +40,29 @@ var (
 )
 
 func NewWorker(cfg config.WorkerConfig, reqCh <-chan net.Conn) BasicWorker {
-	dict := make(map[string]chan<- BackendRequest)
 	defaultStatusPk := cfg.DefaultStatus.Marshal()
-	statusAnswer := NewStatusAnswer(defaultStatusPk)
-	statusAnswer.ServerName = unknownServerAddr
 	closeAnswer := NewCloseAnswer()
 	closeAnswer.ServerName = unknownServerAddr
+	dict := core.NewEmptyServerCatalog(defaultStatusPk, mc.Packet{})
 	return BasicWorker{
-		reqCh:               reqCh,
-		defaultStatusAnswer: statusAnswer,
-		closeAnswer:         closeAnswer,
-		serverDict:          dict,
-		ioTimeout:           cfg.IOTimeout,
-		closeCh:             make(chan struct{}),
-		updateCh:            make(chan map[string]chan<- BackendRequest),
+		reqCh:       reqCh,
+		closeAnswer: closeAnswer,
+		serverDict:  dict,
+		ioTimeout:   cfg.IOTimeout,
+		closeCh:     make(chan struct{}),
+		updateCh:    make(chan core.ServerCatalog),
 	}
 }
 
 type BasicWorker struct {
 	reqCh    <-chan net.Conn
 	closeCh  chan struct{}
-	updateCh chan map[string]chan<- BackendRequest
+	updateCh chan core.ServerCatalog
 
-	defaultStatusAnswer BackendAnswer
-	closeAnswer         BackendAnswer
+	closeAnswer BackendAnswer
 
 	ioTimeout  time.Duration
-	serverDict map[string]chan<- BackendRequest
+	serverDict core.ServerCatalog
 }
 
 func (w *BasicWorker) IODeadline() time.Time {
@@ -78,38 +73,25 @@ func (w *BasicWorker) CloseCh() chan<- struct{} {
 	return w.closeCh
 }
 
-func (w *BasicWorker) Update(data map[string]chan<- BackendRequest) {
+func (w *BasicWorker) Update(data core.ServerCatalog) {
 	w.updateCh <- data
 }
 
-func (w *BasicWorker) SetServers(servers map[string]chan<- BackendRequest) {
+func (w *BasicWorker) SetServers(servers core.ServerCatalog) {
 	w.serverDict = servers
 }
 
-func (w *BasicWorker) KnowsDomain(domain string) bool {
-	_, ok := w.serverDict[domain]
-	return ok
-}
-
-// TODO:
-// - add more tests with this method
 func (bw *BasicWorker) Work() {
 	for {
 		select {
 		case conn := <-bw.reqCh:
-			start := time.Now()
-			req, ans, err := bw.ProcessConnection(conn)
-			if err != nil {
-				conn.Close()
-				if errors.Is(err, ErrClientToSlow) {
+			if err := bw.ProcessConnection(conn); err != nil {
+				if errors.Is(err, core.ErrClientToSlow) {
 					log.Printf("client %v was to slow with sending packet to us", conn.RemoteAddr())
 				} else {
 					log.Printf("error while trying to read: %v", err)
 				}
 			}
-			dur := time.Since(start).Seconds()
-			labels := prometheus.Labels{"server": ans.ServerName, "type": req.Type.String(), "action": ans.action.String()}
-			processRequests.With(labels).Observe(dur)
 		case <-bw.closeCh:
 			return
 		case serverChs := <-bw.updateCh:
@@ -118,7 +100,7 @@ func (bw *BasicWorker) Work() {
 	}
 }
 
-func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (core.RequestData, error) {
 	//  TODO: When handshake gets too long stuff goes wrong, prevent is from crashing when that happens
 	b := bufio.NewReaderSize(conn, maxHandshakeLength)
 	handshake, err := mc.ReadPacket3_Handshake(b)
@@ -127,9 +109,9 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	}
 	t := mc.RequestState(handshake.NextState)
 	if t == mc.UnknownState {
-		return BackendRequest{}, ErrNotValidHandshake
+		return core.RequestData{}, core.ErrNotValidHandshake
 	}
-	request := BackendRequest{
+	request := core.RequestData{
 		Type:       t,
 		ServerAddr: handshake.ParseServerAddress(),
 		Addr:       conn.RemoteAddr(),
@@ -144,30 +126,30 @@ func (bw *BasicWorker) NotSafeYet_ProcessConnection(conn net.Conn) (BackendReque
 	return request, nil
 }
 
-func (bw *BasicWorker) ProcessConnection(conn net.Conn) (BackendRequest, BackendAnswer, error) {
+func (bw *BasicWorker) ProcessConnection(conn net.Conn) (err error) {
 	req, err := bw.ReadConnection(conn)
 	if err != nil {
-		return req, bw.closeAnswer, err
+		return
 	}
-	// log.Printf("received connection from %v with addr: %s", conn.RemoteAddr(), req.ServerAddr)
-	ans := bw.ProcessRequest(req)
-	// log.Printf("%v request from %v - %v will take action: %v", req.Type, conn.RemoteAddr(), req.Username, ans.Action())
-	bw.ProcessAnswer(conn, ans)
-	return req, ans, nil
+
+	server, err := bw.serverDict.Find(req.ServerAddr)
+	if err != nil {
+		return
+	}
+	return ultraviolet.ProcessServer(conn, server, req)
 }
 
 // TODO:
 // - Adding some more error tests
-func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
+func (bw *BasicWorker) ReadConnection(conn net.Conn) (reqData core.RequestData, err error) {
 	mcConn := mc.NewMcConn(conn)
 	conn.SetDeadline(bw.IODeadline())
 
 	handshakePacket, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return BackendRequest{}, ErrClientToSlow
+		return reqData, core.ErrClientToSlow
 	} else if err != nil {
-		// log.Printf("error while reading handshake: %v", err)
-		return BackendRequest{}, err
+		return
 	}
 
 	handshake, err := mc.UnmarshalServerBoundHandshake(handshakePacket)
@@ -176,20 +158,19 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
 	}
 	reqType := mc.RequestState(handshake.NextState)
 	if reqType == mc.UnknownState {
-		return BackendRequest{}, ErrNotValidHandshake
+		return reqData, core.ErrNotValidHandshake
 	}
 
 	packet, err := mcConn.ReadPacket()
 	if errors.Is(err, os.ErrDeadlineExceeded) {
-		return BackendRequest{}, ErrClientToSlow
+		return reqData, core.ErrClientToSlow
 	} else if err != nil {
-		// log.Printf("error while reading second packet: %v", err)
-		return BackendRequest{}, err
+		return
 	}
 	conn.SetDeadline(time.Time{})
 
 	serverAddr := strings.ToLower(handshake.ParseServerAddress())
-	request := BackendRequest{
+	reqData = core.RequestData{
 		Type:       reqType,
 		ServerAddr: serverAddr,
 		Addr:       conn.RemoteAddr(),
@@ -200,30 +181,14 @@ func (bw *BasicWorker) ReadConnection(conn net.Conn) (BackendRequest, error) {
 		loginStart, err := mc.UnmarshalServerBoundLoginStart(packet)
 		if err != nil {
 			log.Printf("error while parsing login packet: %v", err)
-			return BackendRequest{}, err
+			return reqData, err
 		}
-		request.Username = string(loginStart.Name)
+		reqData.Username = string(loginStart.Name)
 	}
 
-	return request, nil
+	return reqData, nil
 }
 
-func (bw *BasicWorker) ProcessRequest(req BackendRequest) BackendAnswer {
-	ch, ok := bw.serverDict[req.ServerAddr]
-	if !ok {
-		if req.Type == mc.Status {
-			return bw.defaultStatusAnswer
-		}
-		return bw.closeAnswer
-	}
-	rCh := make(chan BackendAnswer)
-	req.Ch = rCh
-	ch <- req
-	return <-rCh
-}
-
-// TODO:
-// - figure out or this need more deadlines
 func (bw *BasicWorker) ProcessAnswer(conn net.Conn, ans BackendAnswer) {
 	clientMcConn := mc.NewMcConn(conn)
 	switch ans.Action() {

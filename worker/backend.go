@@ -1,4 +1,4 @@
-package server
+package worker
 
 import (
 	"net"
@@ -7,7 +7,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/mc"
+	"github.com/realDragonium/Ultraviolet/module"
 )
 
 type CheckOpenConns struct {
@@ -29,14 +31,15 @@ type Backend interface {
 	HasActiveConn() bool
 	Update(cfg BackendConfig) error
 	Close()
+	Server() core.Server
 }
 
 func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
-	var connCreator ConnectionCreator
-	var hsModifier HandshakeModifier
-	var rateLimiter ConnectionLimiter
-	var statusCache StatusCache
-	var serverState StateAgent
+	var connCreator module.ConnectionCreator
+	var hsModifier module.HandshakeModifier
+	var rateLimiter module.ConnectionLimiter
+	var statusCache module.StatusCache
+	var serverState module.StateAgent
 
 	dialer := net.Dialer{
 		Timeout: cfg.DialTimeout,
@@ -44,34 +47,34 @@ func NewBackendConfig(cfg config.BackendWorkerConfig) BackendConfig {
 			IP: net.ParseIP(cfg.ProxyBind),
 		},
 	}
-	connCreator = BasicConnCreator(cfg.ProxyTo, dialer)
+	connCreator = module.BasicConnCreator(cfg.ProxyTo, dialer)
 
 	if cfg.RateLimit > 0 {
 		unverifyCooldown := 10 * cfg.RateLimitDuration
-		rateLimiter = NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, unverifyCooldown, cfg.RateBanListCooldown, cfg.RateDisconPk)
+		rateLimiter = module.NewBotFilterConnLimiter(cfg.RateLimit, cfg.RateLimitDuration, unverifyCooldown, cfg.RateBanListCooldown, cfg.RateDisconPk)
 	} else {
-		rateLimiter = AlwaysAllowConnection{}
+		rateLimiter = module.AlwaysAllowConnection{}
 	}
 
 	if cfg.CacheStatus {
-		statusCache = NewStatusCache(cfg.ValidProtocol, cfg.CacheUpdateCooldown, connCreator)
+		statusCache = module.NewStatusCache(cfg.ValidProtocol, cfg.CacheUpdateCooldown, connCreator)
 	}
 
 	switch cfg.StateOption {
 	case config.ALWAYS_ONLINE:
-		serverState = AlwaysOnlineState{}
+		serverState = module.AlwaysOnlineState{}
 	case config.ALWAYS_OFFLINE:
-		serverState = AlwaysOfflineState{}
+		serverState = module.AlwaysOfflineState{}
 	case config.CACHE:
 		fallthrough
 	default:
-		serverState = NewMcServerState(cfg.StateUpdateCooldown, connCreator)
+		serverState = module.NewMcServerState(cfg.StateUpdateCooldown, connCreator)
 	}
 
 	if cfg.OldRealIp {
-		hsModifier = realIPv2_4{}
+		hsModifier = module.NewRealIP2_4()
 	} else if cfg.NewRealIP {
-		hsModifier = realIPv2_5{realIPKey: cfg.RealIPKey}
+		hsModifier = module.NewRealIP2_5(cfg.RealIPKey)
 	}
 
 	return BackendConfig{
@@ -97,25 +100,25 @@ type BackendConfig struct {
 	DisconnectPacket    mc.Packet
 	OfflineStatusPacket mc.Packet
 
-	HsModifier  HandshakeModifier
-	ConnCreator ConnectionCreator
-	ConnLimiter ConnectionLimiter
-	ServerState StateAgent
-	StatusCache StatusCache
+	HsModifier  module.HandshakeModifier
+	ConnCreator module.ConnectionCreator
+	ConnLimiter module.ConnectionLimiter
+	ServerState module.StateAgent
+	StatusCache module.StatusCache
 }
 
 var BackendFactory BackendFactoryFunc = func(cfg config.BackendWorkerConfig) Backend {
-	backendWorker := NewBackendWorker(cfg)
-	backendWorker.Run()
-	return &backendWorker
+	backendwrk := NewBackendWorker(cfg)
+	backendwrk.Run()
+	return &backendwrk
 }
 
 func NewBackendWorker(cfgServer config.BackendWorkerConfig) BackendWorker {
 	cfg := NewBackendConfig(cfgServer)
 	cfg.UpdateProxyProtocol = true
-	worker := NewEmptyBackendWorker()
-	worker.UpdateSameGoroutine(cfg)
-	return worker
+	wrk := NewEmptyBackendWorker()
+	wrk.UpdateSameGoroutine(cfg)
+	return wrk
 }
 
 func NewEmptyBackendWorker() BackendWorker {
@@ -141,17 +144,23 @@ type BackendWorker struct {
 	OfflineStatusPacket mc.Packet
 	DisconnectPacket    mc.Packet
 
-	HsModifier  HandshakeModifier
-	ConnCreator ConnectionCreator
-	ConnLimiter ConnectionLimiter
-	ServerState StateAgent
-	StatusCache StatusCache
+	HsModifier  module.HandshakeModifier
+	ConnCreator module.ConnectionCreator
+	ConnLimiter module.ConnectionLimiter
+	ServerState module.StateAgent
+	StatusCache module.StatusCache
 }
 
 func (w *BackendWorker) Run() {
 	go func(worker BackendWorker) {
 		worker.Work()
 	}(*w)
+}
+
+func (w *BackendWorker) Server() core.Server {
+	return &BackendServer{
+		ch: w.ReqCh(),
+	}
 }
 
 func (w *BackendWorker) ReqCh() chan<- BackendRequest {
@@ -210,65 +219,65 @@ func (w *BackendWorker) UpdateSameGoroutine(wCfg BackendConfig) {
 	}
 }
 
-func (worker *BackendWorker) Work() {
+func (wrk *BackendWorker) Work() {
 	for {
 		select {
-		case req := <-worker.reqCh:
-			ans := worker.HandleRequest(req)
-			ans.ServerName = worker.Name
+		case req := <-wrk.reqCh:
+			ans := wrk.HandleRequest(req)
+			ans.ServerName = wrk.Name
 			req.Ch <- ans
-		case proxyAction := <-worker.proxyCh:
-			worker.proxyRequest(proxyAction)
-		case connCheck := <-worker.connCheckCh:
-			connCheck.Ch <- worker.activeConns > 0
-		case cfg := <-worker.updateCh:
-			worker.UpdateSameGoroutine(cfg)
-		case <-worker.closeCh:
-			close(worker.reqCh)
+		case proxyAction := <-wrk.proxyCh:
+			wrk.proxyRequest(proxyAction)
+		case connCheck := <-wrk.connCheckCh:
+			connCheck.Ch <- wrk.activeConns > 0
+		case cfg := <-wrk.updateCh:
+			wrk.UpdateSameGoroutine(cfg)
+		case <-wrk.closeCh:
+			close(wrk.reqCh)
 			return
 		}
 	}
 }
 
-func (worker *BackendWorker) proxyRequest(proxyAction ProxyAction) {
+func (wrk *BackendWorker) proxyRequest(proxyAction ProxyAction) {
 	switch proxyAction {
 	case ProxyOpen:
-		worker.activeConns++
-		playersConnected.WithLabelValues(worker.Name).Inc()
+		wrk.activeConns++
+		playersConnected.WithLabelValues(wrk.Name).Inc()
 	case ProxyClose:
-		worker.activeConns--
-		playersConnected.WithLabelValues(worker.Name).Dec()
+		wrk.activeConns--
+		playersConnected.WithLabelValues(wrk.Name).Dec()
 	}
 }
 
-func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
-	if worker.ServerState != nil && worker.ServerState.State() == Offline {
-		switch req.Type {
+func (wrk *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
+	if wrk.ServerState != nil && wrk.ServerState.State() == core.Offline {
+		switch req.ReqData.Type {
 		case mc.Status:
-			return NewStatusAnswer(worker.OfflineStatusPacket)
+			return NewStatusAnswer(wrk.OfflineStatusPacket)
 		case mc.Login:
-			return NewDisconnectAnswer(worker.DisconnectPacket)
+			return NewDisconnectAnswer(wrk.DisconnectPacket)
 		}
 	}
 
-	if worker.StatusCache != nil && req.Type == mc.Status {
-		ans, err := worker.StatusCache.Status()
+	if wrk.StatusCache != nil && req.ReqData.Type == mc.Status {
+		ans, err := wrk.StatusCache.Status()
 		if err != nil {
-			return NewStatusAnswer(worker.OfflineStatusPacket)
+			return NewStatusAnswer(wrk.OfflineStatusPacket)
 		}
-		return ans
+		return NewStatusAnswer(ans)
 	}
 
-	if worker.ConnLimiter != nil {
-		if ans, ok := worker.ConnLimiter.Allow(req); !ok {
-			return ans
+	if wrk.ConnLimiter != nil {
+		if !wrk.ConnLimiter.Allow(req.ReqData) {
+			return BackendAnswer{}
 		}
 	}
-	connFunc := worker.ConnCreator.Conn()
-	if worker.SendProxyProtocol {
+	connFunc := wrk.ConnCreator.Conn()
+	if wrk.SendProxyProtocol {
 		connFunc = func() (net.Conn, error) {
-			addr := req.Addr
-			serverConn, err := worker.ConnCreator.Conn()()
+			addr := req.ReqData.Addr
+			serverConn, err := wrk.ConnCreator.Conn()()
 			if err != nil {
 				return serverConn, err
 			}
@@ -287,17 +296,79 @@ func (worker *BackendWorker) HandleRequest(req BackendRequest) BackendAnswer {
 		}
 	}
 
-	if worker.HsModifier != nil {
-		worker.HsModifier.Modify(&req.Handshake, req.Addr.String())
+	if wrk.HsModifier != nil {
+		wrk.HsModifier.Modify(&req.ReqData.Handshake, req.ReqData.Addr.String())
 	}
 
-	hsPk := req.Handshake.Marshal()
+	hsPk := req.ReqData.Handshake.Marshal()
 	var secondPacket mc.Packet
-	switch req.Type {
+	switch req.ReqData.Type {
 	case mc.Status:
 		secondPacket = mc.ServerBoundRequest{}.Marshal()
 	case mc.Login:
-		secondPacket = mc.ServerLoginStart{Name: mc.String(req.Username)}.Marshal()
+		secondPacket = mc.ServerLoginStart{Name: mc.String(req.ReqData.Username)}.Marshal()
 	}
-	return NewProxyAnswer(hsPk, secondPacket, worker.proxyCh, connFunc)
+	return NewProxyAnswer(hsPk, secondPacket, wrk.proxyCh, connFunc)
+}
+
+func NewBackendServer(ch chan<- BackendRequest) core.Server {
+	return &BackendServer{
+		ch: ch,
+	}
+}
+
+type BackendServer struct {
+	ch chan<- BackendRequest
+}
+
+func (wrk *BackendServer) ConnAction(req core.RequestData) core.ServerAction {
+	ans := wrk.HandleRequest(req)
+
+	switch ans.Action() {
+	case Disconnect:
+		return core.DISCONNECT
+	case Proxy:
+		return core.PROXY
+	case Close:
+		return core.CLOSE
+	case Error:
+		return core.CLOSE
+	default:
+		return core.PROXY
+	}
+}
+
+func (wrk *BackendServer) CreateConn(req core.RequestData) (c net.Conn, err error) {
+	ans := wrk.HandleRequest(req)
+
+	if ans.Action() != Proxy {
+		return nil, core.ErrNoServerConn
+	}
+
+	return ans.serverConnFunc()
+}
+
+func (wrk *BackendServer) Status() mc.Packet {
+	reqData := core.RequestData{
+		Type: mc.Status,
+	}
+	ans := wrk.HandleRequest(reqData)
+
+	if ans.Action() != SendStatus {
+		return mc.Packet{}
+	}
+
+	return ans.Response()
+}
+
+func (wrk *BackendServer) HandleRequest(req core.RequestData) BackendAnswer {
+	backendReq := BackendRequest{
+		ReqData: core.RequestData{
+			Type: mc.Status,
+		},
+	}
+	ansCh := make(chan BackendAnswer)
+	backendReq.Ch = ansCh
+	wrk.ch <- backendReq
+	return <-ansCh
 }

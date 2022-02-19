@@ -1,4 +1,4 @@
-package server
+package module
 
 import (
 	"crypto/ecdsa"

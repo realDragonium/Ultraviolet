@@ -38,6 +38,23 @@ type ServerConfig struct {
 	StateUpdateCooldown string `json:"stateUpdateCooldown"`
 }
 
+type APIServerConfig struct {
+	ID string `json:"id"`
+
+	Domains           []string `json:"domains"`
+	ProxyTo           string   `json:"proxyTo"`
+	ProxyBind         string   `json:"proxyBind"`
+	DialTimeout       string   `json:"dialTimeout"`
+	SendProxyProtocol bool     `json:"sendProxyProtocol"`
+
+	IsOnline          bool            `json:"isOnline"`
+	UseStatusCache    bool            `json:"useStatusCache"`
+	CachedStatus      mc.SimpleStatus `json:"cachedStatus"`
+	DisconnectMessage string          `json:"disconnectMessage"`
+
+	LimitBots bool
+}
+
 func (cfg ServerConfig) ID() string {
 	return cfg.FilePath
 }
@@ -63,6 +80,7 @@ func DefaultServerConfig() ServerConfig {
 type UltravioletConfig struct {
 	ListenTo            string          `json:"listenTo"`
 	DefaultStatus       mc.SimpleStatus `json:"defaultStatus"`
+	VerifyConnMsg       string          `json:"verifyConnMsg"`
 	NumberOfWorkers     int             `json:"numberOfWorkers"`
 	NumberOfListeners   int             `json:"numberOfListeners"`
 	AcceptProxyProtocol bool            `json:"acceptProxyProtocol"`
@@ -71,9 +89,20 @@ type UltravioletConfig struct {
 	APIBind             string          `json:"apiBind"`
 	UseTableflip        bool            `json:"useTableflip"`
 	PidFile             string          `json:"pidFile"`
+	UseLessStableMode   bool            `json:"useLessStableMode"`
 
 	IODeadline time.Duration
 	LogOutput  io.Writer
+}
+
+func (cfg UltravioletConfig) VerifyConnectionPk() mc.Packet {
+	return mc.ClientBoundDisconnect{
+		Reason: mc.String(cfg.VerifyConnMsg),
+	}.Marshal()
+}
+
+func (cfg UltravioletConfig) DefaultStatusPk() mc.Packet {
+	return cfg.DefaultStatus.Marshal()
 }
 
 func DefaultUltravioletConfig() UltravioletConfig {
@@ -84,6 +113,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 			Protocol:    0,
 			Description: "Some proxy didnt proxy",
 		},
+		VerifyConnMsg:       "{\"text\": \"Please reconnect to verify yourself\"}",
 		NumberOfWorkers:     10,
 		NumberOfListeners:   1,
 		AcceptProxyProtocol: false,
@@ -92,6 +122,7 @@ func DefaultUltravioletConfig() UltravioletConfig {
 		APIBind:             "127.0.0.1:9099",
 		PidFile:             "",
 		UseTableflip:        true,
+		UseLessStableMode:   false,
 
 		IODeadline: time.Second,
 		LogOutput:  os.Stdout,
