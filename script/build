@@ -1,0 +1,4 @@
+#!/bin/bash
+
+echo "Build new binary"
+go build -o ultraviolet ./cmd/Ultraviolet/
