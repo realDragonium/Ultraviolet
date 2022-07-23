@@ -17,6 +17,7 @@ import (
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
+	ultravioletv2 "github.com/realDragonium/Ultraviolet/src"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	"github.com/realDragonium/Ultraviolet/worker"
@@ -26,7 +27,8 @@ var (
 	defaultCfgPath = "/etc/ultraviolet"
 	configPath     string
 	uvVersion      = "(unknown version)"
-	pidFileName    = "/bin/ultraviolet/uv.pid"
+	pidFilePath    = "/bin/ultraviolet/uv.pid"
+	pidFileName    = "uv.pid"
 	upg            *tableflip.Upgrader
 )
 
@@ -43,9 +45,10 @@ func Main() {
 
 	switch os.Args[1] {
 	case "run":
-		log.Printf("Starting Ultraviolet %v", uvVersion)
-		err := runProxy(configPath)
-		log.Printf("got error while starting up: %v", err)
+		ultravioletv2.Run()
+		// log.Printf("Starting Ultraviolet %v", uvVersion)
+		// err := runProxy(configPath)
+		// log.Printf("got error while starting up: %v", err)
 	case "reload":
 		err := callReloadAPI(configPath)
 		if err != nil {
@@ -73,7 +76,7 @@ func runProxy(configPath string) error {
 }
 
 func RunProxy(configPath, version string, newProxy core.NewProxyFunc) error {
-	pidFileName = configPath + "/uv.pid"
+	pidFilePath = filepath.Join(configPath, pidFileName)
 	uvReader := config.NewUVConfigFileReader(configPath)
 	serverCfgReader := config.NewBackendConfigFileReader(configPath, config.VerifyConfigs)
 	cfg, err := uvReader()
@@ -121,7 +124,7 @@ func createListener(cfg config.UltravioletConfig, notUseHotSwap bool) (net.Liste
 		ln, err = net.Listen("tcp", cfg.ListenTo)
 	} else {
 		if cfg.PidFile == "" {
-			cfg.PidFile = filepath.Join(configPath, pidFileName)
+			cfg.PidFile = pidFilePath
 		}
 		if _, err := os.Stat(cfg.PidFile); errors.Is(err, os.ErrNotExist) {
 			pid := fmt.Sprint(os.Getpid())
