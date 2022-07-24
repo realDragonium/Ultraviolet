@@ -6,11 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
 	ultravioletv2 "github.com/realDragonium/Ultraviolet/src"
 )
 
-func TestProcessConnection(t *testing.T) {
+func TestConnectToServer(t *testing.T) {
 	listener, err := net.Listen("tcp", "")
 	if err != nil {
 		t.Fatalf("Error during creating listener: %v", err)
@@ -46,6 +47,34 @@ func TestProcessConnection(t *testing.T) {
 
 	if !cmp.Equal(pk, receivedPk) {
 		t.Errorf("Expected packet: %#v, got %#v", pk, receivedPk)
+	}
+}
+
+func TestFullProxyConnection(t *testing.T) {
+	
+}
+
+func TestCreateListener(t *testing.T) {
+	cfg := config.UltravioletConfig{
+		ListenTo: ":0",
+	}
+
+	ln, err := ultravioletv2.CreateListener(cfg)
+	if err != nil {
+		t.Fatalf("Error during creating listener: %v", err)
+	}
+
+	go func() {
+		net.Dial("tcp", ln.Addr().String())
+	}()
+
+	conn, err := ln.Accept()
+	if err != nil {
+		t.Fatalf("Error during accepting connection: %v", err)
+	}
+
+	if conn == nil {
+		t.Fatal("Expected connection, got nil")
 	}
 }
 

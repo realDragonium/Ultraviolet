@@ -19,7 +19,7 @@ var Servers map[string]string = map[string]string{
 }
 
 func Run() error {
-	ln, err := net.Listen("tcp", UVConfig.ListenTo)
+	ln, err := CreateListener(UVConfig)
 	if err != nil {
 		return err
 	}
@@ -35,6 +35,10 @@ func Run() error {
 
 		ProcessConnection(conn)
 	}
+}
+
+func CreateListener(cfg config.UltravioletConfig) (net.Listener, error) {
+	return net.Listen("udp", cfg.ListenTo)
 }
 
 func ProcessConnection(conn net.Conn) error {
