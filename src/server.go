@@ -5,10 +5,21 @@ import (
 	"io"
 	"log"
 	"net"
+
+	"github.com/realDragonium/Ultraviolet/config"
+	"github.com/realDragonium/Ultraviolet/core"
 )
 
+var UVConfig config.UltravioletConfig = config.UltravioletConfig{
+	ListenTo: ":25565",
+}
+
+var Servers map[string]string = map[string]string{
+	"localhost": "localhost:25566",
+}
+
 func Run() error {
-	ln, err := net.Listen("tcp", ":25565")
+	ln, err := net.Listen("tcp", UVConfig.ListenTo)
 	if err != nil {
 		return err
 	}
@@ -22,70 +33,51 @@ func Run() error {
 		}
 		log.Println("Connection accepted")
 
-		_, packetId, data, err := ReadPacketData(conn)
-		if err != nil {
-			log.Printf("Error reading packet data: %v", err)
-			return err
-		}
-		log.Printf("Packet id: %#x", packetId)
-
-		r := bytes.NewReader(data)
-		hsPacket, _ := ReadServerBoundHandshake(r)
-		log.Printf("Packet: %#v", hsPacket)
-
-		ConnectToServer(conn, data)
+		ProcessConnection(conn)
 	}
 }
 
-func ReadServerBoundHandshake(r io.Reader) (pk ServerBoundHandshakePacket, err error) {
-	pk.ProtocolVersion, err = ReadVarInt(r)
+func ProcessConnection(conn net.Conn) error {
+	_, data, err := ReadPacketData(conn)
 	if err != nil {
-		return
+		log.Printf("Error reading packet data: %v", err)
+		return err
 	}
-	pk.ServerAddress, err = ReadString(r)
-	if err != nil {
-		return
-	}
-	pk.ServerPort, err = ReadShort(r)
-	if err != nil {
-		return
-	}
-	pk.NextState, err = ReadVarInt(r)
-	if err != nil {
-		return
-	}
+	
+	r := bytes.NewReader(data)
+	hsPacket, _ := ReadServerBoundHandshake(r)
+	log.Printf("Packet: %#v", hsPacket)
 
-	return
+	return ConnectToServer(conn, data)
 }
 
-func ReadPacketData(r io.Reader) (int, byte, []byte, error) {
+func ReadPacketData(r io.Reader) (int, []byte, error) {
 	packetLength, _ := ReadVarInt(r)
 	log.Println("Packet length:", packetLength)
 
-	packetId, _ := ReadByte(r)
-
-	if packetLength-1 < 1 {
-		return packetLength, packetId, []byte{}, nil
+	if packetLength < 1 {
+		return packetLength, []byte{}, nil
 	}
 
-	data := make([]byte, packetLength-1)
+	data := make([]byte, packetLength)
 
 	n, err := r.Read(data)
 	log.Println("Read:", n, "bytes")
 	log.Println(data)
 	if err != nil {
 		log.Println("got error during reading of bytes: ", err)
-		return 0, 0, data, err
+		return 0, data, err
 	}
 
-	return packetLength, packetId, data, nil
+	return packetLength, data, nil
 }
 
-func ConnectToServer(client net.Conn, data []byte) {
+func ConnectToServer(client net.Conn, data []byte) error {
+
 	server, err := net.Dial("tcp", "localhost:25566")
 	if err != nil {
 		log.Println("Error connecting to server:", err)
-		return
+		return err
 	}
 	log.Println("Connected to server")
 	length := len(data) + 1
@@ -95,16 +87,28 @@ func ConnectToServer(client net.Conn, data []byte) {
 	server.Write(data)
 
 	log.Println("Proxying connection to server")
-	ProxyConnection(client, server)
+	return ProxyConnection(client, server)
 }
 
-func ProxyConnection(client, server net.Conn) {
+func ServerAddress(hsPacket ServerBoundHandshakePacket) (string, error) {
+	serverAddr, ok := Servers[hsPacket.ServerAddress]
+
+	if !ok {
+		return "", core.ErrNoServerFound
+	}
+
+	return serverAddr, nil
+}
+
+func ProxyConnection(client, server net.Conn) error {
 	go func() {
 		pipe(server, client)
 		client.Close()
 	}()
 	pipe(client, server)
 	server.Close()
+
+	return nil
 }
 
 func pipe(c1, c2 net.Conn) {

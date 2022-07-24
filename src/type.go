@@ -34,13 +34,17 @@ func WriteVarInt(w io.Writer, varInt int) (int, error) {
 			break
 		}
 	}
-	
+
 	return w.Write(bb)
 }
 
 func ReadByte(r io.Reader) (b byte, err error) {
 	binary.Read(r, binary.BigEndian, &b)
 	return
+}
+
+func WriteByte(w io.Writer, b byte) error {
+	return binary.Write(w, binary.BigEndian, b)
 }
 
 func ReadString(r io.Reader) (string, error) {
@@ -60,16 +64,21 @@ func ReadString(r io.Reader) (string, error) {
 
 func WriteString(w io.Writer, s string) (int, error) {
 	length := len(s)
-	_, err := WriteVarInt(w, length)
+	m, err := WriteVarInt(w, length)
 	if err != nil {
 		return 0, err
 	}
 
-	return w.Write([]byte(s))
+	n, err := w.Write([]byte(s))
+	n += m
+	return n, err
 }
 
 func ReadShort(r io.Reader) (bb int16, err error) {
 	err = binary.Read(r, binary.BigEndian, &bb)
-
 	return
+}
+
+func WriteShort(w io.Writer, short int16) error {
+	return binary.Write(w, binary.BigEndian, short)
 }

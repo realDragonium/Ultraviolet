@@ -1,38 +1,55 @@
 package ultravioletv2
 
-type MCPacket struct {
+import (
+	"io"
+)
 
-}
-
-type ServerBoundHandshakePacket struct{
-	MCPacket
+type ServerBoundHandshakePacket struct {
+	PacketId        byte
 	ProtocolVersion int
 	ServerAddress   string
 	ServerPort      int16
 	NextState       int
 }
 
-func (pk ServerBoundHandshakePacket) IsStatusRequest() bool {
-	return false
+func (pk ServerBoundHandshakePacket) WriteTo(w io.Writer) (int64, error) {
+	WriteByte(w, pk.PacketId)
+	l := 1 // len of byte
+	m, _ := WriteVarInt(w, pk.ProtocolVersion)
+	n, _ := WriteString(w, pk.ServerAddress)
+	WriteShort(w, pk.ServerPort)
+	o := 2 // len of short
+	p, _ := WriteVarInt(w, pk.NextState)
+
+	pkLen := l + m + n + o + p
+	return int64(pkLen), nil
 }
 
-func (pk ServerBoundHandshakePacket) IsLoginRequest() bool {
-	return false
-}
+func ReadServerBoundHandshake(r io.Reader) (pk ServerBoundHandshakePacket, err error) {
+	pk.PacketId, err = ReadByte(r)
+	if err != nil {
+		return
+	}
 
-type ServerBoundStatusRequestPacket struct{
-	MCPacket
-}
+	pk.ProtocolVersion, err = ReadVarInt(r)
+	if err != nil {
+		return
+	}
 
-type ClientBoundStatusResponsePacket struct{
-	MCPacket
-}
+	pk.ServerAddress, err = ReadString(r)
+	if err != nil {
+		return
+	}
 
+	pk.ServerPort, err = ReadShort(r)
+	if err != nil {
+		return
+	}
 
-type ServerBoundPingRequestPacket struct {
-	MCPacket
-}
+	pk.NextState, err = ReadVarInt(r)
+	if err != nil {
+		return
+	}
 
-type ClientBoundPongResponsePacket struct {
-	MCPacket
+	return
 }
