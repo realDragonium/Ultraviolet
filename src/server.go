@@ -48,7 +48,8 @@ func ProcessConnection(conn net.Conn) error {
 	hsPacket, _ := ReadServerBoundHandshake(r)
 	log.Printf("Packet: %#v", hsPacket)
 
-	return ConnectToServer(conn, data)
+	server, _ := ConnectToServer(hsPacket)
+	return ProxyConnection(conn, server)
 }
 
 func ReadPacketData(r io.Reader) (int, []byte, error) {
@@ -72,22 +73,20 @@ func ReadPacketData(r io.Reader) (int, []byte, error) {
 	return packetLength, data, nil
 }
 
-func ConnectToServer(client net.Conn, data []byte) error {
+func ConnectToServer(pk ServerBoundHandshakePacket) (net.Conn, error) {
+	addr, _ := ServerAddress(pk)
 
-	server, err := net.Dial("tcp", "localhost:25566")
+	server, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Println("Error connecting to server:", err)
-		return err
+		return nil, err
 	}
 	log.Println("Connected to server")
-	length := len(data) + 1
-
-	WriteVarInt(server, length)
-	WriteVarInt(server, 0x00)
-	server.Write(data)
-
+	
+	pk.WriteTo(server)
+	
 	log.Println("Proxying connection to server")
-	return ProxyConnection(client, server)
+	return server, err
 }
 
 func ServerAddress(hsPacket ServerBoundHandshakePacket) (string, error) {
