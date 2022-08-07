@@ -45,25 +45,22 @@ func (cfg BedrockServerConfig) Status() string {
 		s.Port.IPv4, s.Port.IPv6)
 }
 
-var bedrockStatus = BedrockStatus{
-	Edition:     "MCPE",
-	Description: Description{Text: "This Server - UV"},
-	Version: Version{
-		Name:     "1.19.10",
-		Protocol: 534,
-	},
-	Players: Players{
-		Online: 0,
-		Max:    100,
-	},
-	Gamemode: GameMode{
-		Name: "Survival",
-		ID:   1,
-	},
-	Port: Port{
-		IPv4: 19132,
-		IPv6: -1,
-	},
+func StringToBedrockStatus(s string) (status BedrockStatus) {
+	parts := strings.Split(s, ";")
+	
+	status.Edition = parts[0] 
+	status.Description.Text = parts[1]
+	status.Version.Protocol, _ = strconv.Atoi(parts[2])
+	status.Version.Name = parts[3]
+	status.Players.Online, _ = strconv.Atoi(parts[4])
+	status.Players.Max, _ = strconv.Atoi(parts[5])
+	// Dont convert ServerGUID 
+	status.Description.Text_2 = parts[7]
+	status.Gamemode.Name = parts[8]
+	status.Gamemode.ID, _ = strconv.Atoi(parts[9])
+	status.Port.IPv4, _ = strconv.Atoi(parts[10])
+	status.Port.IPv6, _ = strconv.Atoi(parts[11])
+	return
 }
 
 type BedrockStatus struct {
