@@ -2,8 +2,8 @@ package ultravioletv2
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -139,7 +139,7 @@ func ReadBedrockConfigs(path string) (cfgs []BedrockServerConfig, err error) {
 }
 
 func LoadBedrockServerConfig(path string) (cfg BedrockServerConfig, err error) {
-	bb, err := ioutil.ReadFile(path)
+	bb, err := os.ReadFile(path)
 	if err != nil {
 		return
 	}
@@ -188,4 +188,63 @@ func DefaultBedrockServerConfig() BedrockServerConfig {
 			},
 		},
 	}
+}
+
+func ReadJavaConfigs(path string) (cfgs []JavaConfig, err error) {
+	var filePaths []string
+	err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if strings.Contains(path, BedrockConfigFileSuffix) {
+			return nil
+		}
+		if filepath.Ext(path) != ".json" {
+			return nil
+		}
+		if info.Name() == MainConfigFileName {
+			return nil
+		}
+		filePaths = append(filePaths, path)
+		return nil
+	})
+
+	if err != nil {
+		return
+	}
+
+	for _, filePath := range filePaths {
+		cfg, err := LoadJavaServerConfig(filePath)
+		if err != nil {
+			return nil, err
+		}
+		cfgs = append(cfgs, cfg)
+	}
+
+	return cfgs, nil
+}
+
+func LoadJavaServerConfig(path string) (JavaConfig, error) {
+	bb, err := os.ReadFile(path)
+	if err != nil {
+		return JavaConfig{}, err
+	}
+
+	cfg := DefaultJavaConfig()
+	if err := json.Unmarshal(bb, &cfg); err != nil {
+		return cfg, err
+	}
+
+	if cfg.ListenTo == "" || cfg.ProxyTo == "" {
+		return cfg, errors.New("ListenTo and ProxyTo must be set")
+	}
+
+	return cfg, nil
+}
+
+func DefaultJavaConfig() JavaConfig {
+	return JavaConfig{}
 }

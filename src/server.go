@@ -12,9 +12,11 @@ import (
 )
 
 var (
-	UVConfig    config.UltravioletConfig = config.UltravioletConfig{}
-	Servers     map[string]string        = map[string]string{}
-	connections map[string]net.Conn      = map[string]net.Conn{}
+	UVConfig config.UltravioletConfig = config.UltravioletConfig{
+		ListenTo: ":25565",
+	}
+	Servers     map[string]string   = map[string]string{}
+	connections map[string]net.Conn = map[string]net.Conn{}
 )
 
 func Run(cfgPath string) error {
@@ -32,6 +34,19 @@ func Run(cfgPath string) error {
 		}
 		go StartBedrockServer(listener, cfg)
 	}
+
+	javaServerConfigs, err := ReadJavaConfigs(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	for _, cfg := range javaServerConfigs {
+		for _, domain := range cfg.Domains {
+			Servers[domain] = cfg.ListenTo
+		}
+	}
+
+	go BasicProxySetupJava()
 
 	log.Println("Finished starting up")
 	select {}
