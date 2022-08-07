@@ -11,45 +11,11 @@ import (
 	"github.com/realDragonium/Ultraviolet/core"
 )
 
-var UVConfig config.UltravioletConfig = config.UltravioletConfig{
-	ListenTo: ":25565",
-}
-
-var Servers map[string]string = map[string]string{
-	"localhost": "localhost:25566",
-}
-
-var connections map[string]net.Conn = map[string]net.Conn{}
-
-var bedrockServerConfig BedrockServerConfig = BedrockServerConfig{
-	BaseConfig: BaseConfig{
-		ListenTo: ":19132",
-		ProxyTo:  ":19133",
-	},
-	ID: 23894692837498,
-	ServerStatus: BedrockStatus{
-		Edition: "MCPE",
-		Description: Description{
-			Text: "This is a test server - Ultraviolet",
-		},
-		Version: Version{
-			Name:     "1.19.10",
-			Protocol: 534,
-		},
-		Players: Players{
-			Online: 0,
-			Max:    100,
-		},
-		Gamemode: GameMode{
-			Name: "Survival",
-			ID:   1,
-		},
-		Port: Port{
-			IPv4: 19132,
-			IPv6: -1,
-		},
-	},
-}
+var (
+	UVConfig    config.UltravioletConfig = config.UltravioletConfig{}
+	Servers     map[string]string        = map[string]string{}
+	connections map[string]net.Conn      = map[string]net.Conn{}
+)
 
 func Run(cfgPath string) error {
 	log.Println("Going to run!")
@@ -67,27 +33,14 @@ func Run(cfgPath string) error {
 		go StartBedrockServer(listener, cfg)
 	}
 
-	for {}
+	log.Println("Finished starting up")
+	select {}
 }
 
 const (
-	IDConnectedPing                  byte = 0x00
 	IDUnconnectedPing                byte = 0x01
 	IDUnconnectedPingOpenConnections byte = 0x02
-	IDConnectedPong                  byte = 0x03
-	IDDetectLostConnections          byte = 0x04
-	IDOpenConnectionRequest1         byte = 0x05
-	IDOpenConnectionReply1           byte = 0x06
-	IDOpenConnectionRequest2         byte = 0x07
-	IDOpenConnectionReply2           byte = 0x08
-	IDConnectionRequest              byte = 0x09
-	IDConnectionRequestAccepted      byte = 0x10
-	IDNewIncomingConnection          byte = 0x13
-	IDDisconnectNotification         byte = 0x15
-
-	IDIncompatibleProtocolVersion byte = 0x19
-
-	IDUnconnectedPong byte = 0x1c
+	IDUnconnectedPong                byte = 0x1c
 )
 
 func CreateBedrockListener(cfg BedrockServerConfig) (net.PacketConn, error) {
@@ -108,15 +61,6 @@ func StartBedrockServer(listener net.PacketConn, cfg BedrockServerConfig) error 
 		}
 		go serve(cfg, listener, addr, buf[:n])
 	}
-}
-
-func BasicProxySetupBedrock() error {
-	listener, err := CreateBedrockListener(bedrockServerConfig)
-	if err != nil {
-		log.Panicf("Error creating listener: %v", err)
-		return err
-	}
-	return StartBedrockServer(listener, bedrockServerConfig)
 }
 
 func serve(cfg BedrockServerConfig, pc net.PacketConn, addr net.Addr, bb []byte) error {
@@ -161,7 +105,6 @@ func handleUnconnectedPing(cfg BedrockServerConfig, pc net.PacketConn, addr net.
 	b.Reset()
 	pong := UnconnectedPong{ServerGUID: cfg.ID, SendTimestamp: pk.SendTimestamp, Data: cfg.Status()}
 	(&pong).Write(b)
-	log.Printf("%v -> %v", addr, b.Bytes())
 	pc.WriteTo(b.Bytes(), addr)
 
 	return nil
@@ -174,13 +117,10 @@ func BasicProxySetupJava() error {
 	}
 
 	for {
-		log.Println("-----------------------------------------------------")
-		log.Println("Waiting for connection")
 		conn, err := ln.Accept()
 		if err != nil {
 			return err
 		}
-		log.Println("Connection accepted")
 
 		ProcessConnection(conn)
 	}
@@ -199,7 +139,6 @@ func ProcessConnection(conn net.Conn) error {
 
 	r := bytes.NewReader(data)
 	hsPacket, _ := ReadServerBoundHandshake(r)
-	log.Printf("Packet: %#v", hsPacket)
 
 	server, _ := ConnectToServer(hsPacket)
 	return ProxyConnection(conn, server)
@@ -207,7 +146,6 @@ func ProcessConnection(conn net.Conn) error {
 
 func ReadPacketData(r io.Reader) (int, []byte, error) {
 	packetLength, _ := ReadVarInt(r)
-	log.Println("Packet length:", packetLength)
 
 	if packetLength < 1 {
 		return packetLength, []byte{}, nil
@@ -215,10 +153,7 @@ func ReadPacketData(r io.Reader) (int, []byte, error) {
 
 	data := make([]byte, packetLength)
 
-	n, err := r.Read(data)
-	log.Println("Read:", n, "bytes")
-	log.Println(data)
-	if err != nil {
+	if _, err := r.Read(data); err != nil {
 		log.Println("got error during reading of bytes: ", err)
 		return 0, data, err
 	}
@@ -234,11 +169,9 @@ func ConnectToServer(pk ServerBoundHandshakePacket) (net.Conn, error) {
 		log.Println("Error connecting to server:", err)
 		return nil, err
 	}
-	log.Println("Connected to server")
 
 	pk.WriteTo(server)
 
-	log.Println("Proxying connection to server")
 	return server, err
 }
 
