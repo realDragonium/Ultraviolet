@@ -1,4 +1,4 @@
 #!/bin/bash
 
 script/build
-./ultraviolet run -config $UV_CONFIG
+./ultraviolet run-experimental -config $UV_CONFIG

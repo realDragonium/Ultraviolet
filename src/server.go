@@ -86,15 +86,13 @@ func serve(cfg BedrockServerConfig, pc net.PacketConn, addr net.Addr, bb []byte)
 	case IDUnconnectedPing, IDUnconnectedPingOpenConnections:
 		return handleUnconnectedPing(cfg, pc, addr, buf)
 	default:
-		serverConn, ok := connections[addr.String()]
+		udpAddr := addr.(*net.UDPAddr)
+		ip := udpAddr.IP.String()
+
+		serverConn, ok := connections[ip]
 		if !ok {
 			serverConn, _ = net.Dial("udp", cfg.ProxyTo)
-		}
-
-		serverConn.Write(bb)
-
-		if !ok {
-			connections[addr.String()] = serverConn
+			connections[ip] = serverConn
 
 			go func() {
 				for {
@@ -107,6 +105,7 @@ func serve(cfg BedrockServerConfig, pc net.PacketConn, addr net.Addr, bb []byte)
 				}
 			}()
 		}
+		serverConn.Write(bb)
 	}
 
 	return nil

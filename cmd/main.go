@@ -45,19 +45,22 @@ func Main() {
 
 	switch os.Args[1] {
 	case "run":
-		err := ultravioletv2.Run(configPath)
+		log.Printf("Starting Ultraviolet %v", uvVersion)
+		err := runProxy(configPath)
 		if err != nil {
-			log.Fatalf("Error: %v", err)
+			log.Printf("got error while starting up: %v", err)
 		}
-		// log.Printf("Starting Ultraviolet %v", uvVersion)
-		// err := runProxy(configPath)
-		// log.Printf("got error while starting up: %v", err)
 	case "reload":
 		err := callReloadAPI(configPath)
 		if err != nil {
 			log.Fatalf("got error: %v ", err)
 		}
 		log.Println("Finished reloading")
+	case "run-experimental":
+		err := ultravioletv2.Run(configPath)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 	}
 }
 
