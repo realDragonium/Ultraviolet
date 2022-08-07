@@ -28,13 +28,15 @@ var bedrockServerConfig BedrockServerConfig = BedrockServerConfig{
 	},
 	ID: 23894692837498,
 	ServerStatus: BedrockStatus{
-		Edition:       "MCPE",
-		Description_1: "This Server - UV",
-		Version: VersionJSON{
+		Edition: "MCPE",
+		Description: Description{
+			Text: "This is a test server - Ultraviolet",
+		},
+		Version: Version{
 			Name:     "1.19.10",
 			Protocol: 534,
 		},
-		Players: PlayersJSON{
+		Players: Players{
 			Online: 0,
 			Max:    100,
 		},
@@ -42,7 +44,7 @@ var bedrockServerConfig BedrockServerConfig = BedrockServerConfig{
 			Name: "Survival",
 			ID:   1,
 		},
-		Port: PortJSON{
+		Port: Port{
 			IPv4: 19132,
 			IPv6: -1,
 		},

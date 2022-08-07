@@ -167,22 +167,21 @@ func TestBedrockServer(t *testing.T) {
 		},
 		ID: 23894692837498,
 		ServerStatus: ultravioletv2.BedrockStatus{
-			Edition:       "MCPE",
-			Description_1: "This Server - UV",
-			Version: ultravioletv2.VersionJSON{
+			Edition:     "MCPE",
+			Description: ultravioletv2.Description{Text: "This Server - UV"},
+			Version: ultravioletv2.Version{
 				Name:     "1.19.10",
 				Protocol: 534,
 			},
-			Players: ultravioletv2.PlayersJSON{
+			Players: ultravioletv2.Players{
 				Online: 0,
 				Max:    100,
 			},
-			ServerGUID: "3394339436721259498",
 			Gamemode: ultravioletv2.GameMode{
 				Name: "Survival",
 				ID:   1,
 			},
-			Port: ultravioletv2.PortJSON{
+			Port: ultravioletv2.Port{
 				IPv4: 19132,
 				IPv6: -1,
 			},
