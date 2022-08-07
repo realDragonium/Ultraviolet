@@ -1,10 +1,24 @@
 package ultravioletv2
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+)
+
+var (
+	MainConfigFileName      = "ultraviolet.json"
+	BedrockConfigFileSuffix = "_bedrock.json"
+)
 
 type BaseConfig struct {
-	ListenTo string `json:"proxyTo"`
-	ProxyTo  string `json:"proxyBind"`
+	ListenTo string `json:"listenTo"`
+	ProxyTo  string `json:"proxyTo"`
 
 	// TODO for later:
 	//  - Proxy Protocol options
@@ -91,4 +105,87 @@ type Players struct {
 type Description struct {
 	Text   string `json:"text"`
 	Text_2 string `json:"text_2"`
+}
+
+func ReadBedrockConfigs(path string) (cfgs []BedrockServerConfig, err error) {
+	var filePaths []string
+	err = filepath.Walk(path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.Contains(path, BedrockConfigFileSuffix) {
+			return nil
+		}
+		filePaths = append(filePaths, path)
+		return nil
+	})
+
+	if err != nil {
+		return
+	}
+
+	for _, filePath := range filePaths {
+		cfg, err := LoadBedrockServerConfig(filePath)
+		if err != nil {
+			return nil, err
+		}
+		cfgs = append(cfgs, cfg)
+	}
+
+	return cfgs, nil
+}
+
+func LoadBedrockServerConfig(path string) (cfg BedrockServerConfig, err error) {
+	bb, err := ioutil.ReadFile(path)
+	if err != nil {
+		return
+	}
+
+	cfg = DefaultBedrockServerConfig()
+	if err := json.Unmarshal(bb, &cfg); err != nil {
+		return cfg, err
+	}
+
+	if cfg.BaseConfig.ListenTo == "" || cfg.BaseConfig.ProxyTo == "" {
+		return cfg, fmt.Errorf("ListenTo and ProxyTo must be set")
+	}
+
+	port := strings.SplitAfter(cfg.ListenTo, ":")[1]
+	cfg.ServerStatus.Port.IPv4, err = strconv.Atoi(port)
+	if err != nil {
+		return cfg, err
+	}
+
+	return cfg, nil
+}
+
+func DefaultBedrockServerConfig() BedrockServerConfig {
+	return BedrockServerConfig{
+		ID: rand.Int63(),
+		ServerStatus: BedrockStatus{
+			Edition: "MCPE",
+			Description: Description{
+				Text: "Proxied with Ultraviolet",
+			},
+			Version: Version{
+				Name:     "1.19.10",
+				Protocol: 534,
+			},
+			Players: Players{
+				Online: 0,
+				Max:    100,
+			},
+			Gamemode: GameMode{
+				Name: "Survival",
+				ID:   1,
+			},
+			Port: Port{
+				IPv4: -1,
+				IPv6: -1,
+			},
+		},
+	}
 }

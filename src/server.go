@@ -51,9 +51,23 @@ var bedrockServerConfig BedrockServerConfig = BedrockServerConfig{
 	},
 }
 
-func Run() error {
+func Run(cfgPath string) error {
 	log.Println("Going to run!")
-	return BasicProxySetupBedrock()
+
+	bedrockServerConfigs, err := ReadBedrockConfigs(cfgPath)
+	if err != nil {
+		return err
+	}
+
+	for _, cfg := range bedrockServerConfigs {
+		listener, err := CreateBedrockListener(cfg)
+		if err != nil {
+			return err
+		}
+		go StartBedrockServer(listener, cfg)
+	}
+
+	for {}
 }
 
 const (

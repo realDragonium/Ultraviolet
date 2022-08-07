@@ -17,9 +17,9 @@ import (
 	"github.com/cloudflare/tableflip"
 	"github.com/pires/go-proxyproto"
 	ultraviolet "github.com/realDragonium/Ultraviolet"
-	ultravioletv2 "github.com/realDragonium/Ultraviolet/src"
 	"github.com/realDragonium/Ultraviolet/config"
 	"github.com/realDragonium/Ultraviolet/core"
+	ultravioletv2 "github.com/realDragonium/Ultraviolet/src"
 	"github.com/realDragonium/Ultraviolet/worker"
 )
 
@@ -45,7 +45,10 @@ func Main() {
 
 	switch os.Args[1] {
 	case "run":
-		ultravioletv2.Run()
+		err := ultravioletv2.Run(configPath)
+		if err != nil {
+			log.Fatalf("Error: %v", err)
+		}
 		// log.Printf("Starting Ultraviolet %v", uvVersion)
 		// err := runProxy(configPath)
 		// log.Printf("got error while starting up: %v", err)
