@@ -1,0 +1,11 @@
+#!/bin/bash
+
+filename='ultraviolet'
+
+if [ -f "$filename" ]; then
+    echo "Removing old executable"
+    rm "$filename" 
+fi
+
+echo "Build new executable"
+go build -o ultraviolet ./cmd/Ultraviolet/
